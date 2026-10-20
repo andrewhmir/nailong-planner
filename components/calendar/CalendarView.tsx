@@ -1,0 +1,123 @@
+"use client";
+
+import FullCalendar from "@fullcalendar/react";
+import type {
+  CalendarRef,
+  DateSelectInfo,
+  DatesSetInfo,
+  EventClickInfo,
+  EventDropInfo,
+  EventInput,
+  EventResizeDoneInfo,
+} from "@fullcalendar/react";
+import dayGridPlugin from "@fullcalendar/react/daygrid";
+import interactionPlugin from "@fullcalendar/react/interaction";
+import listPlugin from "@fullcalendar/react/list";
+import classicThemePlugin from "@fullcalendar/react/themes/classic";
+import timeGridPlugin from "@fullcalendar/react/timegrid";
+import type { RefObject } from "react";
+import type { Occurrence } from "@/lib/recurrence/expand";
+import type { EventView } from "@/lib/services/events";
+import { occurrenceToFcEvent } from "./toFcEvent";
+
+import "@fullcalendar/react/skeleton.css";
+import "@fullcalendar/react/themes/classic/theme.css";
+import "@fullcalendar/react/themes/classic/palette.css";
+import "./fullcalendar-overrides.css";
+
+export interface RenderableOccurrence {
+  occurrence: Occurrence;
+  event: EventView;
+}
+
+interface Props {
+  calendarRef: RefObject<CalendarRef | null>;
+  timezone: string;
+  firstDay: number;
+  occurrences: RenderableOccurrence[];
+  readOnlyCalendarIds: ReadonlySet<string>;
+  onDatesSet: (info: DatesSetInfo) => void;
+  onSelect: (info: DateSelectInfo) => void;
+  onEventClick: (info: EventClickInfo) => void;
+  onEventMove: (info: EventDropInfo | EventResizeDoneInfo) => void;
+}
+
+export function CalendarView({
+  calendarRef,
+  timezone,
+  firstDay,
+  occurrences,
+  readOnlyCalendarIds,
+  onDatesSet,
+  onSelect,
+  onEventClick,
+  onEventMove,
+}: Props) {
+  const fcEvents = occurrences.map(({ occurrence, event }) => ({
+    ...occurrenceToFcEvent(occurrence, event),
+    editable: !readOnlyCalendarIds.has(event.calendarId),
+  })) as EventInput[];
+
+  // `min-h-0 flex-1` gives FullCalendar a definite height to fill; the shell
+  // owns the page frame, so the panel never scrolls the document.
+  return (
+    <div className="planner-calendar flex min-h-0 flex-1 flex-col overflow-hidden rounded-card border border-line bg-surface p-2">
+      <FullCalendar
+        ref={calendarRef}
+        plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin, classicThemePlugin]}
+        // FullCalendar 7 hashes its own class names; these generators restore
+        // the semantic hooks that `fullcalendar-overrides.css` (and the Canvas
+        // spec) target, so no v6 options are involved.
+        className="fc"
+        viewClass={(info) => (info.view.type === "listMonth" ? "fc-view fc-view-list" : "fc-view")}
+        dayCellClass={(info) =>
+          ["fc-daygrid-day", info.isToday ? "fc-day-today" : "", info.isOther ? "fc-day-other" : ""]
+            .filter(Boolean)
+            .join(" ")
+        }
+        dayCellTopInnerClass="fc-daygrid-day-number"
+        dayHeaderClass="fc-col-header-cell"
+        eventClass="fc-event"
+        eventInnerClass="fc-event-inner"
+        eventTimeClass="fc-event-time"
+        eventTitleClass="fc-event-title"
+        listItemEventClass="fc-list-event"
+        listDayClass="fc-list-day"
+        listDayHeaderClass="fc-list-table-header"
+        moreLinkClass="fc-more-link"
+        rowMoreLinkClass="fc-more-link"
+        columnMoreLinkClass="fc-more-link"
+        slotHeaderClass="fc-timegrid-slot-label"
+        eventDidMount={(info) => {
+          // v7 dropped `borderColor`; the saturated bar is painted directly.
+          info.el.style.borderLeftColor = String(
+            info.event.extendedProps.accent ?? "transparent",
+          );
+        }}
+        initialView="dayGridMonth"
+        headerToolbar={false}
+        timeZone={timezone}
+        firstDay={firstDay}
+        // Fill the panel the shell hands down: `expandRows` shares the leftover
+        // height across the month's week rows, so the whole month is visible at
+        // any viewport and week/list views scroll inside the panel instead.
+        height="100%"
+        expandRows
+        fixedWeekCount={false}
+        dayMaxEventRows={3}
+        nowIndicator
+        selectable
+        selectMirror
+        editable
+        eventResizableFromStart
+        events={fcEvents}
+        datesSet={onDatesSet}
+        select={onSelect}
+        eventClick={onEventClick}
+        eventDrop={onEventMove}
+        eventResize={onEventMove}
+        eventTimeFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
+      />
+    </div>
+  );
+}

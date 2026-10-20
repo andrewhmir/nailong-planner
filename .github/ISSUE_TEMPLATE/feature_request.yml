@@ -1,0 +1,44 @@
+name: Feature request
+description: Suggest an idea or improvement.
+title: "[Feature]: "
+labels: ["enhancement", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is a deliberately small household planner. Please describe the
+        problem rather than only the solution — the shape of the app matters.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      placeholder: On a phone I want to..., but today I have to...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Optional — a sketch or a few sentences.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Which part of the app?
+      options:
+        - Calendar view / layout
+        - Calendar hierarchy and sidebar
+        - Events (create, edit, drag, recurring)
+        - Auth / 2FA / settings
+        - Database / migrations
+        - Build, deploy, tooling
+        - Other
+    validations:
+      required: true

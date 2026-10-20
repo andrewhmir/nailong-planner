@@ -1,0 +1,165 @@
+/*
+ * Canvas surface overrides for FullCalendar 7.
+ *
+ * FullCalendar 7 hashes its own class names, so the semantic hooks the Canvas
+ * spec names (`.fc-daygrid-day`, `.fc-event`, ...) are attached by the class
+ * generators in `CalendarView.tsx` (v7 replaced v6's `dayCellClassNames` and
+ * friends with `dayCellClass`, `eventClass`, ...). The classic theme also
+ * renamed the v6 component variables to `--fc-classic-*`; the plan's token
+ * list maps across as:
+ *
+ *   --fc-border-color           -> --fc-classic-border
+ *   --fc-today-bg-color         -> --fc-classic-today
+ *   --fc-page-bg-color          -> --fc-classic-background
+ *   --fc-neutral-bg-color       -> --fc-classic-muted
+ *   --fc-event-border-color     -> (the event bar is painted by eventDidMount)
+ *   --fc-event-text-color       -> --fc-classic-foreground
+ *   --fc-list-event-hover-bg-color -> --fc-classic-highlight
+ *   --fc-button-*               -> --fc-classic-button-* (unused: the app's
+ *                                  Toolbar drives navigation, no headerToolbar)
+ */
+
+/* `html .fc` (0,1,1) out-specifies FullCalendar's own `:root` palette (0,1,0),
+   so the Canvas values win no matter which stylesheet is imported first. */
+html .fc {
+  --fc-classic-border: var(--color-line);
+  --fc-classic-strong-border: var(--color-line-strong);
+  --fc-classic-background: var(--color-surface);
+  --fc-classic-foreground: var(--color-ink);
+  --fc-classic-faint-foreground: var(--color-placeholder);
+  --fc-classic-muted-foreground: var(--color-ink-soft);
+  --fc-classic-muted: var(--color-well);
+  --fc-classic-faint: var(--color-well);
+  --fc-classic-strong: var(--color-line-strong);
+  --fc-classic-today: transparent;
+  --fc-classic-highlight: var(--color-info-soft);
+  --fc-classic-event: var(--color-accent);
+  --fc-classic-event-contrast: #ffffff;
+  --fc-classic-background-event: var(--color-accent);
+  --fc-classic-now: var(--color-accent);
+
+  color: var(--color-ink);
+}
+
+/* Column header row: 36px tall, 14px/700 day names in ink-soft. */
+.fc .fc-col-header-cell {
+  height: 36px;
+  color: var(--color-ink-soft);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.fc .fc-col-header-cell > * {
+  justify-content: center;
+}
+
+/* Grid cell borders. The classic theme gives cells a 1px border through an
+   atomic `border-width` class, then zeroes each side with `border-inline-*: 0
+   !important` shorthands whose colour component resets that side to
+   `currentColor`. Restating the Canvas line colour with `!important` keeps the
+   cell's computed border on the Canvas palette instead of ink. */
+.fc .fc-daygrid-day {
+  border-color: var(--color-line) !important;
+}
+
+/* Day numbers sit top-right at 14px; today's number is a 28px blue circle. */
+.fc .fc-daygrid-day-number {
+  padding: 0 4px;
+  color: var(--color-ink-soft);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.fc .fc-day-other .fc-daygrid-day-number {
+  color: var(--color-placeholder);
+}
+
+.fc .fc-day-today .fc-daygrid-day-number {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  background-color: var(--color-accent);
+  color: #ffffff;
+  place-items: center;
+}
+
+/* Events: pale container fill, 3px saturated left bar, ink text at 13px.
+   The bar colour is written by `eventDidMount` from `extendedProps.accent`
+   because FullCalendar 7 removed the `borderColor` event property. */
+.fc .fc-event {
+  border: 0;
+  border-left-width: 3px;
+  border-left-style: solid;
+  border-left-color: transparent;
+  border-radius: 3px;
+  background-color: var(--fc-event-color);
+  color: var(--fc-event-contrast-color);
+  font-size: 13px;
+}
+
+/* Event content: time then title on one line, left-aligned, ellipsised. */
+.fc .fc-event-inner {
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.fc .fc-event-time {
+  flex: 0 0 auto;
+  font-size: 13px;
+}
+
+.fc .fc-event-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc .fc-more-link {
+  color: var(--color-link);
+  font-size: 13px;
+}
+
+/* Time grid: 12px axis labels in ink-soft. */
+.fc .fc-timegrid-slot-label {
+  color: var(--color-ink-soft);
+  font-size: 12px;
+}
+
+/* List/agenda: Canvas table treatment. Timed events in the month grid also
+   carry `fc-list-event` (FullCalendar renders them as list items), so these
+   rules are scoped to the agenda view. */
+.fc .fc-list-day {
+  border-bottom: 1px solid var(--color-line);
+}
+
+.fc .fc-list-table-header {
+  background-color: #e4e9ed;
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.fc .fc-list-table-header > div {
+  padding: 7px 14px;
+}
+
+.fc .fc-view-list .fc-list-event {
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--color-line);
+  color: var(--color-ink);
+  font-size: 14px;
+}
+
+.fc .fc-view-list .fc-list-event > div {
+  padding: 0;
+}
+
+.fc .fc-view-list .fc-list-event:hover {
+  background-color: var(--color-info-soft);
+}

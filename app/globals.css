@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+@theme {
+  /* surfaces */
+  --color-paper: #ffffff;
+  --color-surface: #ffffff;
+  --color-card: #ffffff;
+  --color-well: #f2f4f4;
+  --color-line: #e8eaec;
+  --color-line-strong: #d7dade;
+  --color-field: #8d959f;
+  --color-ink: #273540;
+  --color-ink-soft: #586874;
+  --color-ink-mute: #6a7883;
+  --color-placeholder: #9ea6ad;
+
+  /* brand: two blues, never one */
+  --color-accent: #2b7abc;
+  --color-accent-hover: #0e68b3;
+  --color-accent-press: #0a5a9e;
+  --color-link: #0e68b3;
+
+  /* callouts */
+  --color-info-soft: #e0ebf5;
+  --color-info-ink: #334451;
+
+  /* chrome */
+  --color-rail: #334451;
+  --color-rail-hover: #273540;
+  --color-rail-active-bg: #ffffff;
+  --color-scrim: #334451bf;
+
+  /* status */
+  --color-success: #03893d;
+  --color-success-ink: #027634;
+  --color-success-soft: #dceee4;
+  --color-warning: #cf4a00;
+  --color-warning-ink: #b34000;
+  --color-warning-soft: #fce5d9;
+  --color-danger: #e62429;
+  --color-danger-ink: #c71f23;
+  --color-danger-soft: #fce4e5;
+
+  /* type */
+  --font-sans: var(--font-lato), "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: Menlo, Consolas, Monaco, "Andale Mono", monospace;
+  --text-h1: 1.8rem;
+  --text-h1--line-height: 1.5;
+  --text-h2: 1.8rem;
+  --text-h2--line-height: 1.5;
+  --text-h3: 1.5rem;
+  --text-h3--line-height: 1.5;
+  --text-h4: 1.125rem;
+  --text-h4--line-height: 1.5;
+
+  /* radius: Canvas is nearly square */
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-card: 4px;
+  --radius-pill: 9999px;
+
+  /* elevation: borders do the work; shadows only float */
+  --shadow-menu: 0 3px 6px rgba(0, 0, 0, 0.1), 0 3px 6px rgba(0, 0, 0, 0.15);
+  --shadow-dialog: 0 6px 7px rgba(0, 0, 0, 0.1), 0 10px 28px rgba(0, 0, 0, 0.25);
+  --shadow-flash: 0 1px 8px rgba(0, 0, 0, 0.25);
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+
+  html {
+    font-size: 100%;
+  }
+
+  body {
+    /* The app shell pins itself to the viewport, so the page must never chain a
+       scroll (or an iOS rubber-band) past that frame. */
+    overscroll-behavior-y: none;
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-weight: 400;
+    line-height: 1.5;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-weight: 400;
+    line-height: 1.5;
+  }
+
+  h1 {
+    font-size: var(--text-h1);
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+  }
+
+  h3 {
+    font-size: var(--text-h3);
+  }
+
+  h4 {
+    font-size: var(--text-h4);
+  }
+
+  a {
+    color: var(--color-link);
+  }
+
+  *:focus-visible {
+    outline: 2px solid var(--color-link);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

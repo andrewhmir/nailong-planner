@@ -1,0 +1,58 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly.
+title: "[Bug]: "
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please do not include real household data,
+        credentials, or screenshots of a real calendar — use the seeded demo
+        data or redact personal details.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what did you get instead?
+      placeholder: I expected the month grid to fit the window, but...
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Sign in as the first user
+        2. Open the calendar on a 1366×768 window
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Calendar view / layout
+        - Calendar hierarchy and sidebar
+        - Events (create, edit, drag, recurring)
+        - Auth / 2FA / settings
+        - Database / migrations
+        - Build, deploy, tooling
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, browser and version, Node version, and how it was run (dev / Docker).
+      placeholder: Windows 11, Chrome 141, Node 22.11, npm run dev
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: Console errors, server output, or images. Redact personal data.
+    validations:
+      required: false

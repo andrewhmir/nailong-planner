@@ -1,0 +1,9 @@
+# Default owner for everything in this repo.
+* @andrewhmir
+
+# CI and repo plumbing.
+/.github/ @andrewhmir
+
+# Layout and design guarantees.
+/components/shell/ @andrewhmir
+/tests/e2e/viewport-fit.spec.ts @andrewhmir

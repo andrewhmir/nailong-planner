@@ -1,0 +1,123 @@
+import { NextResponse } from "next/server";
+import type { Database } from "@/lib/db/client";
+import { AppError } from "@/lib/errors";
+import { getHousehold } from "@/lib/services/household";
+import {
+  createEvent,
+  deleteEvent,
+  listEvents,
+  updateEvent,
+  type EventRange,
+} from "@/lib/services/events";
+import type { ViewerContext } from "@/lib/services/permissions";
+import { localWallTimeToUtc, utcToLocalDate } from "@/lib/time/zone";
+import { createEventSchema, updateEventSchema } from "@/lib/validation/events";
+import { fieldErrors, guarded, readJson } from "./support";
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+/** The household's current month, used when the client sends no range. */
+function currentMonthRange(db: Database, ctx: ViewerContext): EventRange {
+  const timezone = getHousehold(db, ctx.householdId).timezone;
+  const today = utcToLocalDate(Date.now(), timezone);
+  const [yearText, monthText] = today.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+
+  return {
+    from: localWallTimeToUtc(`${year}-${pad2(month)}-01T00:00`, timezone),
+    to: localWallTimeToUtc(`${nextYear}-${pad2(nextMonth)}-01T00:00`, timezone),
+  };
+}
+
+function parseRange(db: Database, ctx: ViewerContext, request: Request): EventRange {
+  const { searchParams } = new URL(request.url);
+  const fromParam = searchParams.get("from");
+  const toParam = searchParams.get("to");
+
+  if (fromParam === null && toParam === null) {
+    return currentMonthRange(db, ctx);
+  }
+  if (fromParam === null || toParam === null) {
+    throw new AppError("VALIDATION", "Provide both from and to.", 400, {
+      from: "Both bounds are required together.",
+    });
+  }
+
+  const from = Number(fromParam);
+  const to = Number(toParam);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) {
+    throw new AppError("VALIDATION", "from and to must be epoch milliseconds.", 400, {
+      from: "Use epoch milliseconds.",
+    });
+  }
+  if (from >= to) {
+    throw new AppError("VALIDATION", "from must be before to.", 400, {
+      from: "Choose an earlier start.",
+    });
+  }
+  return { from, to };
+}
+
+export const listEventsHandler = guarded(
+  (db: Database, ctx: ViewerContext, request: Request): Response =>
+    NextResponse.json({ events: listEvents(db, ctx, parseRange(db, ctx, request)) }),
+);
+
+export const createEventHandler = guarded(
+  async (db: Database, ctx: ViewerContext, request: Request): Promise<Response> => {
+    const parsed = createEventSchema.safeParse(await readJson(request));
+    if (!parsed.success) {
+      throw fieldErrors(parsed.error);
+    }
+    const created = createEvent(db, ctx, parsed.data);
+    return NextResponse.json({ event: created }, { status: 201 });
+  },
+);
+
+export const updateEventHandler = guarded(
+  async (
+    db: Database,
+    ctx: ViewerContext,
+    id: string,
+    request: Request,
+  ): Promise<Response> => {
+    const parsed = updateEventSchema.safeParse(await readJson(request));
+    if (!parsed.success) {
+      throw fieldErrors(parsed.error);
+    }
+    return NextResponse.json({ event: updateEvent(db, ctx, id, parsed.data) });
+  },
+);
+
+export const deleteEventHandler = guarded(
+  async (
+    db: Database,
+    ctx: ViewerContext,
+    id: string,
+    request: Request,
+  ): Promise<Response> => {
+    const raw: unknown = await request.json().catch(() => null);
+    const scope = raw && typeof raw === "object" && (raw as { scope?: unknown }).scope === "this"
+      ? "this"
+      : "all";
+
+    if (scope === "this") {
+      const occurrenceStart = (raw as { occurrenceStart?: unknown }).occurrenceStart;
+      if (typeof occurrenceStart !== "string" || occurrenceStart.length === 0) {
+        throw new AppError("VALIDATION", "occurrenceStart is required when scope is 'this'.", 400, {
+          occurrenceStart: "Choose which occurrence to skip.",
+        });
+      }
+      deleteEvent(db, ctx, id, { scope: "this", occurrenceStart });
+    } else {
+      deleteEvent(db, ctx, id, { scope: "all" });
+    }
+
+    return new Response(null, { status: 204 });
+  },
+);

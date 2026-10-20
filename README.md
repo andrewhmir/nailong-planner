@@ -1,0 +1,174 @@
+# Nailong Planner
+
+[![CI](https://github.com/andrewhmir/nailong-planner/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/andrewhmir/nailong-planner/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/andrewhmir/nailong-planner/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/andrewhmir/nailong-planner/actions/workflows/codeql.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node 22+](https://img.shields.io/badge/node-%E2%89%A522-339933.svg)](.nvmrc)
+
+A small, self-hosted planner for exactly **two people** — a shared household
+calendar with a nested, shade-inheriting calendar hierarchy, wearing the visual
+language of Canvas LMS: a dark global rail, a breadcrumb bar, and a course-style
+navigation panel — Lato type, Canvas blue, and 3–6px radii throughout.
+
+The calendar borrows Google Calendar's model — several colour-coded calendars,
+per-calendar visibility, click-and-drag events — and adds a **two-level
+hierarchy**: sub-calendars render in shades of their parent's colour, so
+"School" reads as one family while "Math" and "Biology" stay distinguishable.
+
+One shared household, two accounts, no public sign-up. Everything is visible to
+both; a per-calendar **view-only** flag protects a calendar its owner would
+rather not have edited.
+
+![Nailong Planner month view](docs/screenshots/calendar-desktop.png)
+
+<details>
+<summary>Settings page</summary>
+
+![Nailong Planner settings page](docs/screenshots/settings.png)
+
+</details>
+
+<details>
+<summary>Phone (month view)</summary>
+
+![Nailong Planner phone month view](docs/screenshots/calendar-mobile.png)
+
+</details>
+
+<details>
+<summary>Sign-in page</summary>
+
+![Nailong Planner sign-in page](docs/screenshots/login.png)
+
+</details>
+
+> There is no hosted demo — the app is meant to be self-hosted for a single
+> household. All screenshots above use the seeded demo data from
+> `scripts/seed-test-db.mts`, not real household data.
+
+## Features
+
+- **Whole month at a glance** — the shell is pinned to the viewport, so the nav
+  rail and breadcrumb never scroll away and the month grid always uses the
+  height that is left. Week/day hours and long agendas scroll inside the
+  calendar panel only; the page itself never scrolls.
+- **Nested calendars** — a root calendar owns a hue family; sub-calendars take
+  the next unused shade of it (up to 7 children per root).
+- **Google-Calendar-style events** — click-drag to create, drag to move, resize,
+  all-day and timed events, IANA timezones.
+- **Recurring events** — RFC 5545 RRULE, with single-occurrence deletion via
+  EXDATEs.
+- **Two-person permissions** — a per-calendar view-only flag, enforced
+  server-side on every write, with sub-calendars inheriting the protection.
+- **Private by design** — sign-up disabled, exactly two accounts provisioned,
+  TOTP two-factor available, DB-backed sessions.
+- **Small footprint** — SQLite in WAL mode, one Docker image, one volume.
+
+## Stack
+
+- **Next.js 16** (App Router, TypeScript, standalone output), React 19, Tailwind CSS 4
+- **Canvas LMS design language** — Canvas colour, spacing and type tokens; **Lato** self-hosted from vendored woff2 files (SIL OFL 1.1, [`app/fonts/OFL.txt`](app/fonts/OFL.txt))
+- **FullCalendar 7.1.3** (pinned exact) with the RRULE plugin — drag, resize, recurring events, IANA timezones
+- **SQLite** (better-sqlite3, WAL) + **Drizzle ORM** with committed SQL migrations
+- **Better Auth 1.7** — email + password, sign-up disabled, TOTP two-factor, DB-backed sessions
+- **TanStack Query** for client caching, **Zod** for validation
+- **Vitest** (unit + integration) and **Playwright** (E2E)
+
+## Quickstart
+
+Requires Node 22+ (see `.nvmrc`).
+
+```bash
+npm install
+
+cp .env.example .env.local
+# edit .env.local: BETTER_AUTH_SECRET, BETTER_AUTH_URL, SEED_USER_1_*, SEED_USER_2_*
+
+npm run db:migrate      # applies the committed SQL migrations
+npm run provision       # creates the household + exactly two accounts
+npm run dev             # http://localhost:3000
+```
+
+The database file lives at `./data/planner.db` by default and is gitignored.
+
+## Scripts
+
+| Script | What it does |
+|---|---|
+| `npm run dev` / `build` / `start` | Next.js development / production build / production server |
+| `npm test` | Vitest unit + integration suites (in-memory SQLite) |
+| `npm run test:e2e` | Seeds `.playwright/test.db`, then runs Playwright |
+| `npm run lint` / `typecheck` | ESLint / `tsc --noEmit` |
+| `npm run db:generate` / `db:migrate` | Generate a Drizzle migration / apply migrations |
+| `npm run provision` | Idempotently create the household and the two accounts |
+| `npm run reset-password -- --email x --password y` | Break-glass password reset |
+| `npm run backup` | Online SQLite backup, gzipped, keeps the 14 newest |
+
+In CI the same checks run on every push and pull request: lint, typecheck,
+Vitest, production build, Playwright E2E, plus CodeQL and Dependabot.
+
+## How the calendar model works
+
+- A **root calendar** owns a hue family and renders at shade 3 of 8.
+- A **sub-calendar** inherits its parent's family and takes the next unused shade
+  from `[4, 2, 5, 1, 6, 0, 7]` — at most 7 per root. Recolouring the root
+  re-shades the whole family automatically.
+- **Events** may live on a root or a sub-calendar. Timed events are stored as UTC
+  instants; all-day events as local `YYYY-MM-DD` dates (inclusive end), so they
+  can never drift a day.
+- **Recurring events** store an RFC 5545 RRULE. Deleting one occurrence appends
+  to `exdates`; editing a recurring event always edits the series in v0.1.0.
+- Every query is scoped to the household, and writes are re-checked server-side
+  against the view-only rule.
+- **Layout contract**: the app shell owns the viewport (`h-dvh`), `main` owns
+  overflow, and the calendar fills the remaining height (`height="100%"` +
+  `expandRows`). `tests/e2e/viewport-fit.spec.ts` asserts "no page scroll, whole
+  month visible" across eight viewports.
+
+## Deploying
+
+The included Dockerfile builds a standalone image and is set up for a Railway
+deployment with a `/data` volume; the same image runs on any container host. See
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md) for the environment variables, backups
+and recovery. Swapping SQLite for Postgres is possible by replacing the data
+layer; SQL access is confined to `lib/services/*` to keep that change contained.
+
+## Documentation
+
+- Design spec: [`docs/superpowers/specs/2026-10-19-nailong-planner-design.md`](docs/superpowers/specs/2026-10-19-nailong-planner-design.md)
+- Canvas redesign spec: [`docs/superpowers/specs/2026-10-20-canvas-ui-redesign-design.md`](docs/superpowers/specs/2026-10-20-canvas-ui-redesign-design.md)
+- Implementation plan: [`docs/superpowers/plans/2026-10-19-nailong-planner-v0.1.0.md`](docs/superpowers/plans/2026-10-19-nailong-planner-v0.1.0.md)
+- Operations, backups, recovery: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
+
+## Out of scope for v0.1.0
+
+Reminders and notifications · Google Calendar sync / ICS · per-occurrence
+overrides · dark mode · PWA · tasks, notes and other modules · more than two
+users.
+
+## Contributing
+
+Issues and pull requests are welcome — start with
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, conventions and the checks CI
+runs. Please keep contributions to the spirit of the project: a small,
+deliberate, two-person household planner.
+
+This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md).
+
+## Security
+
+Please report vulnerabilities privately via
+[GitHub Security Advisories](https://github.com/andrewhmir/nailong-planner/security/advisories/new)
+rather than a public issue — see [`SECURITY.md`](SECURITY.md).
+
+## License
+
+[MIT](LICENSE). The bundled Lato font files are licensed under the SIL Open Font
+License 1.1 — see [`app/fonts/OFL.txt`](app/fonts/OFL.txt).
+
+## Acknowledgements
+
+- The visual language is a study of [Canvas LMS](https://www.instructure.com/canvas);
+  this project is not affiliated with Instructure.
+- Type: [Lato](https://www.latofonts.com/) by Łukasz Dziedzic (SIL OFL 1.1).
+- Calendar engine: [FullCalendar](https://fullcalendar.io/).

@@ -1,0 +1,51 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.*
+
+# next.js
+.next/
+out/
+.vercel/
+
+# build, test, coverage
+coverage/
+test-results/
+playwright-report/
+blob-report/
+tsconfig.tsbuildinfo
+
+# environment
+.env
+.env.*
+!.env.example
+
+# local database and backups
+data/
+.dev/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.db.gz
+
+# playwright scratch database and fixtures
+.playwright/
+
+# superpowers working artifacts (specs/ under docs/ are tracked; plans and mockups are not)
+.superpowers/
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# os / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json

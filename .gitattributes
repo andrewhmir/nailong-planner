@@ -1,0 +1,8 @@
+# Normalise line endings for a repo developed on Windows and CI'd on Linux.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.woff2 binary
+*.db binary
+*.gz binary
