@@ -41,8 +41,8 @@ import { pushUndo, undoLast } from "@/lib/ui/undo";
 import { useUndoHotkey } from "@/lib/ui/useUndoHotkey";
 import { isCalendarVisible } from "@/lib/ui/visibility";
 import { CalendarView, type RenderableOccurrence } from "./CalendarView";
+import { EventDetailsPopover } from "./EventDetailsPopover";
 import { EventDialog, type EventDialogInitial } from "./EventDialog";
-import { EventPopover } from "./EventPopover";
 import { parseOccurrenceFcId } from "./toFcEvent";
 import { Toolbar, type PlannerView } from "./Toolbar";
 
@@ -63,6 +63,13 @@ type DropInfo = (EventDropInfo | EventResizeDoneInfo) & {
   event: { id: string; start: Date | null; end: Date | null; allDay: boolean };
   revert: () => void;
 };
+
+interface EventSelection {
+  eventId: string;
+  occurrenceStart: string;
+  anchorRect: DOMRect;
+  anchorElement: HTMLElement | null;
+}
 
 const VIEW_TYPES: Record<string, PlannerView> = {
   dayGridMonth: "dayGridMonth",
@@ -143,11 +150,9 @@ export function CalendarShell({
   const [dialog, setDialog] = useState<{
     mode: "create" | "edit";
     initial: EventDialogInitial;
+    initialRule: string | null;
   } | null>(null);
-  const [selection, setSelection] = useState<{
-    eventId: string;
-    occurrenceStart: string;
-  } | null>(null);
+  const [selection, setSelection] = useState<EventSelection | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{
     event: EventView;
     occurrenceStart: string;
@@ -178,6 +183,17 @@ export function CalendarShell({
     () => (events ?? []).filter((event) => visibleCalendarIds.has(event.calendarId)),
     [events, visibleCalendarIds],
   );
+
+  const calendarNames = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const root of calendars ?? []) {
+      names.set(root.id, root.name);
+      for (const child of root.children) {
+        names.set(child.id, child.name);
+      }
+    }
+    return names;
+  }, [calendars]);
 
   const readOnlyCalendarIds = useMemo(() => {
     const ids = new Set<string>();
@@ -252,6 +268,10 @@ export function CalendarShell({
     return "oklch(0.65 0.02 250)";
   }, [calendars, selectedEvent]);
 
+  const selectedCalendarName = selectedEvent
+    ? (calendarNames.get(selectedEvent.calendarId) ?? "")
+    : "";
+
   const writableCalendars = useMemo<CalendarNode[]>(
     () =>
       (calendars ?? [])
@@ -277,6 +297,35 @@ export function CalendarShell({
     setDialog({
       mode: "create",
       initial: defaults ?? { start: `${today}T09:00`, end: `${today}T10:00`, allDay: false },
+      initialRule: null,
+    });
+  }
+
+  function openEdit(event: EventView, occurrenceStart: string) {
+    setDialog({
+      mode: "edit",
+      initial: {
+        event,
+        start: seriesStartWall(event, timezone),
+        end: seriesEndWall(event, timezone),
+        allDay: event.allDay === 1,
+      },
+      initialRule: event.rrule,
+    });
+    void occurrenceStart;
+  }
+
+  function openDuplicate(event: EventView) {
+    setDialog({
+      mode: "create",
+      initial: {
+        event,
+        start: seriesStartWall(event, timezone),
+        end: seriesEndWall(event, timezone),
+        allDay: event.allDay === 1,
+      },
+      // A duplicate starts a fresh series: copy the fields, not the rule.
+      initialRule: null,
     });
   }
 
@@ -296,6 +345,7 @@ export function CalendarShell({
       setDialog({
         mode: "create",
         initial: { start: `${startDate}T09:00`, end: `${endDate}T10:00`, allDay: true },
+        initialRule: null,
       });
       return;
     }
@@ -306,6 +356,7 @@ export function CalendarShell({
         end: utcToLocalWallTime(info.end.getTime(), timezone),
         allDay: false,
       },
+      initialRule: null,
     });
   }
 
@@ -318,10 +369,13 @@ export function CalendarShell({
     if (!event) {
       return;
     }
+    const element = info.el as HTMLElement;
     setSelection({
       eventId: event.id,
       occurrenceStart:
         (info.event.extendedProps.occurrenceStart as string | undefined) ?? parsed.startKey,
+      anchorRect: element.getBoundingClientRect(),
+      anchorElement: element,
     });
   }
 
@@ -481,6 +535,7 @@ export function CalendarShell({
         timeFormat={preferences.timeFormat}
         firstDay={weekStartsOn}
         occurrences={occurrences}
+        calendarNames={calendarNames}
         readOnlyCalendarIds={readOnlyCalendarIds}
         onDatesSet={handleDatesSet as (info: DatesSetInfo) => void}
         onSelect={handleSelect as (info: DateSelectInfo) => void}
@@ -497,7 +552,7 @@ export function CalendarShell({
             <EventDialog
               mode={dialog.mode}
               initial={dialog.initial}
-              initialRule={dialog.initial.event?.rrule ?? null}
+              initialRule={dialog.initialRule}
               timezone={timezone}
               calendars={writableCalendars}
               onClose={() => setDialog(null)}
@@ -507,27 +562,26 @@ export function CalendarShell({
       ) : null}
 
       {selectedEvent && selection ? (
-        <EventPopover
+        <EventDetailsPopover
           event={selectedEvent}
-          occurrenceStart={selection.occurrenceStart}
+          calendarName={selectedCalendarName}
           color={selectedColor}
           timezone={timezone}
           timeFormat={preferences.timeFormat}
+          occurrenceStart={selection.occurrenceStart}
           readOnly={selectedIsReadOnly}
-          onClose={() => setSelection(null)}
+          anchorRect={selection.anchorRect}
+          anchorElement={selection.anchorElement}
           onEdit={() => {
-            setDialog({
-              mode: "edit",
-              initial: {
-                event: selectedEvent,
-                start: seriesStartWall(selectedEvent, timezone),
-                end: seriesEndWall(selectedEvent, timezone),
-                allDay: selectedEvent.allDay === 1,
-              },
-            });
+            openEdit(selectedEvent, selection.occurrenceStart);
+            setSelection(null);
+          }}
+          onDuplicate={() => {
+            openDuplicate(selectedEvent);
             setSelection(null);
           }}
           onDelete={requestDelete}
+          onClose={() => setSelection(null)}
         />
       ) : null}
 

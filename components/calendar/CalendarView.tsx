@@ -19,7 +19,7 @@ import type { RefObject } from "react";
 import type { Occurrence } from "@/lib/recurrence/expand";
 import type { EventView } from "@/lib/services/events";
 import type { TimeFormat } from "@/lib/services/preferences";
-import { fcEventTimeFormat } from "@/lib/time/format";
+import { fcEventTimeFormat, formatInstant } from "@/lib/time/format";
 import { occurrenceToFcEvent } from "./toFcEvent";
 
 import "@fullcalendar/react/skeleton.css";
@@ -38,6 +38,7 @@ interface Props {
   timeFormat: TimeFormat;
   firstDay: number;
   occurrences: RenderableOccurrence[];
+  calendarNames: ReadonlyMap<string, string>;
   readOnlyCalendarIds: ReadonlySet<string>;
   onDatesSet: (info: DatesSetInfo) => void;
   onSelect: (info: DateSelectInfo) => void;
@@ -51,6 +52,7 @@ export function CalendarView({
   timeFormat,
   firstDay,
   occurrences,
+  calendarNames,
   readOnlyCalendarIds,
   onDatesSet,
   onSelect,
@@ -58,7 +60,7 @@ export function CalendarView({
   onEventMove,
 }: Props) {
   const fcEvents = occurrences.map(({ occurrence, event }) => ({
-    ...occurrenceToFcEvent(occurrence, event),
+    ...occurrenceToFcEvent(occurrence, event, calendarNames.get(event.calendarId) ?? ""),
     editable: !readOnlyCalendarIds.has(event.calendarId),
   })) as EventInput[];
 
@@ -93,10 +95,24 @@ export function CalendarView({
         columnMoreLinkClass="fc-more-link"
         slotHeaderClass="fc-timegrid-slot-label"
         eventDidMount={(info) => {
+          const extended = info.event.extendedProps as {
+            accent?: string;
+            calendarName?: string;
+          };
           // v7 dropped `borderColor`; the saturated bar is painted directly.
-          info.el.style.borderLeftColor = String(
-            info.event.extendedProps.accent ?? "transparent",
-          );
+          info.el.style.borderLeftColor = String(extended.accent ?? "transparent");
+          // FullCalendar 7 already gives every event `role="button" tabindex="0"`;
+          // the label is what turns that focus stop into a spoken summary.
+          const labelParts = [info.event.title];
+          if (info.event.allDay) {
+            labelParts.push("all day");
+          } else if (info.event.start) {
+            labelParts.push(formatInstant(info.event.start.getTime(), timezone, timeFormat));
+          }
+          if (extended.calendarName) {
+            labelParts.push(extended.calendarName);
+          }
+          info.el.setAttribute("aria-label", labelParts.filter(Boolean).join(", "));
         }}
         initialView="dayGridMonth"
         headerToolbar={false}

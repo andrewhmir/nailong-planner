@@ -163,3 +163,10 @@ html .fc {
 .fc .fc-view-list .fc-list-event:hover {
   background-color: var(--color-info-soft);
 }
+
+/* Events are keyboard focus stops; show where focus is without shifting the
+   grid (the outline is drawn inside the viewport). */
+.fc .fc-event:focus-visible {
+  outline: 3px solid var(--color-link);
+  outline-offset: 2px;
+}

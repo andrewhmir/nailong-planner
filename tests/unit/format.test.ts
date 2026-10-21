@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { ShadeTokens } from "@/lib/color/palette";
 import type { EventView } from "@/lib/services/events";
-import { formatInstant, formatOccurrenceWhen, formatWallTime } from "@/lib/time/format";
+import {
+  formatInstant,
+  formatOccurrenceHeading,
+  formatOccurrenceWhen,
+  formatWallTime,
+} from "@/lib/time/format";
 import { localWallTimeToUtc } from "@/lib/time/zone";
 
 const TZ = "Asia/Taipei";
@@ -105,5 +110,18 @@ describe("formatOccurrenceWhen", () => {
     expect(formatOccurrenceWhen(event, "2026-11-04", TZ, "24h")).toBe(
       "All day · 4–6 Nov (3 days)",
     );
+  });
+});
+
+describe("formatOccurrenceHeading", () => {
+  it("resolves the clicked occurrence's own date (F28)", () => {
+    const event = timedEvent("2026-10-15T13:00", "2026-10-15T14:00");
+    expect(formatOccurrenceHeading(event, "2026-10-27T13:00", TZ)).toBe("Tue, 27 Oct 2026");
+  });
+
+  it("renders all-day occurrence dates and uses the occurrence for repeats", () => {
+    const event = allDayEvent("2026-10-21", "2026-10-23");
+    expect(formatOccurrenceHeading(event, "2026-10-21", TZ)).toBe("Wed, 21 Oct 2026");
+    expect(formatOccurrenceHeading(event, "2026-11-04", TZ)).toBe("Wed, 4 Nov 2026");
   });
 });

@@ -20,6 +20,8 @@ const TWELVE_HOUR = new Intl.DateTimeFormat("en-US", {
 
 const MONTH_SHORT = new Intl.DateTimeFormat("en-GB", { month: "short", timeZone: "UTC" });
 
+const WEEKDAY_SHORT = new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: "UTC" });
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function parseDate(date: string): { year: number; month: number; day: number } | null {
@@ -166,4 +168,29 @@ export function occurrenceDate(event: EventView, occurrenceStart: string, timezo
   return event.allDay === 1
     ? occurrenceStart.slice(0, 10)
     : utcToLocalDate(Date.parse(occurrenceStart), timezone);
+}
+
+function weekdayName(date: string): string {
+  const parsed = parseDate(date);
+  if (!parsed) {
+    return "";
+  }
+  return WEEKDAY_SHORT.format(new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day)));
+}
+
+/**
+ * The date heading for a details card: "Wed, 21 Oct 2026". It resolves the
+ * *clicked* occurrence (F28) instead of the series start.
+ */
+export function formatOccurrenceHeading(
+  event: EventView,
+  occurrenceStart: string,
+  timezone: string,
+): string {
+  const date = occurrenceDate(event, occurrenceStart, timezone);
+  const parsed = parseDate(date);
+  if (!parsed) {
+    return date;
+  }
+  return `${weekdayName(date)}, ${parsed.day} ${monthName(date)} ${parsed.year}`;
 }

@@ -13,6 +13,8 @@ export interface PlannerFcEvent extends EventInput {
     location: string | null;
     /** Saturated accent for the event's left bar: dots, borders, drag highlights. */
     accent: string;
+    // Drives the event's aria-label and the details card's calendar row.
+    calendarName: string;
   };
 }
 
@@ -35,7 +37,11 @@ export function parseOccurrenceFcId(id: string): { eventId: string; startKey: st
  * text clears 4.5:1; the saturated accent travels in `extendedProps.accent`
  * for the event's left bar and the month-view dot.
  */
-export function occurrenceToFcEvent(occurrence: Occurrence, event: EventView): PlannerFcEvent {
+export function occurrenceToFcEvent(
+  occurrence: Occurrence,
+  event: EventView,
+  calendarName = "",
+): PlannerFcEvent {
   const allDay = event.allDay === 1;
 
   return {
@@ -63,6 +69,7 @@ export function occurrenceToFcEvent(occurrence: Occurrence, event: EventView): P
       description: event.description,
       location: event.location,
       accent: event.color.mainHex,
+      calendarName,
     },
   };
 }
