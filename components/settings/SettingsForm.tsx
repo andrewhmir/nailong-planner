@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -298,6 +299,22 @@ export function SettingsForm({
           initialPreferences={initialPreferences}
           currentUserId={currentUserId}
         />
+
+        <section className={CARD}>
+          <h2 className={CARD_HEADING}>Google Calendar import</h2>
+          <p className="mt-6 text-sm text-ink-soft">
+            Bring your exported Google Calendar events into Nailong. You will preview every
+            calendar before anything is written, and each import can be undone afterwards.
+          </p>
+          <div className="mt-3">
+            <Link
+              href="/settings/import"
+              className="inline-flex h-[38px] items-center rounded-md border border-line-strong bg-well px-3 text-base text-ink hover:bg-line"
+            >
+              Open the importer
+            </Link>
+          </div>
+        </section>
 
         <div id="account" className="scroll-mt-6 space-y-6">
           <section className={CARD}>

@@ -45,7 +45,7 @@ This area covers the two settings components (the page-level form and the per-us
 
 ### components/settings/SettingsForm.tsx
 
-**Purpose** — The client shell of `/settings`: a sticky section sub-nav plus the Profile, Household, Calendar and Account cards. Profile and Household save explicitly per card; Calendar saves per control through `CalendarPreferencesCard`; Account owns password change and two-factor setup.
+**Purpose** — The client shell of `/settings`: a sticky section sub-nav plus the Profile, Household, Calendar, Google Calendar import and Account cards. Profile and Household save explicitly per card; Calendar saves per control through `CalendarPreferencesCard`; the import card links to `/settings/import`; Account owns password change and two-factor setup.
 
 **Public API** — `export function SettingsForm({ initialName, initialHousehold, initialPreferences, currentUserId }: Props)`; `Props` takes `initialName: string`, `initialHousehold: HouseholdValues` (`{ name: string; timezone: string; weekStartsOn: number }`), `initialPreferences: UserPreferences`, `currentUserId: string`. Non-exported: `SECTIONS` (`profile`, `household`, `calendar`, `account`), `TIMEZONES` (eight fixed zones), `SectionId`, and copies of the `FIELD`/`LABEL`/`CARD`/`CARD_HEADING` recipes.
 
@@ -56,6 +56,7 @@ This area covers the two settings components (the page-level form and the per-us
 | Profile (`#profile`) | Display name → Save profile | `PATCH /api/settings/profile` `{ name }` | `user.name` via `updateMemberName` |
 | Household (`#household`) | Name, timezone, week start → Save household | `PATCH /api/settings/household` `{ name, timezone, weekStartsOn }` | `household.name`, `household.timezone`, `household.weekStartsOn` (`0` Sunday, `1` Monday) |
 | Calendar (`#calendar`) | `CalendarPreferencesCard` | `PATCH /api/settings/preferences` (per control) | `userPreference` row: `defaultView`, `timeFormat`, `showWeekNumbers`, `shortcutsEnabled`, `lastEventCalendarId` |
+| Google Calendar import (no anchor) | "Open the importer" link | — (navigation only) | Opens `/settings/import` |
 | Account (`#account`) — Password | Current + new password → Change password | `POST /api/auth/change-password` `{ currentPassword, newPassword, revokeOtherSessions: true }` | Better Auth credential; other sessions revoked |
 | Account (`#account`) — 2FA | Account password → Set up two-factor | `POST /api/auth/two-factor/enable` `{ password }` → `{ totpURI, backupCodes }` | Pending TOTP secret, rendered as a URI plus one-time backup codes |
 | Account (`#account`) — 2FA | Verification code → Verify and enable | `POST /api/auth/two-factor/verify-totp` `{ code }` | Turns TOTP on for the user |
@@ -64,11 +65,41 @@ The three `/api/auth/*` calls are served by the Better Auth catch-all `app/api/a
 
 **State & side effects** — `useState` for `name`, `household`, `savingProfile`, `savingHousehold`, `currentPassword`, `newPassword`, `twoFactorPassword`, `twoFactorCode`, `totpUri`, `backupCodes`, `twoFactorEnabled`, `activeSection`. A `hashchange` listener (plus one initial sync) is the only source of `activeSection`; scrolling does not change it. `router.refresh()` runs after a successful profile or household save, so the server-rendered shell re-reads name and household; password and 2FA saves do not refresh. Toasts: `Profile updated`, `Household updated`, `Password changed`, `Add the key to your authenticator, then confirm a code.`, `Two-factor authentication is on`, and `toast.error(message)` on every failure. Client-side gating only: Change password is disabled until the current password is non-empty and the new one is at least 12 characters; Verify is disabled below 6 trimmed characters.
 
-**Depends on / Used by** — `next/navigation` (`useRouter`), `sonner`, `components/ui/button`, `components/settings/CalendarPreferencesCard`, `lib/utils` (`cn`), and the `UserPreferences` type. Used only by `app/(app)/settings/page.tsx`, which passes the session name, the household row and `getPreferences(db, session.user.id)`.
+**Depends on / Used by** — `next/link` (`Link`), `next/navigation` (`useRouter`), `sonner`, `components/ui/button`, `components/settings/CalendarPreferencesCard`, `lib/utils` (`cn`), and the `UserPreferences` type. Used only by `app/(app)/settings/page.tsx`, which passes the session name, the household row and `getPreferences(db, session.user.id)`.
 
 **Debugging** — `a saved name or household reverts on the next navigation -> the PATCH was rejected (validation is server-side too) -> check the response body and lib/validation/settings.ts, not the input`. `fields keep the value you typed after Save even though the server changed -> router.refresh() updates props but the local useState was initialised once -> remount/reload, do not look for a second fetch`. `the highlighted section jumps to Account while you scroll -> that is by design (hash only, no scroll spy) -> check the hash, not the viewport`. `a password below 12 characters cannot be submitted at all -> the button's disabled condition, not the auth handler`.
 
 **Tests** — `tests/e2e/settings.spec.ts` (household save, hash sub-nav, 2FA panel and backup codes), `tests/integration/settings-api.test.ts` (profile/household handlers).
+
+## Import surfaces
+
+### components/import/ImportWizard.tsx
+
+**Purpose** — The four-step Google Calendar import wizard on `/settings/import`: choose exported `.ics` files, preview the counts, map each source calendar to a new `From Google` sub-calendar or an existing writable one, commit, then show the report with an Undo action.
+
+**Public API** — `export function ImportWizard({ currentUserId }: { currentUserId: string })`. Local `type Step = "upload" | "preview" | "mapping" | "report"`; the Canvas `FIELD`/`LABEL`/`CARD`/`CARD_HEADING` recipes are copied from `SettingsForm.tsx`.
+
+**State & side effects** — Local `step`, `files`, `preview`, `report`, `mapping` (`Record<sourceCalendarName, { mode: "new" } | { mode: "existing", calendarId }>`), `busy`. Reads the writable calendar list through `useCalendars()` (`["calendars"]`) and folds `canWriteCalendar` over roots and children so view-only targets are never offered. Network: `POST /api/import/preview` (multipart, repeated `files` fields) on file selection; `POST /api/import/commit` (the same files plus a JSON `mapping` field) on Import; `POST /api/import/batches/[id]/rollback` on Undo. After commit/undo it invalidates `["events"]`, `["calendars"]` and `["import-batches"]`. Accessible names the e2e spec depends on: label "Google Calendar files", buttons "Continue", `Import N events`, "Undo this import", "Go to calendar", "Back". The import button is disabled while a request is in flight; errors toast the server message and leave the wizard on the current step.
+
+**Depends on / Used by** — `next/link`, `@tanstack/react-query` (`useQueryClient`), `sonner`, `components/ui/button`, `components/import/ImportBatchesCard`, `lib/query/calendars` (`useCalendars`), `lib/services/permissions` (`canWriteCalendar`), and the `ImportPreview`/`ImportReport`/`ImportCalendarMode` types. Rendered by `app/(app)/settings/import/page.tsx`.
+
+**Debugging** — Selecting files shows no preview -> the preview request failed (size, not an `.ics`, no users) -> the toast carries the server message. The Import button is missing -> the mapping step never rendered because `preview` is null -> re-select the files. A committed import does not appear on the calendar -> the `["events"]` invalidation did not run, or the events landed under a collapsed `From Google` calendar -> check the tree. Undo leaves events -> the service skipped them because they were edited after the import (`skipped` in the rollback payload).
+
+**Tests** — `tests/e2e/import.spec.ts`; handler contracts in `tests/integration/import-api.test.ts`.
+
+### components/import/ImportBatchesCard.tsx
+
+**Purpose** — "Past imports" table under the wizard: one row per `import_batch` with counts, status and an Undo button while the batch is still committed.
+
+**Public API** — `export function ImportBatchesCard({ onUndo, busy }: Props)`; `Props = { onUndo: (batchId: string) => Promise<void>; busy: boolean }`.
+
+**State & side effects** — `useQuery(["import-batches"])` → `GET /api/import/batches`; no local state. Undo delegates to the wizard's `onUndo` (which performs the rollback, toasts and invalidates queries), so there is exactly one rollback path. Dates render with the browser locale/timezone.
+
+**Depends on / Used by** — `@tanstack/react-query`, `sonner`, `components/ui/button`, and the `ImportBatchView` type. Rendered only by `components/import/ImportWizard.tsx`.
+
+**Debugging** — "No imports yet." right after a commit -> the `["import-batches"]` key was not invalidated by the wizard. A row stays "Committed" after Undo -> the rollback request failed (409 after an earlier undo, 404 if it belongs to another household) -> read the toast.
+
+**Tests** — `tests/e2e/import.spec.ts`.
 
 ## UI primitives
 

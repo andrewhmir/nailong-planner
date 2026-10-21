@@ -121,6 +121,20 @@ Radii ("Canvas is nearly square"): `--radius-sm` 3px, `--radius-md` 4px, `--radi
 
 **Tests** — `tests/e2e/settings.spec.ts`, `tests/e2e/preferences.spec.ts`.
 
+### app/(app)/settings/import/page.tsx
+
+**Purpose** — The `/settings/import` page: the Google Calendar import wizard and the import history.
+
+**Public API** — Default export `ImportPage()`, a server component. Renders a `max-w-3xl` column, a "Back to settings" link, an `h1` "Import from Google Calendar", then `ImportWizard` with `currentUserId`.
+
+**State & side effects** — Session read (`redirect("/login")` when null) and membership read (`redirect("/login")` when absent); no other reads. Every write happens through the wizard's API calls.
+
+**Depends on / Used by** — `@/components/import/ImportWizard`, `ChevronLeftIcon`, `@/lib/auth/server`, `@/lib/db`, `@/lib/db/schema`. Linked from the "Google Calendar import" card in `components/settings/SettingsForm.tsx`.
+
+**Debugging** — A signed-in user is bounced to `/login` -> no `member` row -> run provisioning. The wizard shows "No imports yet." after a commit -> the `["import-batches"]` query was not invalidated -> check `ImportWizard.commit`. The page overflows on a phone -> the wizard's tables scroll horizontally by design; the page itself must not (viewport contract).
+
+**Tests** — `tests/e2e/import.spec.ts`.
+
 ### app/login/page.tsx
 
 **Purpose** — The only public page. Sends an already-signed-in visitor to `/`, otherwise renders the brand tile and `LoginForm` on a full-height rail-colored background.
