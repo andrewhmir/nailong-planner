@@ -7,7 +7,7 @@ import { navigableDateFor, useSearchEvents } from "@/lib/query/search";
 import type { EventView } from "@/lib/services/events";
 import type { TimeFormat } from "@/lib/services/preferences";
 import { useDebouncedValue } from "@/lib/ui/useDebouncedValue";
-import { onFocusSearch } from "@/lib/ui/searchBus";
+import { onFocusSearch, announceEventLink } from "@/lib/ui/searchBus";
 import { SearchResultsOverlay } from "./SearchResultsOverlay";
 
 interface Props {
@@ -86,6 +86,9 @@ export function SearchBox({ timezone, timeFormat, inline = false, autoFocus = fa
     setOpen(false);
     setQuery("");
     onNavigate?.();
+    // Announce before navigating: the shell needs the click time, not the time
+    // the router finally exposes `?date=…&event=…`.
+    announceEventLink({ date, eventId: event.id });
     router.push(`/?date=${date}&event=${event.id}`);
   }
 
