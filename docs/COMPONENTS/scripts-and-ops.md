@@ -426,7 +426,7 @@ Pinned choices that must not drift casually: `@fullcalendar/react` and `@fullcal
 
 **Invocation / wiring** — Runs on push to `main`, on pull requests targeting `main`, and weekly via `cron: "23 4 * * 1"`.
 
-**Behaviour & side effects** — One job with a `javascript-typescript` matrix (`fail-fast: false`), `github/codeql-action/init@v3` with `queries: security-and-quality`, then `analyze@v3` with category `/language:javascript-typescript`. Job permissions add `security-events: write`; workflow-level permissions are `contents: read`.
+**Behaviour & side effects** — One job with a `javascript-typescript` matrix (`fail-fast: false`), `github/codeql-action/init@v4` with `queries: security-and-quality`, then `analyze@v4` with category `/language:javascript-typescript`. Job permissions add `security-events: write`; workflow-level permissions are `contents: read`.
 
 **Gotchas** —
 - `security-and-quality` is broader than the default suite, so findings include maintainability queries, not only exploitable bugs.

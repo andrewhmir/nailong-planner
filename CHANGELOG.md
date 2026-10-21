@@ -4,10 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — v0.1.0 in development
-
-> **Nothing has shipped yet.** The current build is **v0.1.0, still in
-> development**; the entries below describe what that build contains so far.
+## [0.1.0] - 2026-10-22
 
 ### Added — roadmap rail
 
@@ -67,6 +64,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a re-import updates in place. Imported series keep their source timezone
   (`event.tzid`) and recurrence expands in local wall time, so a DST transition
   does not shift them. No OAuth and no Google Cloud project.
+- **Nailong logo** — the project mark is used for the browser tab icon and the
+  home-screen icon.
 - **Small footprint** — SQLite in WAL mode, one Docker image, one volume.
 
 ### Added — foundation (initial build)
@@ -110,3 +109,5 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Focusing the event dialog's title field no longer shaves the left side off its
   focus ring: the dialog's scroll area clips at its padding box, so it now keeps
   horizontal padding on both sides instead of only under the scrollbar.
+
+[0.1.0]: https://github.com/andrewhmir/nailong-planner/releases/tag/v0.1.0

@@ -161,8 +161,9 @@ The database file lives at `./data/planner.db` by default and is gitignored.
 | `npm run reset-password -- --email x --password y` | Break-glass password reset |
 | `npm run backup` | Online SQLite backup, gzipped, keeps the 14 newest |
 
-In CI the same checks run on every push and pull request: lint, typecheck,
-Vitest, production build, Playwright E2E, plus CodeQL and Dependabot.
+In CI the same checks run on every pull request and on pushes to `main` and
+`feat/**`: lint, typecheck, Vitest, production build, Playwright E2E, plus
+CodeQL and Dependabot.
 
 ## How the calendar model works
 
@@ -201,6 +202,7 @@ day to day:
   per source file (purpose, API, side effects, callers, gotchas, tests).
 - **Agent rules:** [`AGENTS.md`](AGENTS.md) — docs ship with code;
   `npm run docs:check` fails CI when a source file is undocumented.
+- **Changelog:** [`CHANGELOG.md`](CHANGELOG.md) — what shipped in each release.
 
 Historical design specs and plans (never edited):
 
