@@ -39,10 +39,13 @@ import { canWriteCalendar } from "@/lib/services/permissions";
 import type { UserPreferences } from "@/lib/services/preferences";
 import { formatOccurrenceWhen } from "@/lib/time/format";
 import { addDaysToDate, utcToLocalDate, utcToLocalWallTime } from "@/lib/time/zone";
+import { readLastView, writeLastView } from "@/lib/ui/lastView";
 import { focusSearch } from "@/lib/ui/searchBus";
 import { pushUndo, undoLast } from "@/lib/ui/undo";
 import { useKeyboardShortcuts } from "@/lib/ui/useKeyboardShortcuts";
+import { useMediaQuery } from "@/lib/ui/useMediaQuery";
 import { useUndoHotkey } from "@/lib/ui/useUndoHotkey";
+import { resolveInitialView } from "@/lib/ui/view";
 import { visibleCalendarIds } from "@/lib/ui/visibleCalendars";
 import { CalendarView, type RenderableOccurrence } from "./CalendarView";
 import { EventDetailsPopover } from "./EventDetailsPopover";
@@ -166,6 +169,12 @@ export function CalendarShell({
   const [view, setView] = useState<PlannerView>("dayGridMonth");
   const [label, setLabel] = useState("Calendar");
   const [anchorDate, setAnchorDate] = useState(() => utcToLocalDate(Date.now(), timezone));
+  const narrow = useMediaQuery("(max-width: 767px)");
+  // Open the week/day grid around "now" instead of 06:00 (F30).
+  const [scrollTime] = useState(
+    () => `${utcToLocalWallTime(Date.now(), timezone).slice(11)}:00`,
+  );
+  const viewChosenByUser = useRef(false);
   const [range, setRange] = useState<EventRange | null>(null);
   const [dialog, setDialog] = useState<EventDialogState | null>(null);
   const [dialogDirty, setDialogDirty] = useState(false);
@@ -353,13 +362,31 @@ export function CalendarShell({
   );
 
   function changeView(next: PlannerView) {
+    viewChosenByUser.current = true;
     calendarRef.current?.getApi().changeView(next);
     setView(next);
+    writeLastView(currentUserId, next);
   }
 
   function jumpToDate(date: string): void {
     calendarRef.current?.getApi().gotoDate(date);
   }
+
+  // First visit: the device's last view, else the preference (`auto` resolves to
+  // the agenda on phones). Re-runs while the user has not picked a view yet so
+  // the phone/desktop media query can settle after hydration.
+  useEffect(() => {
+    if (viewChosenByUser.current) {
+      return;
+    }
+    const desired =
+      readLastView(currentUserId) ?? resolveInitialView(preferences.defaultView, narrow);
+    if (desired === view) {
+      return;
+    }
+    // FullCalendar echoes the change back through `datesSet`, which owns state.
+    calendarRef.current?.getApi().changeView(desired);
+  }, [currentUserId, narrow, preferences.defaultView, view]);
 
   function rememberOpener(): void {
     openerRef.current =
@@ -773,6 +800,8 @@ export function CalendarShell({
         calendarRef={calendarRef}
         timezone={timezone}
         timeFormat={preferences.timeFormat}
+        showWeekNumbers={preferences.showWeekNumbers}
+        scrollTime={scrollTime}
         firstDay={weekStartsOn}
         occurrences={occurrences}
         calendarNames={calendarNames}
@@ -783,6 +812,17 @@ export function CalendarShell({
         onEventClick={handleEventClick}
         onEventMove={handleEventMove as never}
       />
+
+      {/* Phones create from here: the toolbar's + Event is md-and-up. */}
+      <button
+        type="button"
+        aria-label="New event"
+        onClick={openQuickAtCentre}
+        style={{ bottom: "calc(1rem + env(safe-area-inset-bottom))" }}
+        className="fixed right-4 z-30 grid h-14 w-14 place-items-center rounded-full bg-accent text-2xl leading-none text-white shadow-dialog md:hidden"
+      >
+        +
+      </button>
 
       <ShortcutHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
 

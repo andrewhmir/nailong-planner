@@ -114,7 +114,6 @@
   a {
     color: var(--color-link);
   }
-
   *:focus-visible {
     outline: 2px solid var(--color-link);
     outline-offset: 2px;
@@ -127,5 +126,19 @@
   *::after {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
+  }
+}
+
+/* Touch targets: keep the visible box, grow the hit area on coarse pointers. */
+@media (pointer: coarse) {
+  [role="group"][aria-label="Cross-check calendars"] button {
+    min-height: 44px;
+  }
+
+  button[aria-label="Previous"],
+  button[aria-label="Next"],
+  button[aria-label="Keyboard shortcuts"] {
+    min-width: 44px;
+    min-height: 44px;
   }
 }

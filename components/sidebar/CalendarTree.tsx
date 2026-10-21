@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { PlusIcon } from "@/components/ui/icons";
 import {
   CHILD_SHADE_ORDER,
@@ -83,6 +84,7 @@ export function CalendarTree({ visibility, currentUserId, currentUserName, partn
   const updateCalendar = useUpdateCalendar();
   const deleteCalendar = useDeleteCalendar();
   const [dialog, setDialog] = useState<CalendarDialogState | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<CalendarRowType | null>(null);
 
   const roots = data ?? [];
 
@@ -131,15 +133,20 @@ export function CalendarTree({ visibility, currentUserId, currentUserName, partn
   }
 
   function confirmDelete(calendar: CalendarRowType) {
-    const label = calendar.parentId
-      ? "sub-calendar and its events"
-      : "calendar, its sub-calendars and their events";
-    const confirmed = window.confirm(`Delete "${calendar.name}"? This removes the ${label}.`);
-    if (!confirmed) {
+    // Canvas dialog, not window.confirm: the cascade is irreversible so it still
+    // asks, but it asks inside the design system.
+    setPendingDelete(calendar);
+  }
+
+  function runDelete() {
+    if (!pendingDelete) {
       return;
     }
-    deleteCalendar.mutate(calendar.id, {
-      onSuccess: () => toast.success(`Deleted ${calendar.name}`),
+    deleteCalendar.mutate(pendingDelete.id, {
+      onSuccess: () => {
+        toast.success(`Deleted ${pendingDelete.name}`);
+        setPendingDelete(null);
+      },
       onError: (error) => toast.error(error.message),
     });
   }
@@ -219,6 +226,39 @@ export function CalendarTree({ visibility, currentUserId, currentUserName, partn
           </section>
         );
       })}
+
+      {pendingDelete ? (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              setPendingDelete(null);
+            }
+          }}
+        >
+          <DialogContent
+            title="Delete calendar?"
+            description={
+              pendingDelete.parentId
+                ? `"${pendingDelete.name}" and its events will be removed. This cannot be undone.`
+                : `"${pendingDelete.name}", its sub-calendars and their events will be removed. This cannot be undone.`
+            }
+          >
+            <div className="flex justify-end gap-3">
+              <Button onClick={() => setPendingDelete(null)}>Cancel</Button>
+              <Button
+                variant="primary"
+                aria-label="Delete calendar"
+                className="border border-danger-ink bg-danger-soft text-danger-ink hover:bg-danger-soft/80"
+                onClick={runDelete}
+                disabled={deleteCalendar.isPending}
+              >
+                Delete calendar
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : null}
 
       <CalendarDialog
         state={dialog}

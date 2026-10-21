@@ -192,3 +192,19 @@ html .fc {
   outline: 3px solid var(--color-link);
   outline-offset: 2px;
 }
+
+/* The +N more link is the way into a busy day, so it needs a real target. */
+.fc .fc-more-link {
+  min-height: 24px;
+  padding: 0 2px;
+}
+
+@media (pointer: coarse) {
+  .fc .fc-event {
+    min-height: 24px;
+  }
+
+  .fc .fc-more-link {
+    min-height: 44px;
+  }
+}

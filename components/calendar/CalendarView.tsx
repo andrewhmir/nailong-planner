@@ -37,6 +37,9 @@ interface Props {
   calendarRef: RefObject<CalendarRef | null>;
   timezone: string;
   timeFormat: TimeFormat;
+  showWeekNumbers: boolean;
+  /** Wall-clock `HH:MM:SS` the week/day scroll should open at. */
+  scrollTime: string;
   firstDay: number;
   occurrences: RenderableOccurrence[];
   calendarNames: ReadonlyMap<string, string>;
@@ -52,6 +55,8 @@ export function CalendarView({
   calendarRef,
   timezone,
   timeFormat,
+  showWeekNumbers,
+  scrollTime,
   firstDay,
   occurrences,
   calendarNames,
@@ -130,6 +135,7 @@ export function CalendarView({
         headerToolbar={false}
         timeZone={timezone}
         firstDay={firstDay}
+        weekNumbers={showWeekNumbers}
         // Fill the panel the shell hands down: `expandRows` shares the leftover
         // height across the month's week rows, so the whole month is visible at
         // any viewport and week/list views scroll inside the panel instead.
@@ -137,6 +143,16 @@ export function CalendarView({
         expandRows
         fixedWeekCount={false}
         dayMaxEventRows={3}
+        eventMaxStack={3}
+        // Google Calendar opens the time grid around "now", not at midnight.
+        scrollTime={scrollTime}
+        snapDuration="00:15:00"
+        slotDuration="00:30:00"
+        // Google Calendar lays overlapping events side by side, never stacked
+        // on top of each other.
+        slotEventOverlap={false}
+        longPressDelay={300}
+        noEventsText="No events"
         nowIndicator
         selectable
         selectMirror

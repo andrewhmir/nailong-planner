@@ -65,6 +65,17 @@ for (const viewport of VIEWPORTS) {
   test(`the page never scrolls at ${viewport.name} and the whole month fits`, async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await page.reload();
+    await page.waitForLoadState("networkidle");
+    // Phones deliberately land on the agenda (`auto` default view); this spec
+    // measures the month grid, so ask for it explicitly there. `toPass` retries
+    // the click if it lands before hydration.
+    if ((await page.locator(".fc-daygrid-day").count()) === 0) {
+      const month = page.getByRole("button", { name: "Month", exact: true });
+      await expect(async () => {
+        await month.click();
+        await expect(month).toHaveAttribute("aria-pressed", "true");
+      }).toPass({ timeout: 20_000 });
+    }
     await expect(page.locator(".fc-daygrid-day").first()).toBeVisible();
 
     const fit = await measureFit(page);
