@@ -1,34 +1,23 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   useCreateEvent,
   useDeleteEvent,
   type EventInputPayload,
 } from "@/lib/query/events";
 import { useUpdatePreferences } from "@/lib/query/preferences";
-import type { CalendarRow } from "@/lib/db/schema";
 import type { CalendarNode } from "@/lib/services/calendars";
 import type { TimeFormat } from "@/lib/services/preferences";
-import {
-  PARENT_SHADE_INDEX,
-  isHueFamily,
-  shadeTokens,
-  type HueFamily,
-} from "@/lib/color/palette";
+import { calendarSwatch } from "@/lib/ui/calendarPicker";
 import { formatWallDate, formatWallTime } from "@/lib/time/format";
 import { addDaysToDate, localWallTimeToUtc } from "@/lib/time/zone";
 import { useMediaQuery } from "@/lib/ui/useMediaQuery";
 import { pushUndo, undoLast } from "@/lib/ui/undo";
+import { CalendarPicker } from "./CalendarPicker";
 import type { QuickCreateRange } from "./quickCreateDefaults";
 
 export interface QuickCreateDraft extends QuickCreateRange {
@@ -60,12 +49,6 @@ const CONTROL =
 const CARD_WIDTH = 320;
 const MARGIN = 16;
 const CARD_HEIGHT_ESTIMATE = 260;
-
-interface CalendarChoice {
-  calendar: CalendarRow;
-  family: HueFamily;
-  shade: number;
-}
 
 /** Inclusive all-day dates from FullCalendar's exclusive midnight end. */
 function draftPayload(
@@ -110,28 +93,10 @@ export function QuickCreatePopover({
   onMoreOptions,
 }: Props) {
   const isPhone = useMediaQuery("(max-width: 767px)");
-  const choices = useMemo<CalendarChoice[]>(
-    () =>
-      calendars.flatMap((root) => {
-        const rootFamily: HueFamily =
-          root.hueFamily && isHueFamily(root.hueFamily) ? root.hueFamily : "slate";
-        return [
-          { calendar: root, family: rootFamily, shade: PARENT_SHADE_INDEX },
-          ...root.children.map((child) => ({
-            calendar: child,
-            family: rootFamily,
-            shade: child.shadeIndex,
-          })),
-        ];
-      }),
-    [calendars],
-  );
 
   const [title, setTitle] = useState("");
   const [calendarId, setCalendarId] = useState(() =>
-    defaultCalendarId && choices.some((choice) => choice.calendar.id === defaultCalendarId)
-      ? defaultCalendarId
-      : "",
+    defaultCalendarId && calendarSwatch(calendars, defaultCalendarId) ? defaultCalendarId : "",
   );
   const titleRef = useRef<HTMLInputElement | null>(null);
 
@@ -141,12 +106,7 @@ export function QuickCreatePopover({
 
   // Calendars arrive after the bubble opens; fall back live instead of freezing
   // an empty selection.
-  const effectiveCalendarId = calendarId || choices[0]?.calendar.id || "";
-  const selected =
-    choices.find((choice) => choice.calendar.id === effectiveCalendarId) ?? choices[0];
-  const selectedColor = selected
-    ? shadeTokens(selected.family, selected.shade).mainHex
-    : "oklch(0.65 0.02 250)";
+  const effectiveCalendarId = calendarId || calendars[0]?.id || "";
 
   function save(): void {
     const trimmed = title.trim();
@@ -220,28 +180,11 @@ export function QuickCreatePopover({
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="sm" type="button">
-              <span
-                aria-hidden
-                className="h-2 w-2 shrink-0 rounded-[2px]"
-                style={{ background: selectedColor }}
-              />
-              <span className="max-w-32 truncate">{selected?.calendar.name ?? "Calendar"}</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            {choices.map((choice) => (
-              <DropdownMenuItem
-                key={choice.calendar.id}
-                onSelect={() => setCalendarId(choice.calendar.id)}
-              >
-                {choice.calendar.name}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <CalendarPicker
+          calendars={calendars}
+          value={effectiveCalendarId}
+          onChange={setCalendarId}
+        />
 
         <div className="flex items-center gap-2">
           <Button

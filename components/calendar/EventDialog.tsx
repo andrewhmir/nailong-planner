@@ -15,6 +15,7 @@ import {
   deriveRepeat,
   type RepeatRule,
 } from "./eventPayload";
+import { CalendarPicker } from "./CalendarPicker";
 
 // Canvas form controls (§7): 38px box, 1px field border, 4px radius, 16px text.
 // This is a copy of the settings field recipe (SettingsForm.tsx), not a shared
@@ -44,6 +45,8 @@ interface Props {
   initialRule?: string | null;
   timezone: string;
   calendars: CalendarNode[];
+  /** Where a new event starts unless the user picks otherwise ("only this calendar"). */
+  defaultCalendarId?: string | null;
   /** Success or programmatic close (dirty state is dropped). */
   onClose: () => void;
   /** User asked to close; the shell runs the unsaved-changes guard. */
@@ -62,6 +65,7 @@ export function EventDialog({
   initialRule,
   timezone,
   calendars,
+  defaultCalendarId,
   onClose,
   onCancel,
   onDirtyChange,
@@ -75,15 +79,20 @@ export function EventDialog({
   const initialStart = splitWall(initial.start);
   const initialEnd = splitWall(initial.end);
 
-  const writableCalendars = calendars.flatMap((root) => [root, ...root.children]);
-  const fallbackCalendarId = writableCalendars[0]?.id ?? "";
+  const fallbackCalendarId = calendars[0]?.id ?? "";
+  // On edit the event's own calendar wins; on create the caller's default (the
+  // isolated calendar, else the settings default) does, provided it is writable.
+  const requestedCalendarId = initial.event?.calendarId ?? defaultCalendarId ?? "";
+  const initialCalendarId = calendars.some(
+    (root) => root.id === requestedCalendarId || root.children.some((child) => child.id === requestedCalendarId),
+  )
+    ? requestedCalendarId
+    : fallbackCalendarId;
 
   const [title, setTitle] = useState(
     initial.event?.title ?? initial.pendingTitle ?? "",
   );
-  const [calendarId, setCalendarId] = useState(
-    initial.event?.calendarId ?? fallbackCalendarId,
-  );
+  const [calendarId, setCalendarId] = useState(initialCalendarId);
 
   // Calendars can finish loading after the dialog opens; fall back live instead
   // of freezing an empty selection into the form.
@@ -194,21 +203,16 @@ export function EventDialog({
           <label className={LABEL} htmlFor="event-calendar">
             Calendar
           </label>
-          <select
+          <CalendarPicker
             id="event-calendar"
+            variant="field"
+            calendars={calendars}
             value={selectedCalendarId}
-            onChange={(event) => {
-              setCalendarId(event.target.value);
+            onChange={(nextId) => {
+              setCalendarId(nextId);
               markDirty();
             }}
-            className={CONTROL}
-          >
-            {writableCalendars.map((calendar) => (
-              <option key={calendar.id} value={calendar.id}>
-                {calendar.name}
-              </option>
-            ))}
-          </select>
+          />
         </div>
 
         <label className="flex items-center gap-2 text-base text-ink">
