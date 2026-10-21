@@ -83,7 +83,8 @@ test("closing a dirty full dialog asks before discarding", async ({ page }) => {
 test("Shift+C opens the bubble with today's default range", async ({ page }) => {
   await page.keyboard.press("Shift+c");
   await expect(page.getByLabel("Title")).toBeFocused();
-  await expect(page.getByText("All day")).toHaveCount(0);
+  await expect(page.locator("#quick-create-title")).toHaveCount(1);
+
   await page.keyboard.press("Escape");
   await expect(page.getByLabel("Title")).toHaveCount(0);
 });

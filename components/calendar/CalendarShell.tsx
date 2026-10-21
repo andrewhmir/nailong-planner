@@ -39,13 +39,16 @@ import { canWriteCalendar } from "@/lib/services/permissions";
 import type { UserPreferences } from "@/lib/services/preferences";
 import { formatOccurrenceWhen } from "@/lib/time/format";
 import { addDaysToDate, utcToLocalDate, utcToLocalWallTime } from "@/lib/time/zone";
+import { focusSearch } from "@/lib/ui/searchBus";
 import { pushUndo, undoLast } from "@/lib/ui/undo";
+import { useKeyboardShortcuts } from "@/lib/ui/useKeyboardShortcuts";
 import { useUndoHotkey } from "@/lib/ui/useUndoHotkey";
 import { isCalendarVisible } from "@/lib/ui/visibility";
 import { CalendarView, type RenderableOccurrence } from "./CalendarView";
 import { EventDetailsPopover } from "./EventDetailsPopover";
 import { EventDialog, type EventDialogInitial } from "./EventDialog";
 import { QuickCreatePopover, type QuickCreateDraft } from "./QuickCreatePopover";
+import { ShortcutHelpDialog } from "./ShortcutHelpDialog";
 import {
   defaultRangeForDate,
   defaultRangeFromSelection,
@@ -145,16 +148,6 @@ function undoToast(message: string): void {
   });
 }
 
-function isTextEntryTarget(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLElement &&
-    (target.tagName === "INPUT" ||
-      target.tagName === "TEXTAREA" ||
-      target.tagName === "SELECT" ||
-      target.isContentEditable)
-  );
-}
-
 export function CalendarShell({
   timezone,
   currentUserId,
@@ -177,12 +170,15 @@ export function CalendarShell({
   const [dialogDirty, setDialogDirty] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [quickDraft, setQuickDraft] = useState<QuickCreateDraft | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [announcement, setAnnouncement] = useState("");
   const [selection, setSelection] = useState<EventSelection | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{
     event: EventView;
     occurrenceStart: string;
   } | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
+  const gridRef = useRef<HTMLElement | null>(null);
 
   const { data: events } = useEvents(range);
   const createEvent = useCreateEvent();
@@ -361,31 +357,6 @@ export function CalendarShell({
     [calendars, readOnlyCalendarIds],
   );
 
-  // Shift+C opens the bubble at the centre of the viewport with today's default
-  // range. `c` and `+ Event` stay on the full dialog (Google's split, D2).
-  useEffect(() => {
-    if (!preferences.shortcutsEnabled) {
-      return;
-    }
-    function onKeyDown(event: KeyboardEvent): void {
-      if (!event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
-        return;
-      }
-      if (event.key.toLowerCase() !== "c" || isTextEntryTarget(event.target)) {
-        return;
-      }
-      event.preventDefault();
-      const today = utcToLocalDate(Date.now(), timezone);
-      setQuickDraft({
-        ...defaultRangeForDate(today, null, new Date(), timezone),
-        dateWall: today,
-        anchor: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
-      });
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [preferences.shortcutsEnabled, timezone]);
-
   function changeView(next: PlannerView) {
     calendarRef.current?.getApi().changeView(next);
     setView(next);
@@ -467,6 +438,15 @@ export function CalendarShell({
   function openQuickCreate(draft: QuickCreateDraft): void {
     setDialog(null);
     setQuickDraft(draft);
+  }
+
+  function openQuickAtCentre(): void {
+    const today = utcToLocalDate(Date.now(), timezone);
+    openQuickCreate({
+      ...defaultRangeForDate(today, null, new Date(), timezone),
+      dateWall: today,
+      anchor: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+    });
   }
 
   function handleMoreOptions(values: {
@@ -624,13 +604,31 @@ export function CalendarShell({
     );
   }
 
-  function requestDelete() {
-    if (!selectedEvent || !selection) {
-      return;
+  function focusedEvent(): { event: EventView; occurrenceStart: string } | null {
+    const element =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement.closest<HTMLElement>("[data-event-id]")
+        : null;
+    const id = element?.dataset.eventId;
+    const event = id
+      ? visibleEvents.find((candidate) => candidate.id === id)
+      : undefined;
+    if (!event) {
+      return null;
     }
-    const event = selectedEvent;
+    return {
+      event,
+      occurrenceStart:
+        element?.dataset.occurrenceStart ??
+        (event.allDay === 1
+          ? (event.startDate ?? "")
+          : new Date(event.startAt ?? Date.now()).toISOString()),
+    };
+  }
+
+  function requestDeleteFor(event: EventView, occurrenceStart: string) {
     if (event.rrule) {
-      setPendingDelete({ event, occurrenceStart: selection.occurrenceStart });
+      setPendingDelete({ event, occurrenceStart });
       return;
     }
     deleteEvent.mutate(
@@ -644,11 +642,19 @@ export function CalendarShell({
             },
           });
           undoToast("Event deleted");
+          setAnnouncement("Event deleted, press z to undo");
           setSelection(null);
         },
         onError: (error) => toast.error(error.message),
       },
     );
+  }
+
+  function requestDelete() {
+    if (!selectedEvent || !selection) {
+      return;
+    }
+    requestDeleteFor(selectedEvent, selection.occurrenceStart);
   }
 
   function confirmSeriesDelete(scope: "all" | "this") {
@@ -692,8 +698,64 @@ export function CalendarShell({
     );
   }
 
+  // Mounted once: the hook reads the latest handlers through a ref.
+  useKeyboardShortcuts(preferences.shortcutsEnabled, {
+    onCreateFull: openCreate,
+    onCreateAtCursor: openQuickAtCentre,
+    onFocusSearch: focusSearch,
+    onToday: () => calendarRef.current?.getApi().today(),
+    onView: changeView,
+    onPeriod: (direction) => {
+      if (direction === 1) {
+        calendarRef.current?.getApi().next();
+      } else {
+        calendarRef.current?.getApi().prev();
+      }
+    },
+    onEditSelected: () => {
+      const target = focusedEvent();
+      if (target) {
+        openEdit(target.event);
+        setSelection(null);
+        return;
+      }
+      if (selectedEvent && selection) {
+        openEdit(selectedEvent);
+        setSelection(null);
+      }
+    },
+    onDeleteSelected: () => {
+      const target = focusedEvent();
+      if (target) {
+        requestDeleteFor(target.event, target.occurrenceStart);
+        gridRef.current?.focus();
+        return;
+      }
+      if (selectedEvent && selection) {
+        requestDeleteFor(selectedEvent, selection.occurrenceStart);
+        gridRef.current?.focus();
+      }
+    },
+    onHelp: () => setHelpOpen(true),
+    onEscape: () => {
+      if (selection) {
+        setSelection(null);
+      } else if (quickDraft) {
+        setQuickDraft(null);
+      }
+    },
+  });
+
   return (
-    <section aria-label="Calendar" className="flex min-h-0 flex-1 flex-col">
+    <section
+      ref={gridRef}
+      tabIndex={-1}
+      aria-label="Calendar"
+      className="flex min-h-0 flex-1 flex-col outline-none"
+    >
+      <p role="status" className="sr-only">
+        {announcement}
+      </p>
       <Toolbar
         label={label}
         view={view}
@@ -702,6 +764,7 @@ export function CalendarShell({
         onToday={() => calendarRef.current?.getApi().today()}
         onNext={() => calendarRef.current?.getApi().next()}
         onNewEvent={openCreate}
+        onShowShortcuts={() => setHelpOpen(true)}
       />
 
       <CalendarView
@@ -718,6 +781,8 @@ export function CalendarShell({
         onEventClick={handleEventClick}
         onEventMove={handleEventMove as never}
       />
+
+      <ShortcutHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
 
       {quickDraft ? (
         <QuickCreatePopover

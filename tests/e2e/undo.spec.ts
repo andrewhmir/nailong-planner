@@ -61,7 +61,7 @@ test("Ctrl+Z restores a deleted event", async ({ page }) => {
   await createProbe(page, "Undo probe ctrl");
   await page.getByText("Undo probe ctrl").click();
   await page.getByRole("button", { name: "Delete" }).click();
-  await expect(page.getByText("Event deleted")).toBeVisible();
+  await expect(page.locator("[data-sonner-toast]", { hasText: "Event deleted" })).toBeVisible();
 
   await page.keyboard.press("Control+z");
   await expect(page.getByText("Undo probe ctrl").first()).toBeVisible();
@@ -72,7 +72,7 @@ test("z (Google's undo shortcut) also restores the last change", async ({ page }
   await createProbe(page, "Undo probe z");
   await page.getByText("Undo probe z").click();
   await page.getByRole("button", { name: "Delete" }).click();
-  await expect(page.getByText("Event deleted")).toBeVisible();
+  await expect(page.locator("[data-sonner-toast]", { hasText: "Event deleted" })).toBeVisible();
 
   await page.keyboard.press("z");
   await expect(page.getByText("Undo probe z").first()).toBeVisible();
@@ -83,9 +83,10 @@ test("z still works after the toast has been dismissed", async ({ page }) => {
   await createProbe(page, "Undo probe late");
   await page.getByText("Undo probe late").click();
   await page.getByRole("button", { name: "Delete" }).click();
-  await expect(page.getByText("Event deleted")).toBeVisible();
+  const toast = page.locator("[data-sonner-toast]", { hasText: "Event deleted" });
+  await expect(toast).toBeVisible();
 
-  await expect(page.getByText("Event deleted")).toBeHidden({ timeout: 20_000 });
+  await expect(toast).toBeHidden({ timeout: 20_000 });
   await page.keyboard.press("z");
   await expect(page.getByText("Undo probe late").first()).toBeVisible();
   await deleteProbe(page, "Undo probe late");

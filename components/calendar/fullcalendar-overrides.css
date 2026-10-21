@@ -164,6 +164,28 @@ html .fc {
   background-color: var(--color-info-soft);
 }
 
+/* Phones in landscape leave the month grid roughly 150px; one event row would
+   make the table taller than its frame and break the locked-viewport contract.
+   Show the whole month and let Week/Day/List carry the detail there. */
+@media (max-height: 480px) {
+  /* Today's 28px number badge is taller than the 29px row the short grid can
+     afford; flatten it so the whole month still fits. */
+  .fc .fc-day-today .fc-daygrid-day-number {
+    display: block;
+    width: auto;
+    height: auto;
+    padding: 0 4px;
+    border-radius: 0;
+    background-color: transparent;
+    color: var(--color-ink);
+  }
+
+  .fc .fc-daygrid-day .fc-event,
+  .fc .fc-daygrid-day .fc-more-link {
+    display: none !important;
+  }
+}
+
 /* Events are keyboard focus stops; show where focus is without shifting the
    grid (the outline is drawn inside the viewport). */
 .fc .fc-event:focus-visible {

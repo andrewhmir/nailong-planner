@@ -21,9 +21,19 @@ interface Props {
   onToday: () => void;
   onNext: () => void;
   onNewEvent: () => void;
+  onShowShortcuts: () => void;
 }
 
-export function Toolbar({ label, view, onViewChange, onPrev, onToday, onNext, onNewEvent }: Props) {
+export function Toolbar({
+  label,
+  view,
+  onViewChange,
+  onPrev,
+  onToday,
+  onNext,
+  onNewEvent,
+  onShowShortcuts,
+}: Props) {
   return (
     <div className="mb-4 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
       <h2
@@ -84,10 +94,21 @@ export function Toolbar({ label, view, onViewChange, onPrev, onToday, onNext, on
 
         <Button
           size="md"
+          variant="outline"
+          aria-label="Keyboard shortcuts"
+          onClick={onShowShortcuts}
+          className="hidden w-[38px] px-0 md:inline-flex"
+        >
+          ?
+        </Button>
+
+        <Button
+          size="md"
           variant="primary"
           onClick={onNewEvent}
           aria-label="New event"
           data-testid="new-event-button"
+          className="hidden md:inline-flex"
         >
           + Event
         </Button>
