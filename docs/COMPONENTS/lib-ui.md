@@ -246,22 +246,26 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 ### lib/ui/searchBus.ts
 
-**Purpose** — A three-line event bus so "focus the search field" can be triggered from the shortcut layer, the mobile search button or a future command palette without prop drilling through the shell.
+**Purpose** — A tiny event bus with two channels: "focus the search field" (shortcut layer, mobile search button, future command palette) and "the user just picked this search result". Both avoid prop drilling through the shell.
 
 **Public API**
 - `focusSearch(): void` — `window.dispatchEvent(new CustomEvent(FOCUS_EVENT))`.
 - `onFocusSearch(callback: () => void): () => void` — adds a `window` listener for the same event and returns the removal function for effect cleanup.
+- `interface EventLink { date: string; eventId: string }` — the `YYYY-MM-DD` to jump to plus the chosen event id.
+- `announceEventLink(link: EventLink): void` — dispatches `"nailong:event-link"` with the link in `event.detail`, **before** the router push.
+- `onEventLink(callback: (link: EventLink) => void): () => void` — same listener/cleanup pair for that channel.
 
-**State & side effects** — No module state beyond the event-name constant `"nailong:focus-search"`; no detail payload, no storage, no URL params. Both functions touch `window`, so the module is `"use client"` and must not run during SSR. Every subscriber gets its own listener (no dedupe), and dispatch is synchronous.
+**State & side effects** — No module state beyond the two event-name constants `"nailong:focus-search"` and `"nailong:event-link"`; no storage, no URL params. Both functions touch `window`, so the module is `"use client"` and must not run during SSR. Every subscriber gets its own listener (no dedupe), and dispatch is synchronous.
 
-**Depends on / Used by** — No imports. Dispatched from `components/calendar/CalendarShell.tsx` (`onFocusSearch: focusSearch`, reached by the `/` shortcut) and subscribed once in `components/calendar/SearchBox.tsx` (`useEffect(() => onFocusSearch(() => inputRef.current?.focus()), [])`).
+**Depends on / Used by** — No imports. `focusSearch` is dispatched from `components/calendar/CalendarShell.tsx` (`onFocusSearch: focusSearch`, reached by the `/` shortcut) and subscribed once in `components/calendar/SearchBox.tsx` (`useEffect(() => onFocusSearch(() => inputRef.current?.focus()), [])`). `announceEventLink` is dispatched by `SearchBox.choose()` and subscribed by `CalendarShell`, which uses the click-time `overlaySeqRef` value as the deep link's baseline — `useSearchParams()` only reflects the new URL after the navigation commits, which is late enough for the user to start a new event.
 
 **Debugging**
 - `/` does not focus the field -> `SearchBox` is not mounted (its panel is closed), or the shortcut is disabled -> check `useKeyboardShortcuts` `enabled` and whether the search box renders.
 - Two components steal focus -> two `SearchBox` instances are mounted and both subscribe -> check the shell's render tree.
-- The listener leaks on remount -> the effect returned nothing; `onFocusSearch` returns the removal, so return it from `useEffect`.
+- A search result opens the details popover *and* leaves a newer quick-create bubble up -> the announced link is missing or its `date`/`eventId` do not match the pushed URL -> check `SearchBox.choose()` and the shell's `onEventLink` subscription.
+- The listener leaks on remount -> the effect returned nothing; both `on*` helpers return the removal, so return it from `useEffect`.
 
-**Tests** — No direct unit test; `tests/e2e/search.spec.ts` ("slash focuses search and Escape closes the results") covers it end to end.
+**Tests** — No direct unit test; `tests/e2e/search.spec.ts` ("slash focuses search and Escape closes the results", "starting a new event before the deep link lands never stacks two popups", "choosing a search result replaces an open quick-create bubble") covers both channels end to end.
 
 ### lib/ui/undo.ts
 
