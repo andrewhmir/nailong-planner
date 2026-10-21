@@ -96,7 +96,9 @@ rather not have edited.
   the next unused shade of it (up to 7 children per root). The event dialog's
   calendar picker shows that nesting (expand a root to reveal its children, and
   the list scrolls past 320px), and *display only this calendar* narrows the
-  grid to one calendar and assigns new events to it.
+  grid to one calendar and assigns new events to it. The sidebar tree folds the
+  same way — collapse one root's sub-calendars or a whole Shared/name group
+  heading, and the tree remembers what you folded per person.
 - **Google-Calendar-style events** — click-drag to create, drag to move, resize,
   all-day and timed events, IANA timezones.
 - **Recurring events** — RFC 5545 RRULE, with single-occurrence deletion via

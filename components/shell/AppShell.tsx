@@ -8,6 +8,7 @@ import { SidebarMiniMonth } from "@/components/sidebar/SidebarMiniMonth";
 import { Button } from "@/components/ui/button";
 import { MenuIcon } from "@/components/ui/icons";
 import type { TimeFormat } from "@/lib/services/preferences";
+import { useTreeFold } from "@/lib/ui/useTreeFold";
 import { useVisibility } from "@/lib/ui/useVisibility";
 import { Brand } from "./Brand";
 import { BreadcrumbBar } from "./BreadcrumbBar";
@@ -53,12 +54,14 @@ export function AppShell({
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const visibility = useVisibility(currentUser.id);
+  const fold = useTreeFold(currentUser.id);
   const partnerName = members.find((member) => !member.isSelf)?.name ?? "Partner";
   const activeCrumb = ROUTE_CRUMBS[pathname] ?? FALLBACK_CRUMB;
 
   const tree = (
     <CalendarTree
       visibility={visibility}
+      fold={fold}
       currentUserId={currentUser.id}
       currentUserName={currentUser.name}
       partnerName={partnerName}

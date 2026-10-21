@@ -92,3 +92,71 @@ test("the nav panel scrolls instead of pushing the page wide", async ({ page }) 
   );
   expect(pageOverflow).toBeLessThanOrEqual(1);
 });
+
+test("folding a parent hides its sub-calendars and remembers the fold", async ({ page }) => {
+  const math = page.getByRole("checkbox", { name: "Math", includeHidden: true });
+  await expect(math).toBeVisible();
+
+  await page.getByRole("button", { name: "Collapse School" }).click();
+  await expect(page.getByRole("button", { name: "Expand School" })).toBeVisible();
+  // Folded, not deleted: the rows stay in the sidebar's accessibility-hidden list.
+  await expect(math).toHaveCount(1);
+  await expect(math).toBeHidden();
+  // Folding is display-only: neither the parent nor the child's checkbox changes.
+  await expect(page.getByRole("checkbox", { name: "School" })).toBeChecked();
+  await expect(math).toBeChecked();
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Expand School" })).toBeVisible();
+  await expect(math).toBeHidden();
+
+  await page.getByRole("button", { name: "Expand School" }).click();
+  await expect(math).toBeVisible();
+  await expect(math).toBeChecked();
+});
+
+test("folding a group hides the whole group and remembers the fold", async ({ page }) => {
+  const school = page.getByRole("checkbox", { name: "School", includeHidden: true });
+  const work = page.getByRole("checkbox", { name: "Work", includeHidden: true });
+
+  await page.getByRole("button", { name: "Collapse Andrew" }).click();
+  await expect(page.getByRole("button", { name: "Expand Andrew" })).toBeVisible();
+  await expect(school).toBeHidden();
+  await expect(work).toBeHidden();
+  // Other people's groups are untouched.
+  await expect(page.getByRole("checkbox", { name: "Household" })).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Expand Andrew" })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Household" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Expand Andrew" }).click();
+  await expect(page.getByRole("checkbox", { name: "School" })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "School" })).toBeChecked();
+});
+
+test("adding a sub-calendar opens a folded parent", async ({ page }) => {
+  await page.getByRole("button", { name: "Collapse Work" }).click();
+  await expect(page.getByRole("checkbox", { name: "On-call", includeHidden: true })).toBeHidden();
+
+  await page.getByRole("button", { name: "Options for Work" }).click();
+  await page.getByRole("menuitem", { name: "Add sub-calendar" }).click();
+  await page.getByLabel("Name").fill("Sprint");
+  await page.getByRole("button", { name: "Save" }).click();
+
+  await expect(page.getByRole("button", { name: "Collapse Work" })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Sprint" })).toBeVisible();
+});
+
+test("a new root calendar opens its folded group", async ({ page }) => {
+  await page.getByRole("button", { name: "Collapse Shared" }).click();
+  await expect(page.getByRole("checkbox", { name: "Household", includeHidden: true })).toBeHidden();
+
+  await page.getByRole("button", { name: "New calendar" }).click();
+  await page.getByLabel("Name").fill("Garden");
+  await page.getByRole("button", { name: "Save" }).click();
+
+  await expect(page.getByRole("button", { name: "Collapse Shared" })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Garden" })).toBeVisible();
+});
+

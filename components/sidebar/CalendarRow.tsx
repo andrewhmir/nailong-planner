@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
-import { LockIcon, MoreVerticalIcon } from "@/components/ui/icons";
+import { ChevronRightIcon, LockIcon, MoreVerticalIcon } from "@/components/ui/icons";
 import { PARENT_SHADE_INDEX, shadeTokens, type HueFamily } from "@/lib/color/palette";
 import type { CalendarRow as CalendarRowType } from "@/lib/db/schema";
 import { cn } from "@/lib/utils";
@@ -23,6 +23,13 @@ interface Props {
   showViewOnlyBadge: boolean;
   /** The calendar "display only this calendar" is showing, if any. */
   onlyId: string | null;
+  /** Root rows with sub-calendars get a disclosure button. */
+  foldable?: boolean;
+  /** Whether this root's sub-calendars are currently shown. */
+  expanded?: boolean;
+  /** id of the sub-calendar list this row's disclosure button controls. */
+  controlsId?: string;
+  onToggleFold?: () => void;
   onToggle: () => void;
   onAddChild: () => void;
   onEdit: () => void;
@@ -40,6 +47,10 @@ export function CalendarRow({
   readOnly,
   showViewOnlyBadge,
   onlyId,
+  foldable = false,
+  expanded = true,
+  controlsId,
+  onToggleFold,
   onToggle,
   onAddChild,
   onEdit,
@@ -49,6 +60,7 @@ export function CalendarRow({
 }: Props) {
   const tokens = shadeTokens(ownerHue, isChild ? calendar.shadeIndex : PARENT_SHADE_INDEX);
   const isOnly = onlyId === calendar.id;
+  const canFold = foldable && onToggleFold !== undefined;
 
   return (
     <li
@@ -58,6 +70,25 @@ export function CalendarRow({
         isOnly && "bg-well",
       )}
     >
+      {/* Every row reserves the disclosure column, so checkboxes line up whether
+          or not the root has children and whether or not the branch is open. */}
+      {canFold ? (
+        <button
+          type="button"
+          aria-label={`${expanded ? "Collapse" : "Expand"} ${calendar.name}`}
+          aria-expanded={expanded}
+          aria-controls={controlsId}
+          onClick={onToggleFold}
+          className="grid h-5 w-5 shrink-0 place-items-center rounded-sm text-ink-mute hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-link"
+        >
+          <ChevronRightIcon
+            size={14}
+            className={cn("transition-transform", expanded && "rotate-90")}
+          />
+        </button>
+      ) : (
+        <span aria-hidden className="h-5 w-5 shrink-0" />
+      )}
       <Checkbox label={calendar.name} checked={checked} onCheckedChange={onToggle} />
       <span
         aria-hidden

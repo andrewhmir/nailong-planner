@@ -38,6 +38,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 | `tests/unit/view.test.ts` | `resolveInitialView`: `auto` → list on phones, month elsewhere; explicit views pass through | `npx vitest run tests/unit/view.test.ts` |
 | `tests/unit/visibility.test.ts` | Ours/mine/partner grouping, pill × checkbox multiplication, parent hides child, "only this calendar" outranks both | `npx vitest run tests/unit/visibility.test.ts` |
 | `tests/unit/visibleCalendars.test.ts` | The id set fed to the grid: isolated sub-calendar survives a hidden parent, a hidden root prunes its branch | `npx vitest run tests/unit/visibleCalendars.test.ts` |
+| `tests/unit/treeFold.test.ts` | Sidebar fold defaults are expanded, one group/calendar folds without touching its siblings, toggles stay immutable, corrupt or non-boolean storage falls back to expanded | `npx vitest run tests/unit/treeFold.test.ts` |
 | `tests/unit/calendarPicker.test.ts` | Picker rows and depth, expand/collapse, parent vs assigned shade colours, slate fallback, auto-expand for a selected child | `npx vitest run tests/unit/calendarPicker.test.ts` |
 | `tests/unit/icons.test.ts` | Icon contract: 1.5px `currentColor` stroke, no fill, 20px default, `aria-hidden` unless a `title` is given | `npx vitest run tests/unit/icons.test.ts` |
 
@@ -65,13 +66,13 @@ The suites are documented as lookup tables rather than one section per file: fin
 |---|---|---|
 | `tests/e2e/auth.spec.ts` | Unauthenticated redirect, login fields, a wrong password error, a successful sign-in, session survival across reload | `npx playwright test tests/e2e/auth.spec.ts` |
 | `tests/e2e/shell.spec.ts` | 54px rail, breadcrumb derived from the route, visible focus on the dark rail, 320px no-scroll, long-name truncation, real sign-out and a failed sign-out | `npx playwright test tests/e2e/shell.spec.ts` |
-| `tests/e2e/sidebar.spec.ts` | Household groups, child shade strip, visibility persistence, add sub-calendar, owned calendar creation, view-only toggle, person pill, long-name truncation, panel scrolling | `npx playwright test tests/e2e/sidebar.spec.ts` |
+| `tests/e2e/sidebar.spec.ts` | Household groups, child shade strip, visibility persistence, add sub-calendar, owned calendar creation, view-only toggle, person pill, long-name truncation, panel scrolling, parent and group folding with reload persistence, auto-open on add sub-calendar | `npx playwright test tests/e2e/sidebar.spec.ts` |
 | `tests/e2e/events.spec.ts` | Month grid with seeded events, create from the toolbar, edit/delete via the popover, drag to another day, weekly series in the next month, skipping one occurrence, week view | `npx playwright test tests/e2e/events.spec.ts` |
 | `tests/e2e/quick-create.spec.ts` | Click-a-day bubble, Enter saves, Escape discards, "More options" carries the draft, dirty-dialog guard, `Shift+C`, clicking an existing event replaces the bubble | `npx playwright test tests/e2e/quick-create.spec.ts` |
 | `tests/e2e/details.spec.ts` | Details show calendar and repeat summary, a later occurrence shows its own date (F28), Escape returns focus, Duplicate then Undo restores the count, no actions for the partner | `npx playwright test tests/e2e/details.spec.ts` |
 | `tests/e2e/undo.spec.ts` | Toast Undo, `Ctrl+Z`, `z`, `z` after the toast expires, a failed drag PATCH snapping back, `z` inside a title field doing nothing | `npx playwright test tests/e2e/undo.spec.ts` |
 | `tests/e2e/shortcuts.spec.ts` | `t`/`w` navigation, `c` opens the editor, `?` opens the sheet, the toolbar button opens it too, `z` vs `Delete`, the settings toggle disabling single keys | `npx playwright test tests/e2e/shortcuts.spec.ts` |
-| `tests/e2e/search.spec.ts` | Finds an event outside the loaded month and opens it, `/` focuses search, Escape closes results, the short-query hint, LIKE wildcards end to end, a quick-create started mid-deep-link never stacks two popups, a chosen result replaces an open bubble | `npx playwright test tests/e2e/search.spec.ts` |
+| `tests/e2e/search.spec.ts` | Finds an event outside the loaded month and opens it, `/` focuses search, Escape closes results, the short-query hint, opening the panel does not resize the field, LIKE wildcards end to end, a quick-create started mid-deep-link never stacks two popups, a chosen result replaces an open bubble | `npx playwright test tests/e2e/search.spec.ts` |
 | `tests/e2e/calendar-picker.spec.ts` | Nested picker reveals children only when expanded, the 320px scroll container, Escape closing only the list, the dialog's field using the same picker | `npx playwright test tests/e2e/calendar-picker.spec.ts` |
 | `tests/e2e/only-this-calendar.spec.ts` | Isolation shows and hides the right events, new events target the isolated calendar, "Show all" restores without touching saved boxes, a re-check leaves isolation, a view-only calendar can still be isolated | `npx playwright test tests/e2e/only-this-calendar.spec.ts` |
 | `tests/e2e/viewonly.spec.ts` | A partner sees a view-only event without edit affordances, the event still renders, visibility can still be toggled | `npx playwright test tests/e2e/viewonly.spec.ts` |
@@ -112,7 +113,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 | Design tokens and theme | `tests/e2e/design-tokens.spec.ts`; palette maths and contrast in `tests/unit/palette.test.ts` |
 | Auth and session | `tests/e2e/auth.spec.ts`; the two-account cap and hashing in `tests/integration/auth.test.ts` |
 | App shell, rail and breadcrumbs | `tests/e2e/shell.spec.ts` |
-| Sidebar tree and calendar management | `tests/e2e/sidebar.spec.ts`; nested-picker rendering in `tests/e2e/calendar-picker.spec.ts` |
+| Sidebar tree and calendar management | `tests/e2e/sidebar.spec.ts`; nested-picker rendering in `tests/e2e/calendar-picker.spec.ts`; fold-state rules in `tests/unit/treeFold.test.ts` |
 | FullCalendar Canvas styles | `tests/e2e/calendar-style.spec.ts`; the primitives' geometry in `tests/e2e/primitives.spec.ts` |
 | UI primitives (button, dialog, scrim) | `tests/e2e/primitives.spec.ts` |
 | Screenshots and fonts | `tests/e2e/screenshot.spec.ts` (with `CAPTURE_SCREENSHOTS=1`); the Lato assertion in `tests/e2e/design-tokens.spec.ts` |

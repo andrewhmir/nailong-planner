@@ -154,6 +154,48 @@ calendar still draws, or an undo action does nothing.
 
 **Tests** — `tests/unit/visibleCalendars.test.ts`; `tests/e2e/sidebar.spec.ts` and `tests/e2e/only-this-calendar.spec.ts` cover the rendered result.
 
+## Sidebar folding
+
+### lib/ui/treeFold.ts
+
+**Purpose** — The pure fold rules for the calendar sidebar: which groups and which root calendars are expanded. Folding is display-only — it hides a branch in the tree and never changes what the grid draws (that is `VisibilityState`'s job).
+
+**Public API**
+- `interface TreeFoldState { groups: Record<GroupKey, boolean>; calendars: Record<string, boolean> }` — `true` means expanded, and a missing entry means expanded, so an untouched tree looks exactly as it did before folding existed.
+- `DEFAULT_TREE_FOLD: TreeFoldState` — all three groups open, no calendar overrides.
+- `isGroupOpen(state, group): boolean`, `isCalendarOpen(state, id): boolean` — default `true` for missing entries.
+- `setGroupOpen(state, group, open): TreeFoldState`, `setCalendarOpen(state, id, open): TreeFoldState` — immutable copies; children fold with their root, so only root ids are stored.
+- `parseTreeFold(raw: string | null): TreeFoldState` — storage-read defence: malformed JSON, non-objects and non-boolean entries fall back to expanded; only real booleans are trusted.
+
+**State & side effects** — None; pure over its arguments. `useTreeFold` owns `localStorage`.
+
+**Depends on / Used by** — `GroupKey` from `./visibility`. Used by `lib/ui/useTreeFold.ts`; `components/sidebar/CalendarTree.tsx` reads it only through that hook.
+
+**Debugging**
+- A folded branch reappears after a reload -> `parseTreeFold` returned defaults, which happens when the stored JSON is not an object -> inspect `nailong.treeFold.<userId>`.
+- A branch folds although the user never touched it -> a stored entry is the wrong boolean, or a second writer used the same key -> the same storage key.
+- Folding is expected to hide grid calendars and does not -> wrong module: fold state must never be read by `isCalendarVisible`/`visibleCalendarIds` -> this file's header comment.
+
+**Tests** — `tests/unit/treeFold.test.ts`.
+
+### lib/ui/useTreeFold.ts
+
+**Purpose** — Holds the sidebar fold state in React and persists it per user in `localStorage`, exposing the expand/collapse mutators `CalendarTree` needs.
+
+**Public API** — `interface TreeFoldApi { isGroupOpen(group: GroupKey): boolean; isCalendarOpen(id: string): boolean; toggleGroup(group: GroupKey): void; toggleCalendar(id: string): void; expandGroup(group: GroupKey): void; expandCalendar(id: string): void }`; `useTreeFold(userId: string): TreeFoldApi`.
+
+**State & side effects** — `localStorage` key `nailong.treeFold.${userId}`; the value is `JSON.stringify(TreeFoldState)`. The read happens in an effect after mount (the server has no `localStorage`, so it cannot be a `useState` initialiser), then the write effect persists every change; both effects swallow storage exceptions, so private mode degrades to session-only folding. The write effect is gated on the key that was actually loaded (`loadedKey === storageKey`) rather than a boolean, so a `userId` change re-reads before writing and never persists the previous person's state under the new key. `expandGroup`/`expandCalendar` exist so a calendar created (or re-owned) into a folded group, or a sub-calendar added to a folded parent, is not silently hidden.
+
+**Depends on / Used by** — `DEFAULT_TREE_FOLD`, `parseTreeFold`, `isGroupOpen`, `isCalendarOpen`, `setGroupOpen`, `setCalendarOpen`, `TreeFoldState` from `./treeFold`; `GroupKey` from `./visibility`. Instantiated once in `components/shell/AppShell.tsx` (`useTreeFold(currentUser.id)`) and passed to `CalendarTree` as the `fold` prop, so the desktop sidebar and the phone sheet share one fold state.
+
+**Debugging**
+- Desktop and the phone sheet fold independently -> a second `useTreeFold` call was added instead of passing `AppShell`'s `fold` prop -> search for `useTreeFold(`.
+- Folding one tree does not move the other -> `AppShell` must own the only instance; two instances would also fight over the same storage key -> this hook's call count.
+- Fold state appears to belong to the previous account after switching users -> the write gate must compare `loadedKey` with `storageKey`; a plain `loaded` boolean reintroduces the stale write.
+- Fold state appears to belong to the wrong person -> the key is per user; clear `nailong.treeFold.*` when debugging a stale local profile.
+
+**Tests** — No direct unit test (Vitest runs in a Node environment with no DOM harness); persistence is covered end to end by `tests/e2e/sidebar.spec.ts` ("folding a parent hides its sub-calendars and remembers the fold", "folding a group hides the whole group and remembers the fold").
+
 ## Keyboard, media queries and debouncing
 
 ### lib/ui/useDebouncedValue.ts
@@ -295,6 +337,6 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 ## Focused verification
 
 ```bash
-npx vitest run tests/unit/calendarPicker.test.ts tests/unit/view.test.ts tests/unit/visibility.test.ts tests/unit/visibleCalendars.test.ts
+npx vitest run tests/unit/calendarPicker.test.ts tests/unit/view.test.ts tests/unit/visibility.test.ts tests/unit/visibleCalendars.test.ts tests/unit/treeFold.test.ts
 npm run lint && npm run typecheck
 ```

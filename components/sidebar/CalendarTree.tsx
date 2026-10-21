@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { PlusIcon } from "@/components/ui/icons";
+import { ChevronRightIcon, PlusIcon } from "@/components/ui/icons";
 import {
   CHILD_SHADE_ORDER,
   PARENT_SHADE_INDEX,
@@ -21,7 +21,9 @@ import {
   useUpdateCalendar,
 } from "@/lib/query/calendars";
 import { GROUP_ORDER, groupOf, isCalendarVisible, type GroupKey } from "@/lib/ui/visibility";
+import type { TreeFoldApi } from "@/lib/ui/useTreeFold";
 import type { VisibilityApi } from "@/lib/ui/useVisibility";
+import { cn } from "@/lib/utils";
 import { CalendarDialog, type CalendarDialogResult, type CalendarDialogState } from "./CalendarDialog";
 import { CalendarRow } from "./CalendarRow";
 
@@ -73,18 +75,28 @@ function previewShades(root: CalendarNode): string[] {
 
 interface Props {
   visibility: VisibilityApi;
+  fold: TreeFoldApi;
   currentUserId: string;
   currentUserName: string;
   partnerName: string;
 }
 
-export function CalendarTree({ visibility, currentUserId, currentUserName, partnerName }: Props) {
+export function CalendarTree({
+  visibility,
+  fold,
+  currentUserId,
+  currentUserName,
+  partnerName,
+}: Props) {
   const { data, isLoading, isError } = useCalendars();
   const createCalendar = useCreateCalendar();
   const updateCalendar = useUpdateCalendar();
   const deleteCalendar = useDeleteCalendar();
   const [dialog, setDialog] = useState<CalendarDialogState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<CalendarRowType | null>(null);
+  // The desktop aside and the phone sheet each mount this tree, so `aria-controls`
+  // ids must be per instance or the sheet would point at the hidden aside's list.
+  const instanceId = useId();
 
   const roots = data ?? [];
 
@@ -122,20 +134,40 @@ export function CalendarTree({ visibility, currentUserId, currentUserName, partn
               }
             : {}),
         },
-        { onSuccess: () => setDialog(null), onError },
+        {
+          onSuccess: (result) => {
+            // A rename or owner change must not end up hidden inside a folded
+            // group; open wherever the calendar now lives.
+            fold.expandGroup(groupOf(result.calendar, currentUserId));
+            setDialog(null);
+          },
+          onError,
+        },
       );
       return;
     }
 
+    const parentId = dialog.mode === "create-child" ? dialog.parentId : null;
     createCalendar.mutate(
       {
         name: values.name,
-        parentId: dialog.mode === "create-child" ? dialog.parentId : null,
+        parentId,
         hueFamily: values.hueFamily,
         ownerId: dialog.mode === "create-root" ? (values.ownerId ?? null) : undefined,
         isViewOnlyForPartner: values.isViewOnlyForPartner,
       },
-      { onSuccess: () => setDialog(null), onError },
+      {
+        onSuccess: (result) => {
+          // A new calendar must never be created inside a folded branch and
+          // therefore invisible: open its group, and its parent for a child.
+          fold.expandGroup(groupOf(result.calendar, currentUserId));
+          if (parentId) {
+            fold.expandCalendar(parentId);
+          }
+          setDialog(null);
+        },
+        onError,
+      },
     );
   }
 
@@ -201,12 +233,34 @@ export function CalendarTree({ visibility, currentUserId, currentUserName, partn
           return null;
         }
         const label = GROUP_LABEL[group](currentUserName, partnerName);
+        const open = fold.isGroupOpen(group);
+        const listId = `calendar-group-${instanceId}-${group}`;
         return (
           <section key={group} aria-label={label}>
-            <h3 className="px-3 pt-3 pb-1 text-xs font-bold text-ink">{label}</h3>
-            <ul>
+            <h3 className="px-3 pt-3 pb-1">
+              <button
+                type="button"
+                aria-label={`${open ? "Collapse" : "Expand"} ${label}`}
+                aria-expanded={open}
+                aria-controls={listId}
+                onClick={() => fold.toggleGroup(group)}
+                className="flex w-full items-center gap-1 rounded-sm text-left text-xs font-bold text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-link"
+              >
+                <ChevronRightIcon
+                  size={14}
+                  className={cn(
+                    "shrink-0 text-ink-mute transition-transform",
+                    open && "rotate-90",
+                  )}
+                />
+                <span className="min-w-0 truncate">{label}</span>
+              </button>
+            </h3>
+            <ul id={listId} hidden={!open}>
               {groupRoots.map((root) => {
                 const rootEffective = effectivePermission(root);
+                const openRoot = fold.isCalendarOpen(root.id);
+                const childrenId = `calendar-children-${instanceId}-${root.id}`;
                 return (
                   <li key={root.id}>
                     <ul>
@@ -218,6 +272,10 @@ export function CalendarTree({ visibility, currentUserId, currentUserName, partn
                         childShades={previewShades(root)}
                         readOnly={isReadOnlyFor(currentUserId, rootEffective)}
                         showViewOnlyBadge={isReadOnlyFor(currentUserId, rootEffective)}
+                        foldable={root.children.length > 0}
+                        expanded={openRoot}
+                        controlsId={root.children.length > 0 ? childrenId : undefined}
+                        onToggleFold={() => fold.toggleCalendar(root.id)}
                         onToggle={() => toggle(root, root.children)}
                         onAddChild={() => setDialog({ mode: "create-child", parentId: root.id })}
                         onEdit={() => setDialog({ mode: "edit", calendar: root })}
@@ -226,29 +284,33 @@ export function CalendarTree({ visibility, currentUserId, currentUserName, partn
                         onShowOnly={() => visibility.setOnly(root.id)}
                         onShowAll={() => visibility.setOnly(null)}
                       />
-                      {root.children.map((child) => {
-                        const childEffective = effectivePermission(child, root);
-                        return (
-                          <CalendarRow
-                            key={child.id}
-                            calendar={child}
-                            checked={isCalendarVisible(visibility.state, child, currentUserId, root)}
-                            isChild
-                            ownerHue={hueOf(root)}
-                            childShades={[]}
-                            readOnly={isReadOnlyFor(currentUserId, childEffective)}
-                            showViewOnlyBadge={isReadOnlyFor(currentUserId, childEffective)}
-                            onToggle={() => toggle(child)}
-                            onAddChild={() => undefined}
-                            onEdit={() => setDialog({ mode: "edit", calendar: child })}
-                            onDelete={() => confirmDelete(child)}
-                            onlyId={only}
-                            onShowOnly={() => visibility.setOnly(child.id)}
-                            onShowAll={() => visibility.setOnly(null)}
-                          />
-                        );
-                      })}
                     </ul>
+                    {root.children.length > 0 ? (
+                      <ul id={childrenId} hidden={!openRoot}>
+                        {root.children.map((child) => {
+                          const childEffective = effectivePermission(child, root);
+                          return (
+                            <CalendarRow
+                              key={child.id}
+                              calendar={child}
+                              checked={isCalendarVisible(visibility.state, child, currentUserId, root)}
+                              isChild
+                              ownerHue={hueOf(root)}
+                              childShades={[]}
+                              readOnly={isReadOnlyFor(currentUserId, childEffective)}
+                              showViewOnlyBadge={isReadOnlyFor(currentUserId, childEffective)}
+                              onToggle={() => toggle(child)}
+                              onAddChild={() => undefined}
+                              onEdit={() => setDialog({ mode: "edit", calendar: child })}
+                              onDelete={() => confirmDelete(child)}
+                              onlyId={only}
+                              onShowOnly={() => visibility.setOnly(child.id)}
+                              onShowAll={() => visibility.setOnly(null)}
+                            />
+                          );
+                        })}
+                      </ul>
+                    ) : null}
                   </li>
                 );
               })}
