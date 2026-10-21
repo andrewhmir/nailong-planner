@@ -1,8 +1,8 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
 import type { GroupKey } from "@/lib/ui/visibility";
 import type { VisibilityApi } from "@/lib/ui/useVisibility";
-import { cn } from "@/lib/utils";
 
 interface Props {
   visibility: VisibilityApi;
@@ -10,6 +10,14 @@ interface Props {
   partner: string;
 }
 
+/**
+ * Cross-check visibility toggles for the three calendar groups.
+ *
+ * Rendered with the shared `Button size="sm"` so they share the shell's boxy
+ * language (28px tall, 4px radius, 1px #d7dade) with the search/menu icon
+ * buttons beside them. "On" is the outline variant's grey fill; "off" drops to
+ * the plain surface so the pressed groups read as filled chips.
+ */
 export function PersonPills({ visibility, me, partner }: Props) {
   const pills: Array<{ group: GroupKey; label: string }> = [
     { group: "ours", label: "Ours" },
@@ -22,18 +30,17 @@ export function PersonPills({ visibility, me, partner }: Props) {
       {pills.map(({ group, label }) => {
         const on = visibility.state.groups[group];
         return (
-          <button
+          <Button
             key={group}
             type="button"
+            size="sm"
+            variant="outline"
             aria-pressed={on}
             onClick={() => visibility.setGroup(group, !on)}
-            className={cn(
-              "h-6 rounded-pill border border-line-strong px-2 text-sm font-normal transition-colors duration-200",
-              on ? "bg-surface text-ink hover:bg-well" : "bg-well text-ink-soft hover:text-ink",
-            )}
+            className={on ? undefined : "bg-surface text-ink-soft hover:bg-well hover:text-ink"}
           >
             {label}
-          </button>
+          </Button>
         );
       })}
     </div>
