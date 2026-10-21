@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { EventRow } from "@/lib/db/schema";
 import { expandOccurrences } from "@/lib/recurrence/expand";
-import { localWallTimeToUtc } from "@/lib/time/zone";
+import { localWallTimeToUtc, utcToLocalWallTime } from "@/lib/time/zone";
 
 const TAIPEI = "Asia/Taipei";
+const LONDON = "Europe/London";
 const at = (wall: string) => localWallTimeToUtc(wall, TAIPEI);
+const atLondon = (wall: string) => localWallTimeToUtc(wall, LONDON);
 
 function timedRule(overrides: Partial<EventRow> = {}): EventRow {
   return {
@@ -120,6 +122,104 @@ describe("expandOccurrences", () => {
       "2026-10-06",
       "2026-10-20",
       "2026-10-27",
+    ]);
+  });
+});
+
+describe("expandOccurrences in a DST timezone", () => {
+  function londonSeries(overrides: Partial<EventRow> = {}): EventRow {
+    return timedRule({
+      tzid: LONDON,
+      startAt: atLondon("2027-03-02T09:00"),
+      endAt: atLondon("2027-03-02T10:00"),
+      rrule: "FREQ=WEEKLY;BYDAY=TU",
+      ...overrides,
+    });
+  }
+
+  const wallTimes = (starts: Array<number | null>) =>
+    starts.map((start) => utcToLocalWallTime(start ?? 0, LONDON).slice(11));
+
+  it("keeps a weekly 09:00 series at 09:00 wall time across the spring change", () => {
+    const occurrences = expandOccurrences(
+      londonSeries(),
+      { from: atLondon("2027-03-01T00:00"), to: atLondon("2027-04-14T00:00") },
+      TAIPEI,
+    );
+
+    expect(occurrences.map((occurrence) => new Date(occurrence.startAt ?? 0).toISOString())).toEqual([
+      "2027-03-02T09:00:00.000Z",
+      "2027-03-09T09:00:00.000Z",
+      "2027-03-16T09:00:00.000Z",
+      "2027-03-23T09:00:00.000Z",
+      "2027-03-30T08:00:00.000Z",
+      "2027-04-06T08:00:00.000Z",
+      "2027-04-13T08:00:00.000Z",
+    ]);
+    expect(wallTimes(occurrences.map((occurrence) => occurrence.startAt))).toEqual(
+      Array(7).fill("09:00"),
+    );
+  });
+
+  it("keeps a weekly 09:00 series at 09:00 wall time across the autumn change", () => {
+    const occurrences = expandOccurrences(
+      londonSeries({
+        startAt: atLondon("2027-10-05T09:00"),
+        endAt: atLondon("2027-10-05T10:00"),
+      }),
+      { from: atLondon("2027-10-01T00:00"), to: atLondon("2027-11-17T00:00") },
+      TAIPEI,
+    );
+
+    expect(occurrences.map((occurrence) => new Date(occurrence.startAt ?? 0).toISOString())).toEqual([
+      "2027-10-05T08:00:00.000Z",
+      "2027-10-12T08:00:00.000Z",
+      "2027-10-19T08:00:00.000Z",
+      "2027-10-26T08:00:00.000Z",
+      "2027-11-02T09:00:00.000Z",
+      "2027-11-09T09:00:00.000Z",
+      "2027-11-16T09:00:00.000Z",
+    ]);
+    expect(wallTimes(occurrences.map((occurrence) => occurrence.startAt))).toEqual(
+      Array(7).fill("09:00"),
+    );
+  });
+
+  it("matches EXDATE instants against the event zone, not the household zone", () => {
+    const occurrences = expandOccurrences(
+      londonSeries({ exdates: JSON.stringify(["2027-03-30T08:00:00.000Z"]) }),
+      { from: atLondon("2027-03-01T00:00"), to: atLondon("2027-04-14T00:00") },
+      TAIPEI,
+    );
+
+    expect(occurrences.map((occurrence) => new Date(occurrence.startAt ?? 0).toISOString())).toEqual([
+      "2027-03-02T09:00:00.000Z",
+      "2027-03-09T09:00:00.000Z",
+      "2027-03-16T09:00:00.000Z",
+      "2027-03-23T09:00:00.000Z",
+      "2027-04-06T08:00:00.000Z",
+      "2027-04-13T08:00:00.000Z",
+    ]);
+  });
+
+  it("shifts an occurrence inside the spring-forward gap instead of dropping it", () => {
+    const series = londonSeries({
+      startAt: atLondon("2027-03-21T01:30"),
+      endAt: atLondon("2027-03-21T02:30"),
+      rrule: "FREQ=WEEKLY;BYDAY=SU",
+    });
+    const occurrences = expandOccurrences(
+      series,
+      { from: atLondon("2027-03-01T00:00"), to: atLondon("2027-04-05T00:00") },
+      TAIPEI,
+    );
+
+    // London's gap is 01:00–02:00 local: 2027-03-28 01:30 does not exist and is
+    // shifted by RFC 5545 §3.3.5 to 02:30 BST.
+    expect(wallTimes(occurrences.map((occurrence) => occurrence.startAt))).toEqual([
+      "01:30",
+      "02:30",
+      "01:30",
     ]);
   });
 });

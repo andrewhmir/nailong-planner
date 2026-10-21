@@ -1,6 +1,7 @@
 import { rrulestr } from "rrule";
 import type { EventRow } from "@/lib/db/schema";
-import { addDaysToDate, localWallTimeToUtc } from "@/lib/time/zone";
+import { AppError } from "@/lib/errors";
+import { addDaysToDate, localWallTimeToUtc, utcToLocalWallTime } from "@/lib/time/zone";
 
 export interface Occurrence {
   eventId: string;
@@ -18,6 +19,7 @@ export interface OccurrenceRange {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 
 function pad(value: number): string {
   return String(value).padStart(2, "0");
@@ -30,6 +32,38 @@ function utcStamp(ms: number): string {
     `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}` +
     `T${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`
   );
+}
+
+/**
+ * Reads an instant's wall-clock components in `zone` as if they were UTC. This
+ * is the "floating" coordinate system recurrence rules are defined in: a rule
+ * expanded on floating stamps keeps its wall-clock time across a DST change.
+ */
+function wallMsOf(instant: number, zone: string): number {
+  const [date, time] = utcToLocalWallTime(instant, zone).split("T");
+  const [year, month, day] = (date ?? "").split("-").map(Number);
+  const [hour, minute] = (time ?? "").split(":").map(Number);
+  return Date.UTC(year ?? 1970, (month ?? 1) - 1, day ?? 1, hour ?? 0, minute ?? 0);
+}
+
+/** Converts one floating stamp back into the real instant in `zone`. */
+function instantOf(wallMs: number, zone: string): number {
+  // RFC 5545 §3.3.5: a wall time inside the spring-forward gap is read with the
+  // offset that applied before the gap, i.e. it lands an hour later.
+  for (let shift = 0; shift < 3; shift += 1) {
+    const date = new Date(wallMs + shift * HOUR_MS);
+    const wall =
+      `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}` +
+      `T${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
+    try {
+      return localWallTimeToUtc(wall, zone);
+    } catch (error) {
+      if (!(error instanceof AppError)) {
+        throw error;
+      }
+    }
+  }
+  throw new AppError("VALIDATION", `That recurrence does not exist in ${zone}.`, 400);
 }
 
 function utcDateStamp(date: string): string {
@@ -119,17 +153,36 @@ function expandTimed(event: EventRow, range: OccurrenceRange, timezone: string):
   if (event.startAt === null) {
     return [plainOccurrence(event)];
   }
-  const rule = safeRule(event.rrule ?? "", utcStamp(event.startAt));
+  // A series keeps its wall-clock time in its own zone (the source calendar's
+  // TZID for imported events); the household zone is only the fallback.
+  const zone = event.tzid ?? timezone;
+  const startWall = wallMsOf(event.startAt, zone);
+  const rule = safeRule(event.rrule ?? "", utcStamp(startWall));
   if (!rule) {
     return [plainOccurrence(event)];
   }
 
   const duration = Math.max(0, (event.endAt ?? event.startAt) - event.startAt);
-  const { instants } = parseExdates(event, timezone);
-  const starts = rule.between(new Date(range.from - duration), new Date(range.to), true);
+  const { instants } = parseExdates(event, zone);
+  // Expand in floating wall time, then convert every occurrence back to an instant.
+  const after = new Date(wallMsOf(range.from, zone) - duration - DAY_MS);
+  const before = new Date(wallMsOf(range.to, zone) + DAY_MS);
+  const starts = rule.between(after, before, true);
 
   return starts
-    .map((start) => start.getTime())
+    .map((start) =>
+      instantOf(
+        Date.UTC(
+          start.getUTCFullYear(),
+          start.getUTCMonth(),
+          start.getUTCDate(),
+          start.getUTCHours(),
+          start.getUTCMinutes(),
+          start.getUTCSeconds(),
+        ),
+        zone,
+      ),
+    )
     .filter((start) => start >= event.startAt! && !instants.has(start))
     .map((start) => ({
       eventId: event.id,

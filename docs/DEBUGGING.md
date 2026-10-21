@@ -93,6 +93,12 @@ The request pipeline in one line:
 
 - `rrule` is an RFC 5545 RRULE string; `DTSTART` is reconstructed from the
   event's **own stored start**, never from "now".
+- A timed series is expanded in its **own wall-clock zone**: `event.tzid` when
+  set (imported Google series), otherwise the household zone. Expansion runs on
+  floating wall times and converts each occurrence back to an instant, so a
+  London 09:00 series stays at 09:00 after a DST change. A series that drifts by
+  an hour after a transition has a null/wrong `tzid`, not a bad start time —
+  do not "fix" it by editing `startAt`.
 - An invalid/unparseable RRULE **silently degrades to a single event** (`safeRule`
   returns null). If a series is not repeating, check the stored rule string first.
 - `exdates` is a JSON array. Accepted entries: `YYYY-MM-DD` (all-day),
