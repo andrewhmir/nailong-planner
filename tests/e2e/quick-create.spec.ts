@@ -80,6 +80,35 @@ test("closing a dirty full dialog asks before discarding", async ({ page }) => {
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
+test("clicking an existing event closes the quick-create bubble", async ({ page }) => {
+  // Seed the target through the API: other specs mutate the seed rows (events.spec
+  // renames and deletes "Math quiz"), so this must not depend on them.
+  const date = monthDay(8);
+  const created = await page.request.post("/api/events", {
+    data: {
+      calendarId: fixtures.calendars.household,
+      title: "Bubble target",
+      allDay: true,
+      startDate: date,
+      endDate: date,
+    },
+  });
+  expect(created.ok()).toBeTruthy();
+  await page.reload();
+  await expect(page.getByText("Bubble target")).toBeVisible();
+
+  // Open a bubble on another day so it does not cover the event chip.
+  await page.locator(`[data-date="${monthDay(24)}"]`).click({ position: { x: 8, y: 8 } });
+  await expect(page.getByLabel("Title")).toBeFocused();
+  await page.getByText("Bubble target").click();
+  // The details replace the bubble instead of stacking on top of it.
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await expect(page.getByRole("dialog")).toContainText("Bubble target");
+  await expect(page.getByRole("button", { name: "More options" })).toHaveCount(0);
+
+  await deleteProbe(page, "Bubble target");
+});
+
 test("Shift+C opens the bubble with today's default range", async ({ page }) => {
   await page.keyboard.press("Shift+c");
   await expect(page.getByLabel("Title")).toBeFocused();

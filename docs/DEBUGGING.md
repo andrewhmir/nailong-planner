@@ -190,6 +190,7 @@ any wrapper in the shell/calendar tree.
 | Shortcut fires while typing | the input is not recognized as editable by the guard | `lib/ui/useKeyboardShortcuts.ts` |
 | Settings change has no effect | preference cached by TanStack Query; check the query key and invalidation | `lib/query/preferences.ts`, `lib/services/preferences.ts` |
 | Wrong month on load / deep link | `?date=` / `?event=` parsing and remembered last view | `lib/ui/view.ts`, `lib/ui/lastView.ts`, `app/(app)/page.tsx` |
+| Two popups at once (event details over a new-event bubble, or the reverse) | two surfaces were opened without dismissing each other: the search deep-link poll landed after the user started creating, or an opener skipped clearing the other state | `components/calendar/CalendarShell.tsx` (`overlaySeqRef`/`linkSeqRef`; `openQuickCreate`, `openDialog`, `requestDeleteFor`, `handleEventClick` each clear the others) |
 | Mini-month dots do not match the grid | mini month derives its own event summary from the same visible-range query | `components/calendar/MiniMonth.tsx`, `components/sidebar/SidebarMiniMonth.tsx` |
 | Hydration mismatch in the calendar | `localStorage`/`matchMedia` read during render instead of in an effect | `lib/ui/useMediaQuery.ts`, `useVisibility.ts`, `view.ts` |
 | A calendar renders editable though it is view-only | `CalendarShell` calls `canWriteCalendar` with a viewer of `{ userId, householdId: "" }`; the predicate only reads `userId` today | `components/calendar/CalendarShell.tsx` (`readOnlyCalendarIds`), `lib/services/permissions.ts` |

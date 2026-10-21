@@ -40,7 +40,7 @@ import type { UserPreferences } from "@/lib/services/preferences";
 import { formatOccurrenceWhen } from "@/lib/time/format";
 import { addDaysToDate, utcToLocalDate, utcToLocalWallTime } from "@/lib/time/zone";
 import { readLastView, writeLastView } from "@/lib/ui/lastView";
-import { focusSearch } from "@/lib/ui/searchBus";
+import { focusSearch, onEventLink } from "@/lib/ui/searchBus";
 import { pushUndo, undoLast } from "@/lib/ui/undo";
 import { useKeyboardShortcuts } from "@/lib/ui/useKeyboardShortcuts";
 import { useMediaQuery } from "@/lib/ui/useMediaQuery";
@@ -189,6 +189,22 @@ export function CalendarShell({
   } | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
   const gridRef = useRef<HTMLElement | null>(null);
+  // Bumped by every surface that replaces the details popover. The search deep
+  // link lands asynchronously (it polls for the event block), so the poll needs
+  // to know whether the user opened something *after* picking the result: the
+  // most recent action wins instead of stacking two popups.
+  const overlaySeqRef = useRef(0);
+  const linkSeqRef = useRef<{ key: string; seq: number } | null>(null);
+
+  // The search box announces the click before it navigates, so the baseline is
+  // the click, not the moment `useSearchParams()` finally reflects the URL.
+  useEffect(
+    () =>
+      onEventLink(({ date, eventId }) => {
+        linkSeqRef.current = { key: `${date}|${eventId}`, seq: overlaySeqRef.current };
+      }),
+    [],
+  );
 
   const { data: events } = useEvents(range);
   const createEvent = useCreateEvent();
@@ -283,6 +299,12 @@ export function CalendarShell({
     if (handledLinkRef.current === linkKey) {
       return;
     }
+    // Re-runs caused by `visibleEvents` changes must keep the baseline taken when
+    // the result was clicked, or a surface opened mid-poll would look "newer".
+    if (linkSeqRef.current?.key !== linkKey) {
+      linkSeqRef.current = { key: linkKey, seq: overlaySeqRef.current };
+    }
+    const linkSeq = linkSeqRef.current.seq;
     if (dateParam) {
       calendarRef.current?.getApi().gotoDate(dateParam);
     }
@@ -294,6 +316,15 @@ export function CalendarShell({
     let attempts = 0;
     const timer = window.setInterval(() => {
       attempts += 1;
+      // The user started a new event / delete prompt after picking the result:
+      // their newer surface wins, so drop the deep link instead of stacking
+      // details on top of it.
+      if (overlaySeqRef.current !== linkSeq) {
+        window.clearInterval(timer);
+        handledLinkRef.current = linkKey;
+        router.replace("/", { scroll: false });
+        return;
+      }
       const element = document.querySelector<HTMLElement>(
         `[data-event-id="${CSS.escape(eventParam)}"]`,
       );
@@ -301,6 +332,10 @@ export function CalendarShell({
       if (element && target) {
         window.clearInterval(timer);
         handledLinkRef.current = linkKey;
+        // The result click is the newest action: it supersedes a quick-create
+        // bubble that was already up (desktop bubbles have no outside-click
+        // dismissal of their own).
+        setQuickDraft(null);
         setSelection({
           eventId: target.id,
           occurrenceStart:
@@ -411,8 +446,11 @@ export function CalendarShell({
 
   function openDialog(next: EventDialogState, dirty = false): void {
     rememberOpener();
+    overlaySeqRef.current += 1;
     setDialogDirty(dirty);
     setQuickDraft(null);
+    // One surface at a time: never leave the details popover under the form.
+    setSelection(null);
     setDialog(next);
   }
 
@@ -478,7 +516,11 @@ export function CalendarShell({
   }
 
   function openQuickCreate(draft: QuickCreateDraft): void {
+    overlaySeqRef.current += 1;
     setDialog(null);
+    // Clicking the grid to create dismisses the details popover even if its
+    // Radix outside-interaction did not fire.
+    setSelection(null);
     setQuickDraft(draft);
   }
 
@@ -568,6 +610,10 @@ export function CalendarShell({
       return;
     }
     const element = info.el as HTMLElement;
+    // Clicking an event supersedes a quick-create bubble: the desktop bubble has
+    // no outside-click dismissal, so the shell has to drop it here.
+    overlaySeqRef.current += 1;
+    setQuickDraft(null);
     setSelection({
       eventId: event.id,
       occurrenceStart:
@@ -671,6 +717,9 @@ export function CalendarShell({
 
   function requestDeleteFor(event: EventView, occurrenceStart: string) {
     if (event.rrule) {
+      // The scope prompt replaces the details popover; it must not sit under it.
+      overlaySeqRef.current += 1;
+      setSelection(null);
       setPendingDelete({ event, occurrenceStart });
       return;
     }
@@ -779,7 +828,10 @@ export function CalendarShell({
         gridRef.current?.focus();
       }
     },
-    onHelp: () => setHelpOpen(true),
+    onHelp: () => {
+      overlaySeqRef.current += 1;
+      setHelpOpen(true);
+    },
     onEscape: () => {
       if (selection) {
         setSelection(null);
