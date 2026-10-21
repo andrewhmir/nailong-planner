@@ -32,6 +32,22 @@ export const member = sqliteTable("member", {
     .$defaultFn(() => Date.now()),
 });
 
+/**
+ * One lazy row per user. Absent means "all defaults" — see
+ * `lib/services/preferences.ts`, which never inserts on read.
+ */
+export const userPreference = sqliteTable("user_preference", {
+  userId: text("user_id").primaryKey(),
+  defaultView: text("default_view").notNull().default("auto"),
+  timeFormat: text("time_format").notNull().default("24h"),
+  showWeekNumbers: integer("show_week_numbers").notNull().default(0),
+  shortcutsEnabled: integer("shortcuts_enabled").notNull().default(1),
+  lastEventCalendarId: text("last_event_calendar_id"),
+  updatedAt: integer("updated_at")
+    .notNull()
+    .$defaultFn(() => Date.now()),
+});
+
 export const calendar = sqliteTable(
   "calendar",
   {
@@ -103,6 +119,7 @@ export const event = sqliteTable(
 
 export type HouseholdRow = typeof household.$inferSelect;
 export type MemberRow = typeof member.$inferSelect;
+export type UserPreferenceRow = typeof userPreference.$inferSelect;
 export type CalendarRow = typeof calendar.$inferSelect;
 export type EventRow = typeof event.$inferSelect;
 
