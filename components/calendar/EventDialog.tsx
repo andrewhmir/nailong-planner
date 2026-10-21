@@ -5,7 +5,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { CalendarNode } from "@/lib/services/calendars";
 import type { EventView } from "@/lib/services/events";
-import { useCreateEvent, useUpdateEvent, type EventInputPayload } from "@/lib/query/events";
+import { useCreateEvent, useDeleteEvent, useUpdateEvent, type EventInputPayload } from "@/lib/query/events";
+import { pushUndo, undoLast } from "@/lib/ui/undo";
 import { addDaysToDate, localWallTimeToUtc, utcToLocalWallTime } from "@/lib/time/zone";
 
 export type RepeatRule = "none" | "daily" | "weekly" | "monthly" | "yearly";
@@ -78,6 +79,7 @@ export function EventDialog({
 }: Props) {
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
+  const deleteEvent = useDeleteEvent();
   const pending = createEvent.isPending || updateEvent.isPending;
 
   const initialStart = splitWall(initial.start);
@@ -149,7 +151,19 @@ export function EventDialog({
     }
 
     createEvent.mutate(buildPayload(), {
-      onSuccess: () => { toast.success("Event created"); onClose(); },
+      onSuccess: ({ event }) => {
+        pushUndo({
+          label: "Create event",
+          undo: async () => {
+            await deleteEvent.mutateAsync({ id: event.id, scope: "all" });
+          },
+        });
+        toast.success("Event created", {
+          action: { label: "Undo", onClick: () => void undoLast() },
+          duration: 10_000,
+        });
+        onClose();
+      },
       onError,
     });
   }

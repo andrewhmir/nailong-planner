@@ -20,14 +20,25 @@ import {
   type HueFamily,
 } from "@/lib/color/palette";
 import { useCalendars } from "@/lib/query/calendars";
-import { useDeleteEvent, useEvents, useUpdateEvent, type EventRange } from "@/lib/query/events";
+import { parseExdates } from "@/lib/query/eventCache";
+import {
+  useCreateEvent,
+  useDeleteEvent,
+  useEvents,
+  useUpdateEvent,
+  type EventInputPayload,
+  type EventRange,
+} from "@/lib/query/events";
 import { usePreferences } from "@/lib/query/preferences";
 import { expandOccurrences } from "@/lib/recurrence/expand";
 import type { CalendarNode } from "@/lib/services/calendars";
 import type { EventView } from "@/lib/services/events";
 import { canWriteCalendar } from "@/lib/services/permissions";
 import type { UserPreferences } from "@/lib/services/preferences";
+import { formatOccurrenceWhen } from "@/lib/time/format";
 import { addDaysToDate, utcToLocalDate, utcToLocalWallTime } from "@/lib/time/zone";
+import { pushUndo, undoLast } from "@/lib/ui/undo";
+import { useUndoHotkey } from "@/lib/ui/useUndoHotkey";
 import { isCalendarVisible } from "@/lib/ui/visibility";
 import { CalendarView, type RenderableOccurrence } from "./CalendarView";
 import { EventDialog, type EventDialogInitial } from "./EventDialog";
@@ -84,6 +95,36 @@ function seriesEndWall(event: EventView, timezone: string): string {
     : utcToLocalWallTime(event.endAt, timezone);
 }
 
+/** Rebuilds the create payload from a row so an undo can restore it verbatim. */
+function eventToPayload(event: EventView): EventInputPayload {
+  return {
+    calendarId: event.calendarId,
+    title: event.title,
+    description: event.description,
+    location: event.location,
+    allDay: event.allDay === 1,
+    startAt: event.startAt,
+    endAt: event.endAt,
+    startDate: event.startDate,
+    endDate: event.endDate,
+    rrule: event.rrule,
+    exdates: parseExdates(event.exdates),
+  };
+}
+
+function occurrenceKey(event: EventView): string {
+  return event.allDay === 1
+    ? (event.startDate ?? "")
+    : new Date(event.startAt ?? Date.now()).toISOString();
+}
+
+function undoToast(message: string): void {
+  toast.success(message, {
+    action: { label: "Undo", onClick: () => void undoLast() },
+    duration: 10_000,
+  });
+}
+
 export function CalendarShell({
   timezone,
   currentUserId,
@@ -94,6 +135,7 @@ export function CalendarShell({
   const { data: calendars } = useCalendars();
   const preferences = usePreferences(initialPreferences);
   const calendarRef = useRef<CalendarRef | null>(null);
+  useUndoHotkey();
 
   const [view, setView] = useState<PlannerView>("dayGridMonth");
   const [label, setLabel] = useState("Calendar");
@@ -112,6 +154,7 @@ export function CalendarShell({
   } | null>(null);
 
   const { data: events } = useEvents(range);
+  const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
 
@@ -296,6 +339,14 @@ export function CalendarShell({
       return;
     }
 
+    const previous: EventInputPayload = {
+      allDay: base.allDay === 1,
+      startAt: base.startAt,
+      endAt: base.endAt,
+      startDate: base.startDate,
+      endDate: base.endDate,
+    };
+
     const { start, end, allDay } = info.event;
     const payload = allDay
       ? {
@@ -319,7 +370,28 @@ export function CalendarShell({
 
     updateEvent.mutate(
       { id: base.id, ...payload },
-      { onError: (error) => toast.error(error.message) },
+      {
+        onSuccess: (result) => {
+          pushUndo({
+            label: "Move event",
+            undo: async () => {
+              await updateEvent.mutateAsync({ id: base.id, ...previous });
+            },
+          });
+          undoToast(
+            `Event moved to ${formatOccurrenceWhen(
+              result.event,
+              occurrenceKey(result.event),
+              timezone,
+              preferences.timeFormat,
+            )}`,
+          );
+        },
+        onError: (error) => {
+          info.revert();
+          toast.error(error.message);
+        },
+      },
     );
   }
 
@@ -327,15 +399,22 @@ export function CalendarShell({
     if (!selectedEvent || !selection) {
       return;
     }
-    if (selectedEvent.rrule) {
-      setPendingDelete({ event: selectedEvent, occurrenceStart: selection.occurrenceStart });
+    const event = selectedEvent;
+    if (event.rrule) {
+      setPendingDelete({ event, occurrenceStart: selection.occurrenceStart });
       return;
     }
     deleteEvent.mutate(
-      { id: selectedEvent.id, scope: "all" },
+      { id: event.id, scope: "all" },
       {
         onSuccess: () => {
-          toast.success("Event deleted");
+          pushUndo({
+            label: "Delete event",
+            undo: async () => {
+              await createEvent.mutateAsync(eventToPayload(event));
+            },
+          });
+          undoToast("Event deleted");
           setSelection(null);
         },
         onError: (error) => toast.error(error.message),
@@ -347,15 +426,35 @@ export function CalendarShell({
     if (!pendingDelete) {
       return;
     }
+    const { event, occurrenceStart } = pendingDelete;
     deleteEvent.mutate(
       {
-        id: pendingDelete.event.id,
+        id: event.id,
         scope,
-        occurrenceStart: scope === "this" ? pendingDelete.occurrenceStart : undefined,
+        occurrenceStart: scope === "this" ? occurrenceStart : undefined,
       },
       {
         onSuccess: () => {
-          toast.success(scope === "all" ? "Series deleted" : "Occurrence skipped");
+          if (scope === "all") {
+            pushUndo({
+              label: "Delete series",
+              undo: async () => {
+                await createEvent.mutateAsync(eventToPayload(event));
+              },
+            });
+            undoToast("Series deleted");
+          } else {
+            const remaining = parseExdates(event.exdates).filter(
+              (key) => key !== occurrenceStart,
+            );
+            pushUndo({
+              label: "Skip occurrence",
+              undo: async () => {
+                await updateEvent.mutateAsync({ id: event.id, exdates: remaining });
+              },
+            });
+            undoToast("Occurrence skipped");
+          }
           setPendingDelete(null);
           setSelection(null);
         },

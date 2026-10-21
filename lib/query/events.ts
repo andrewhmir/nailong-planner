@@ -1,6 +1,8 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
+import { shadeTokens } from "@/lib/color/palette";
+import { applyEventPatch, parseExdates, removeEvent, replaceEvent } from "@/lib/query/eventCache";
 import type { EventView } from "@/lib/services/events";
 
 export interface EventRange {
@@ -26,6 +28,8 @@ interface ApiErrorBody {
   error?: { message?: string };
 }
 
+type EventSnapshots = Array<[QueryKey, EventView[] | undefined]>;
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   const payload = (await response.json().catch(() => null)) as (T & ApiErrorBody) | null;
@@ -49,13 +53,64 @@ export function useEvents(range: EventRange | null) {
   });
 }
 
-function useInvalidateEvents() {
-  const queryClient = useQueryClient();
-  return () => queryClient.invalidateQueries({ queryKey: ["events"] });
+async function snapshotEvents(queryClient: QueryClient): Promise<EventSnapshots> {
+  await queryClient.cancelQueries({ queryKey: ["events"] });
+  return queryClient.getQueriesData<EventView[]>({ queryKey: ["events"] });
+}
+
+function restoreEvents(queryClient: QueryClient, snapshots: EventSnapshots | undefined): void {
+  for (const [key, data] of snapshots ?? []) {
+    queryClient.setQueryData(key, data);
+  }
+}
+
+function patchList(patch: EventInputPayload): Partial<EventView> {
+  const fields: Partial<EventView> = { updatedAt: Date.now() };
+  if (patch.calendarId !== undefined) fields.calendarId = patch.calendarId;
+  if (patch.title !== undefined) fields.title = patch.title;
+  if (patch.description !== undefined) fields.description = patch.description;
+  if (patch.location !== undefined) fields.location = patch.location;
+  if (patch.allDay !== undefined) fields.allDay = patch.allDay ? 1 : 0;
+  if (patch.startAt !== undefined) fields.startAt = patch.startAt;
+  if (patch.endAt !== undefined) fields.endAt = patch.endAt;
+  if (patch.startDate !== undefined) fields.startDate = patch.startDate;
+  if (patch.endDate !== undefined) fields.endDate = patch.endDate;
+  if (patch.rrule !== undefined) fields.rrule = patch.rrule;
+  if (patch.exdates !== undefined) {
+    fields.exdates = patch.exdates ? JSON.stringify(patch.exdates) : null;
+  }
+  return fields;
+}
+
+/** A placeholder row so a new event appears the instant Save is pressed. */
+function optimisticEvent(input: EventInputPayload): EventView {
+  const now = Date.now();
+  const allDay = input.allDay === true;
+  const day = new Date(now).toISOString().slice(0, 10);
+  return {
+    id: `temp-${crypto.randomUUID()}`,
+    householdId: "",
+    calendarId: input.calendarId ?? "",
+    title: input.title ?? "New event",
+    description: input.description ?? null,
+    location: input.location ?? null,
+    allDay: allDay ? 1 : 0,
+    startAt: allDay ? null : (input.startAt ?? now),
+    endAt: allDay ? null : (input.endAt ?? now + 60 * 60 * 1000),
+    startDate: allDay ? (input.startDate ?? day) : null,
+    endDate: allDay ? (input.endDate ?? input.startDate ?? day) : null,
+    rrule: input.rrule ?? null,
+    exdates: input.exdates ? JSON.stringify(input.exdates) : null,
+    createdBy: "",
+    createdAt: now,
+    updatedAt: now,
+    // The real colour arrives with the server row; slate is the neutral stand-in.
+    color: shadeTokens("slate", 1),
+  };
 }
 
 export function useCreateEvent() {
-  const invalidate = useInvalidateEvents();
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: EventInputPayload) =>
       requestJson<{ event: EventView }>("/api/events", {
@@ -63,12 +118,32 @@ export function useCreateEvent() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(input),
       }),
-    onSuccess: () => void invalidate(),
+    onMutate: async (input) => {
+      const snapshots = await snapshotEvents(queryClient);
+      const temp = optimisticEvent(input);
+      queryClient.setQueriesData<EventView[]>({ queryKey: ["events"] }, (old) =>
+        old ? [...old, temp] : old,
+      );
+      return { snapshots, tempId: temp.id };
+    },
+    onError: (_error, _input, context) => restoreEvents(queryClient, context?.snapshots),
+    onSuccess: (payload, _input, context) => {
+      const tempId = context?.tempId;
+      if (!tempId) {
+        return;
+      }
+      queryClient.setQueriesData<EventView[]>({ queryKey: ["events"] }, (old) =>
+        old && old.some((event) => event.id === tempId) ? replaceEvent(old, payload.event) : old,
+      );
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["events"] });
+    },
   });
 }
 
 export function useUpdateEvent() {
-  const invalidate = useInvalidateEvents();
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...input }: { id: string } & EventInputPayload) =>
       requestJson<{ event: EventView }>(`/api/events/${id}`, {
@@ -76,12 +151,22 @@ export function useUpdateEvent() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(input),
       }),
-    onSuccess: () => void invalidate(),
+    onMutate: async ({ id, ...input }) => {
+      const snapshots = await snapshotEvents(queryClient);
+      queryClient.setQueriesData<EventView[]>({ queryKey: ["events"] }, (old) =>
+        old ? applyEventPatch(old, id, patchList(input)) : old,
+      );
+      return { snapshots };
+    },
+    onError: (_error, _input, context) => restoreEvents(queryClient, context?.snapshots),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["events"] });
+    },
   });
 }
 
 export function useDeleteEvent() {
-  const invalidate = useInvalidateEvents();
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
       id,
@@ -102,6 +187,32 @@ export function useDeleteEvent() {
         throw new Error(payload?.error?.message ?? "Could not delete the event.");
       }
     },
-    onSuccess: () => void invalidate(),
+    onMutate: async ({ id, scope = "all", occurrenceStart }) => {
+      const snapshots = await snapshotEvents(queryClient);
+      if (scope === "this" && occurrenceStart) {
+        queryClient.setQueriesData<EventView[]>({ queryKey: ["events"] }, (old) => {
+          const target = old?.find((event) => event.id === id);
+          if (!old || !target) {
+            return old;
+          }
+          const exdates = parseExdates(target.exdates);
+          if (exdates.includes(occurrenceStart)) {
+            return old;
+          }
+          return applyEventPatch(old, id, {
+            exdates: JSON.stringify([...exdates, occurrenceStart]),
+          });
+        });
+      } else {
+        queryClient.setQueriesData<EventView[]>({ queryKey: ["events"] }, (old) =>
+          old ? removeEvent(old, id) : old,
+        );
+      }
+      return { snapshots };
+    },
+    onError: (_error, _input, context) => restoreEvents(queryClient, context?.snapshots),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["events"] });
+    },
   });
 }
