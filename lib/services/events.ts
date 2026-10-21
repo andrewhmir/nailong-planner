@@ -47,7 +47,8 @@ function householdTimezone(db: Database, ctx: ViewerContext): string {
   return row?.timezone ?? "Asia/Taipei";
 }
 
-function toView(db: Database, row: EventRow): EventView {
+/** Builds the client-facing row (adds the resolved colour tokens). */
+export function toView(db: Database, row: EventRow): EventView {
   const owner = db.select().from(calendar).where(eq(calendar.id, row.calendarId)).get();
   const color = owner ? resolveShade(db, owner) : shadeTokens("slate", 3);
   return { ...row, color };

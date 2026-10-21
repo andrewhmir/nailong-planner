@@ -101,9 +101,18 @@ export function CalendarView({
           const extended = info.event.extendedProps as {
             accent?: string;
             calendarName?: string;
+            eventId?: string;
+            occurrenceStart?: string;
           };
           // v7 dropped `borderColor`; the saturated bar is painted directly.
           info.el.style.borderLeftColor = String(extended.accent ?? "transparent");
+          // Deep links and notification links find the clicked block by these.
+          if (extended.eventId) {
+            info.el.setAttribute("data-event-id", extended.eventId);
+          }
+          if (extended.occurrenceStart) {
+            info.el.setAttribute("data-occurrence-start", extended.occurrenceStart);
+          }
           // FullCalendar 7 already gives every event `role="button" tabindex="0"`;
           // the label is what turns that focus stop into a spoken summary.
           const labelParts = [info.event.title];

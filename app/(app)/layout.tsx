@@ -7,6 +7,7 @@ import { getAuth } from "@/lib/auth/server";
 import { getDb } from "@/lib/db";
 import { household as householdTable, member, user as userTable } from "@/lib/db/schema";
 import { listMembers } from "@/lib/services/household";
+import { getPreferences } from "@/lib/services/preferences";
 
 // Every page here depends on the session cookie; never prerender.
 export const dynamic = "force-dynamic";
@@ -55,6 +56,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         currentUser={{ id: currentUser.id, name: currentUser.name }}
         members={members}
         householdName={householdRow?.name ?? "Our Nest"}
+        timezone={householdRow?.timezone ?? "Asia/Taipei"}
+        timeFormat={getPreferences(db, session.user.id).timeFormat}
       >
         {children}
       </AppShell>

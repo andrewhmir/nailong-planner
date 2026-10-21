@@ -12,6 +12,7 @@ import {
 import type { ViewerContext } from "@/lib/services/permissions";
 import { localWallTimeToUtc, utcToLocalDate } from "@/lib/time/zone";
 import { createEventSchema, updateEventSchema } from "@/lib/validation/events";
+import { searchEvents } from "@/lib/services/search";
 import { fieldErrors, guarded, readJson } from "./support";
 
 function pad2(value: number): string {
@@ -66,6 +67,28 @@ function parseRange(db: Database, ctx: ViewerContext, request: Request): EventRa
 export const listEventsHandler = guarded(
   (db: Database, ctx: ViewerContext, request: Request): Response =>
     NextResponse.json({ events: listEvents(db, ctx, parseRange(db, ctx, request)) }),
+);
+
+export const searchEventsHandler = guarded(
+  (db: Database, ctx: ViewerContext, request: Request): Response => {
+    const { searchParams } = new URL(request.url);
+    const query = searchParams.get("q");
+    if (query === null) {
+      throw new AppError("VALIDATION", "Type something to search for.", 400, {
+        q: "Type something to search for.",
+      });
+    }
+    const limitParam = searchParams.get("limit");
+    const limit = limitParam === null ? undefined : Number(limitParam);
+    return NextResponse.json({
+      events: searchEvents(
+        db,
+        ctx,
+        query,
+        limit !== undefined && Number.isFinite(limit) ? limit : undefined,
+      ),
+    });
+  },
 );
 
 export const createEventHandler = guarded(

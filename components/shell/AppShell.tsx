@@ -6,6 +6,7 @@ import { useState } from "react";
 import { CalendarTree } from "@/components/sidebar/CalendarTree";
 import { Button } from "@/components/ui/button";
 import { MenuIcon } from "@/components/ui/icons";
+import type { TimeFormat } from "@/lib/services/preferences";
 import { useVisibility } from "@/lib/ui/useVisibility";
 import { Brand } from "./Brand";
 import { BreadcrumbBar } from "./BreadcrumbBar";
@@ -22,6 +23,8 @@ interface Props {
   currentUser: { id: string; name: string };
   members: MemberSummary[];
   householdName: string;
+  timezone: string;
+  timeFormat: TimeFormat;
   children: React.ReactNode;
 }
 
@@ -38,7 +41,14 @@ const ROUTE_CRUMBS: Record<string, string> = {
 /** Any unlisted `(app)` route falls back to the app's home label. */
 const FALLBACK_CRUMB = "Calendar";
 
-export function AppShell({ currentUser, members, householdName, children }: Props) {
+export function AppShell({
+  currentUser,
+  members,
+  householdName,
+  timezone,
+  timeFormat,
+  children,
+}: Props) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const visibility = useVisibility(currentUser.id);
@@ -91,6 +101,8 @@ export function AppShell({ currentUser, members, householdName, children }: Prop
             visibility={visibility}
             me={currentUser.name}
             partner={partnerName}
+            timezone={timezone}
+            timeFormat={timeFormat}
             onOpenSidebar={() => setSidebarOpen(true)}
           />
 

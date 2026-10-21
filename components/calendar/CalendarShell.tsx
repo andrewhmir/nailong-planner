@@ -9,6 +9,7 @@ import type {
   EventDropInfo,
   EventResizeDoneInfo,
 } from "@fullcalendar/react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -164,6 +165,9 @@ export function CalendarShell({
   const { data: calendars } = useCalendars();
   const preferences = usePreferences(initialPreferences);
   const calendarRef = useRef<CalendarRef | null>(null);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const handledLinkRef = useRef<string | null>(null);
   useUndoHotkey();
 
   const [view, setView] = useState<PlannerView>("dayGridMonth");
@@ -266,6 +270,58 @@ export function CalendarShell({
     }
     return rendered;
   }, [visibleEvents, effectiveRange, timezone]);
+
+  // Search results navigate here as `/?date=…&event=…`: move the grid, wait for
+  // the range to load the event, then open its details anchored to its block.
+  useEffect(() => {
+    const dateParam = searchParams.get("date");
+    const eventParam = searchParams.get("event");
+    if (!dateParam && !eventParam) {
+      return;
+    }
+    const linkKey = `${dateParam ?? ""}|${eventParam ?? ""}`;
+    if (handledLinkRef.current === linkKey) {
+      return;
+    }
+    if (dateParam) {
+      calendarRef.current?.getApi().gotoDate(dateParam);
+    }
+    if (!eventParam) {
+      handledLinkRef.current = linkKey;
+      return;
+    }
+
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+      attempts += 1;
+      const element = document.querySelector<HTMLElement>(
+        `[data-event-id="${CSS.escape(eventParam)}"]`,
+      );
+      const target = visibleEvents.find((candidate) => candidate.id === eventParam);
+      if (element && target) {
+        window.clearInterval(timer);
+        handledLinkRef.current = linkKey;
+        setSelection({
+          eventId: target.id,
+          occurrenceStart:
+            element.dataset.occurrenceStart ??
+            (target.allDay === 1
+              ? (target.startDate ?? "")
+              : new Date(target.startAt ?? Date.now()).toISOString()),
+          anchorRect: element.getBoundingClientRect(),
+          anchorElement: element,
+        });
+        router.replace("/", { scroll: false });
+        return;
+      }
+      if (attempts > 100) {
+        window.clearInterval(timer);
+        handledLinkRef.current = linkKey;
+        router.replace("/", { scroll: false });
+      }
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [searchParams, visibleEvents, router]);
 
   const selectedEvent = selection
     ? (visibleEvents.find((event) => event.id === selection.eventId) ?? null)

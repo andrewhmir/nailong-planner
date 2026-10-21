@@ -1,0 +1,106 @@
+import { describe, expect, it } from "vitest";
+import type { Database } from "@/lib/db/client";
+import { createCalendar } from "@/lib/services/calendars";
+import { createEvent } from "@/lib/services/events";
+import type { ViewerContext } from "@/lib/services/permissions";
+import { searchEvents } from "@/lib/services/search";
+import type { CreateEventInput } from "@/lib/validation/events";
+import { localWallTimeToUtc } from "@/lib/time/zone";
+import { makeSeededDb } from "../helpers/fixtures";
+
+const TZ = "Asia/Taipei";
+
+function timedEvent(
+  db: Database,
+  ctx: ViewerContext,
+  calendarId: string,
+  overrides: Partial<CreateEventInput>,
+): void {
+  createEvent(db, ctx, {
+    calendarId,
+    title: "Untitled",
+    allDay: false,
+    startAt: localWallTimeToUtc("2026-10-21T09:00", TZ),
+    endAt: localWallTimeToUtc("2026-10-21T10:00", TZ),
+    ...overrides,
+  } as CreateEventInput);
+}
+
+describe("searchEvents", () => {
+  it("matches title, location and description case-insensitively", async () => {
+    const { db, close, ctxA } = await makeSeededDb();
+    try {
+      const calendar = createCalendar(db, ctxA, { name: "Home", hueFamily: "teal" });
+      timedEvent(db, ctxA, calendar.id, {
+        title: "Holiday in Kyoto",
+        location: "Kyoto Station",
+        description: "book the train",
+      });
+
+      expect(searchEvents(db, ctxA, "kyoto").length).toBe(1);
+      expect(searchEvents(db, ctxA, "HOLIDAY").length).toBe(1);
+      expect(searchEvents(db, ctxA, "train").length).toBe(1);
+    } finally {
+      close();
+    }
+  });
+
+  it("requires two characters and never crosses households", async () => {
+    const { db, close, ctxA, ctxOther } = await makeSeededDb();
+    try {
+      const calendar = createCalendar(db, ctxA, { name: "Home", hueFamily: "teal" });
+      timedEvent(db, ctxA, calendar.id, { title: "Holiday in Kyoto" });
+
+      expect(searchEvents(db, ctxA, "k")).toEqual([]);
+      expect(searchEvents(db, ctxA, "  k  ")).toEqual([]);
+      expect(searchEvents(db, ctxA, "kyoto")).toHaveLength(1);
+      expect(searchEvents(db, ctxOther, "kyoto")).toEqual([]);
+    } finally {
+      close();
+    }
+  });
+
+  it("returns a recurring series once, not one row per occurrence", async () => {
+    const { db, close, ctxA } = await makeSeededDb();
+    try {
+      const calendar = createCalendar(db, ctxA, { name: "School", hueFamily: "indigo" });
+      timedEvent(db, ctxA, calendar.id, {
+        title: "Weekly class",
+        rrule: "FREQ=WEEKLY;BYDAY=TU",
+      });
+
+      expect(searchEvents(db, ctxA, "weekly class")).toHaveLength(1);
+    } finally {
+      close();
+    }
+  });
+
+  it("escapes LIKE wildcards", async () => {
+    const { db, close, ctxA } = await makeSeededDb();
+    try {
+      const calendar = createCalendar(db, ctxA, { name: "Home", hueFamily: "teal" });
+      timedEvent(db, ctxA, calendar.id, { title: "100% sure" });
+      timedEvent(db, ctxA, calendar.id, { title: "100x sure" });
+
+      expect(searchEvents(db, ctxA, "100%").map((event) => event.title)).toEqual(["100% sure"]);
+    } finally {
+      close();
+    }
+  });
+
+  it("ranks title matches above description matches and honours the limit", async () => {
+    const { db, close, ctxA } = await makeSeededDb();
+    try {
+      const calendar = createCalendar(db, ctxA, { name: "Home", hueFamily: "teal" });
+      timedEvent(db, ctxA, calendar.id, { title: "Groceries", description: "pick up the milk" });
+      timedEvent(db, ctxA, calendar.id, { title: "Milk run" });
+      timedEvent(db, ctxA, calendar.id, { title: "Milk 2" });
+
+      const results = searchEvents(db, ctxA, "milk");
+      expect(results.map((event) => event.title)).toEqual(["Milk 2", "Milk run", "Groceries"]);
+      expect(searchEvents(db, ctxA, "milk", 2)).toHaveLength(2);
+    } finally {
+      close();
+    }
+  });
+});
