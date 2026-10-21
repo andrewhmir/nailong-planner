@@ -97,6 +97,38 @@ shifts by a day, or an API error carries the wrong code or status.
 
 **Tests** — `tests/unit/recurrence-label.test.ts`.
 
+## Import (Google Calendar)
+
+### lib/import/ics.ts
+
+**Purpose** — Parses a Google Calendar `.ics` export into the normalised event list the importer upserts: one calendar per file (`X-WR-CALNAME`), timed and all-day events, recurrence rules and exclusions, and `RECURRENCE-ID` overrides materialised as standalone rows.
+
+**Public API**
+- `interface IcsEvent { calendarName; uid; recurrenceId: string | null; title; description; location; allDay; startAt; endAt; startDate; endDate; tzid: string | null; rrule; exdates: string[]; externalKey; contentHash }` — `recurrenceId` is the date (`YYYY-MM-DD`) or ISO instant the row overrides; `exdates` are ISO instants for timed series and `YYYY-MM-DD` for all-day series.
+- `interface IcsWarning { uid; title; reason }`, `interface IcsCalendarSummary { name; events; recurring; overrides; earliest; latest }`, `interface IcsDropped { alarms; attendees; attachments }`, `interface ParsedIcs { calendars; events; warnings; dropped }`.
+- `parseIcs(text: string, householdTimezone: string, fallbackCalendarName?): ParsedIcs`.
+
+**State & side effects** — Pure: no I/O, no clock read. It throws `AppError("VALIDATION", "That file is not an iCalendar (.ics) document.")` only when the text is not iCalendar at all; one malformed VEVENT becomes a warning and the rest still import.
+
+**Parsing rules that matter**
+- `externalKey = sha256("ics|<uid>|<recurrenceId or empty>")` is the idempotency key; `contentHash` covers the imported fields and decides whether a re-import updates a row.
+- `tzid` is the property's `TZID` parameter (ical.js reports the value itself as floating); a `Z` timestamp or `UTC`/`Z` zone is stored as `tzid: null`, and a floating time is resolved in the household zone with `tzid: null`.
+- An unknown `TZID` (not accepted by `Intl.DateTimeFormat`) skips the event with a warning — never guess (spec R4).
+- All-day `DTEND` is exclusive in iCalendar and becomes an inclusive `endDate`; a missing `DTEND` falls back to `DURATION`, then to a one-day event.
+- A `RECURRENCE-ID` VEVENT becomes its own row with `rrule: null`, and its parent series gains that value in `exdates`, so the moved occurrence renders once.
+- VALARM / ATTENDEE / ATTACH are counted into `dropped` and not imported.
+
+**Depends on / Used by** — `ical.js` (2.2.1, pinned), `node:crypto`, `AppError`, and `addDaysToDate`/`localWallTimeToUtc`/`utcToLocalDate` from `lib/time/zone`. Called by `lib/services/import.ts` and `tests/unit/ics-parse.test.ts`; fixtures live in `tests/fixtures/ics/`.
+
+**Debugging**
+- An imported event lands at the wrong time -> the `TZID` parameter was dropped or the floating time resolved in the wrong zone -> check `resolveTime` and the event's stored `tzid`.
+- An all-day import gains a day -> the exclusive `DTEND` was stored as-is -> check the all-day branch in `parseVevent`.
+- An event is missing from the preview -> it was skipped with a warning (unknown zone, missing UID/DTSTART) -> read `warnings`.
+- Re-import duplicates rows -> `externalKey` changed (UID or `RECURRENCE-ID` read differently) -> compare `externalKey` across two parses.
+- Local date-times come back mangled from ical.js (`2026--1-1-...`) -> the raw ICS used jCal separators instead of RFC 5545 compact values (`20261103T090000`); Google exports are correct, hand-written fixtures must be too.
+
+**Tests** — `tests/unit/ics-parse.test.ts` (timed, all-day, recurring, overrides, edge cases), fixtures in `tests/fixtures/ics/`.
+
 ## Time and timezone
 
 ### lib/time/zone.ts
