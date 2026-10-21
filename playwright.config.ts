@@ -24,6 +24,7 @@ export default defineConfig({
     timeout: 180_000,
     env: {
       DATABASE_URL: "file:./.playwright/test.db",
+      NEXT_DIST_DIR: ".next-e2e",
       BETTER_AUTH_URL: BASE_URL,
       BETTER_AUTH_SECRET: "playwright-test-secret-0123456789abcdef",
       AUTH_RATE_LIMIT: "off",

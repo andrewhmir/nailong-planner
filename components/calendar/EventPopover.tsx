@@ -2,12 +2,15 @@
 
 import { Button } from "@/components/ui/button";
 import type { EventView } from "@/lib/services/events";
-import { utcToLocalWallTime } from "@/lib/time/zone";
+import type { TimeFormat } from "@/lib/services/preferences";
+import { formatOccurrenceWhen } from "@/lib/time/format";
 
 interface Props {
   event: EventView;
+  occurrenceStart: string;
   color: string;
   timezone: string;
+  timeFormat: TimeFormat;
   readOnly: boolean;
   onEdit: () => void;
   onDelete: () => void;
@@ -16,21 +19,16 @@ interface Props {
 
 export function EventPopover({
   event,
+  occurrenceStart,
   color,
   timezone,
+  timeFormat,
   readOnly,
   onEdit,
   onDelete,
   onClose,
 }: Props) {
-  const when =
-    event.allDay === 1
-      ? event.startDate === event.endDate
-        ? `${event.startDate} · all day`
-        : `${event.startDate} → ${event.endDate} · all day`
-      : event.startAt !== null && event.endAt !== null
-        ? `${utcToLocalWallTime(event.startAt, timezone)} → ${utcToLocalWallTime(event.endAt, timezone).split("T")[1]}`
-        : "No time";
+  const when = formatOccurrenceWhen(event, occurrenceStart, timezone, timeFormat);
 
   return (
     <div className="fixed inset-x-4 bottom-4 z-50 mx-auto max-w-sm rounded-md border border-line-strong bg-surface p-4 shadow-menu sm:inset-x-auto sm:right-6 sm:bottom-6">

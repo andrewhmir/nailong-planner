@@ -34,6 +34,7 @@ async function main(): Promise<void> {
   // Clear the previous run's rows instead of deleting the file: a dev server may
   // still hold the SQLite handle, and truncating keeps the run deterministic.
   for (const table of [
+    schema.userPreference,
     schema.event,
     schema.calendar,
     schema.member,

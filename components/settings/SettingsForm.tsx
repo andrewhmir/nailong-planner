@@ -3,7 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { CalendarPreferencesCard } from "@/components/settings/CalendarPreferencesCard";
 import { Button } from "@/components/ui/button";
+import type { UserPreferences } from "@/lib/services/preferences";
 import { cn } from "@/lib/utils";
 
 interface HouseholdValues {
@@ -15,6 +17,8 @@ interface HouseholdValues {
 interface Props {
   initialName: string;
   initialHousehold: HouseholdValues;
+  initialPreferences: UserPreferences;
+  currentUserId: string;
 }
 
 const TIMEZONES = [
@@ -43,12 +47,18 @@ const CARD_HEADING = "border-b border-line pb-3 text-2xl font-normal text-ink";
 const SECTIONS = [
   { id: "profile", label: "Profile" },
   { id: "household", label: "Household" },
+  { id: "calendar", label: "Calendar" },
   { id: "account", label: "Account" },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]["id"];
 
-export function SettingsForm({ initialName, initialHousehold }: Props) {
+export function SettingsForm({
+  initialName,
+  initialHousehold,
+  initialPreferences,
+  currentUserId,
+}: Props) {
   const router = useRouter();
   const [name, setName] = useState(initialName);
   const [household, setHousehold] = useState<HouseholdValues>(initialHousehold);
@@ -283,6 +293,11 @@ export function SettingsForm({ initialName, initialHousehold }: Props) {
             </Button>
           </div>
         </section>
+
+        <CalendarPreferencesCard
+          initialPreferences={initialPreferences}
+          currentUserId={currentUserId}
+        />
 
         <div id="account" className="scroll-mt-6 space-y-6">
           <section className={CARD}>

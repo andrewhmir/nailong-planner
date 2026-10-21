@@ -19,8 +19,8 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 export const preferencesKey = ["preferences"] as const;
 
 /** Seeded from the server layout, so the first paint already has the right preferences. */
-export function usePreferences(initialData: UserPreferences) {
-  return useQuery({
+export function usePreferences(initialData: UserPreferences): UserPreferences {
+  const { data } = useQuery({
     queryKey: preferencesKey,
     queryFn: async () =>
       (await requestJson<{ preferences: UserPreferences }>("/api/settings/preferences"))
@@ -28,6 +28,7 @@ export function usePreferences(initialData: UserPreferences) {
     initialData,
     staleTime: Infinity,
   });
+  return data ?? initialData;
 }
 
 export function useUpdatePreferences() {

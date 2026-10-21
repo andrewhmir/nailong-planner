@@ -21,10 +21,12 @@ import {
 } from "@/lib/color/palette";
 import { useCalendars } from "@/lib/query/calendars";
 import { useDeleteEvent, useEvents, useUpdateEvent, type EventRange } from "@/lib/query/events";
+import { usePreferences } from "@/lib/query/preferences";
 import { expandOccurrences } from "@/lib/recurrence/expand";
 import type { CalendarNode } from "@/lib/services/calendars";
 import type { EventView } from "@/lib/services/events";
 import { canWriteCalendar } from "@/lib/services/permissions";
+import type { UserPreferences } from "@/lib/services/preferences";
 import { addDaysToDate, utcToLocalDate, utcToLocalWallTime } from "@/lib/time/zone";
 import { isCalendarVisible } from "@/lib/ui/visibility";
 import { CalendarView, type RenderableOccurrence } from "./CalendarView";
@@ -37,6 +39,7 @@ interface Props {
   timezone: string;
   currentUserId: string;
   weekStartsOn: number;
+  preferences: UserPreferences;
 }
 
 type SelectInfo = DateSelectInfo & { start: Date; end: Date; allDay: boolean };
@@ -81,9 +84,15 @@ function seriesEndWall(event: EventView, timezone: string): string {
     : utcToLocalWallTime(event.endAt, timezone);
 }
 
-export function CalendarShell({ timezone, currentUserId, weekStartsOn }: Props) {
+export function CalendarShell({
+  timezone,
+  currentUserId,
+  weekStartsOn,
+  preferences: initialPreferences,
+}: Props) {
   const visibility = useVisibilityApi();
   const { data: calendars } = useCalendars();
+  const preferences = usePreferences(initialPreferences);
   const calendarRef = useRef<CalendarRef | null>(null);
 
   const [view, setView] = useState<PlannerView>("dayGridMonth");
@@ -370,6 +379,7 @@ export function CalendarShell({ timezone, currentUserId, weekStartsOn }: Props) 
       <CalendarView
         calendarRef={calendarRef}
         timezone={timezone}
+        timeFormat={preferences.timeFormat}
         firstDay={weekStartsOn}
         occurrences={occurrences}
         readOnlyCalendarIds={readOnlyCalendarIds}
@@ -400,8 +410,10 @@ export function CalendarShell({ timezone, currentUserId, weekStartsOn }: Props) 
       {selectedEvent && selection ? (
         <EventPopover
           event={selectedEvent}
+          occurrenceStart={selection.occurrenceStart}
           color={selectedColor}
           timezone={timezone}
+          timeFormat={preferences.timeFormat}
           readOnly={selectedIsReadOnly}
           onClose={() => setSelection(null)}
           onEdit={() => {

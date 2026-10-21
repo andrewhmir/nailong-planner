@@ -5,6 +5,7 @@ import { CalendarShell } from "@/components/calendar/CalendarShell";
 import { getAuth } from "@/lib/auth/server";
 import { getDb } from "@/lib/db";
 import { household as householdTable, member } from "@/lib/db/schema";
+import { getPreferences } from "@/lib/services/preferences";
 
 export default async function CalendarPage() {
   const session = await getAuth().api.getSession({ headers: await headers() });
@@ -34,6 +35,7 @@ export default async function CalendarPage() {
       timezone={household?.timezone ?? "Asia/Taipei"}
       currentUserId={session.user.id}
       weekStartsOn={household?.weekStartsOn ?? 0}
+      preferences={getPreferences(db, session.user.id)}
     />
   );
 }

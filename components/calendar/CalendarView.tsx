@@ -18,6 +18,8 @@ import timeGridPlugin from "@fullcalendar/react/timegrid";
 import type { RefObject } from "react";
 import type { Occurrence } from "@/lib/recurrence/expand";
 import type { EventView } from "@/lib/services/events";
+import type { TimeFormat } from "@/lib/services/preferences";
+import { fcEventTimeFormat } from "@/lib/time/format";
 import { occurrenceToFcEvent } from "./toFcEvent";
 
 import "@fullcalendar/react/skeleton.css";
@@ -33,6 +35,7 @@ export interface RenderableOccurrence {
 interface Props {
   calendarRef: RefObject<CalendarRef | null>;
   timezone: string;
+  timeFormat: TimeFormat;
   firstDay: number;
   occurrences: RenderableOccurrence[];
   readOnlyCalendarIds: ReadonlySet<string>;
@@ -45,6 +48,7 @@ interface Props {
 export function CalendarView({
   calendarRef,
   timezone,
+  timeFormat,
   firstDay,
   occurrences,
   readOnlyCalendarIds,
@@ -116,7 +120,14 @@ export function CalendarView({
         eventClick={onEventClick}
         eventDrop={onEventMove}
         eventResize={onEventMove}
-        eventTimeFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
+        eventTimeFormat={fcEventTimeFormat(timeFormat)}
+        // The slot gutter has room for a clock, not a clock plus minutes in
+        // 12-hour mode; 24-hour keeps the minute so "09:30" stays readable.
+        slotHeaderFormat={
+          timeFormat === "12h"
+            ? { hour: "numeric", hour12: true }
+            : { hour: "2-digit", minute: "2-digit", hour12: false }
+        }
       />
     </div>
   );

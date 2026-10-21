@@ -7,6 +7,7 @@ import { ChevronLeftIcon } from "@/components/ui/icons";
 import { getAuth } from "@/lib/auth/server";
 import { getDb } from "@/lib/db";
 import { household as householdTable, member } from "@/lib/db/schema";
+import { getPreferences } from "@/lib/services/preferences";
 
 export default async function SettingsPage() {
   const session = await getAuth().api.getSession({ headers: await headers() });
@@ -50,6 +51,8 @@ export default async function SettingsPage() {
           timezone: household?.timezone ?? "Asia/Taipei",
           weekStartsOn: household?.weekStartsOn ?? 0,
         }}
+        initialPreferences={getPreferences(db, session.user.id)}
+        currentUserId={session.user.id}
       />
     </div>
   );

@@ -15,6 +15,10 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // The E2E server runs its own `next dev` beside the developer's server in the
+  // same checkout; Next 16 takes a per-distDir dev lock, so the suite points
+  // NEXT_DIST_DIR at .next-e2e/ rather than fighting over .next/.
+  distDir: process.env.NEXT_DIST_DIR ?? ".next",
   output: "standalone",
   reactStrictMode: true,
   // Next's dev badge floats over the bottom-left corner of the viewport, which
