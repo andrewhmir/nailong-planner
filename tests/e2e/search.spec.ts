@@ -37,6 +37,19 @@ test("short query shows the hint, not an empty box", async ({ page }) => {
   await expect(page.getByText("Search titles, notes and locations.")).toBeVisible();
 });
 
+test("opening the results panel does not resize the search field", async ({ page }) => {
+  const search = page.getByLabel("Search events").first();
+  // The bordered field wrapper is the input's parent; the input itself is a fixed
+  // width, so the wrapper is what used to grow to the results panel's width.
+  const field = search.locator("..");
+  const before = await field.boundingBox();
+  await search.click();
+  await expect(page.getByText("Search titles, notes and locations.")).toBeVisible();
+  const after = await field.boundingBox();
+  console.log(`field width before=${before?.width} after=${after?.width}`);
+  expect(Math.abs((after?.width ?? 0) - (before?.width ?? 0))).toBeLessThanOrEqual(1);
+});
+
 test("search escapes LIKE wildcards end to end", async ({ page }) => {
   await page.getByLabel("Search events").first().fill("%%");
   await expect(page.getByText(/No matches for/)).toBeVisible();

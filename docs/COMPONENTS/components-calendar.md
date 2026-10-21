@@ -210,6 +210,7 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 - Results stay for the previous query -> `keepPreviousData` is intentional; check `isFetching` is passed to the overlay for the "Searching…" state.
 - Picking a result does not move the grid -> the pushed URL lost `date` or `event` -> `choose`/`navigableDateFor`.
 - Results panel is clipped on a phone -> the caller did not pass `inline` -> `BreadcrumbBar`.
+- The field widens as soon as it is focused/clicked -> the panel's `26rem` width was on an in-flow wrapper inside this shrink-to-fit header block, so the `w-full` field grew to match it -> keep the width on the floating panel (`SearchResultsOverlay`), never on a flow wrapper. Regression: `tests/e2e/search.spec.ts` "does not resize the search field".
 
 **Tests** — `tests/e2e/search.spec.ts`, `tests/e2e/shell.spec.ts` (search button placement).
 
@@ -219,7 +220,7 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 
 **Public API** — `export function SearchResultsOverlay(props: Props)`. Props: `id` (listbox id), `query`, `results: EventView[] | undefined`, `isFetching`, `activeIndex`, `timezone`, `timeFormat`, `inline?: boolean`, `onSelect(event)`, `onActiveIndexChange(index)`. Internal helpers `highlight`, `monthLabel`, `dayNumber`, `rowTime`.
 
-**State & side effects** — No state. Reads `useCalendars()` for id→name, groups rows by `monthLabel(navigableDateFor(event, timezone))` (insertion order), and renders `role="listbox"`/`role="option"` with `aria-selected`, `aria-activedescendant` targets and an `aria-live` result count. `highlight` marks the first case-insensitive match for queries of 2+ chars. With fewer than 2 trimmed characters it shows the hint instead of an empty list. `inline` switches `absolute left-0 top-full` to `mt-2`.
+**State & side effects** — No state. Reads `useCalendars()` for id→name, groups rows by `monthLabel(navigableDateFor(event, timezone))` (insertion order), and renders `role="listbox"`/`role="option"` with `aria-selected`, `aria-activedescendant` targets and an `aria-live` result count. `highlight` marks the first case-insensitive match for queries of 2+ chars. With fewer than 2 trimmed characters it shows the hint instead of an empty list. `inline` switches `absolute left-0 top-full` (which carries the floating `w-[26rem] max-w-[calc(100vw-2rem)]` width — the panel is out of flow, so the width must live here and never on an in-flow wrapper) to `mt-2`.
 
 **Depends on / Used by** — `lib/query/calendars`, `lib/query/search` (`navigableDateFor`), `lib/time/format`, `lib/utils` (`cn`). Rendered only by `SearchBox`.
 

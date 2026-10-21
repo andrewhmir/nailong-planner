@@ -97,7 +97,9 @@ export function SearchResultsOverlay({
     <div
       className={cn(
         "rounded-md border border-line-strong bg-surface shadow-menu",
-        inline ? "mt-2" : "absolute left-0 top-full z-50 mt-1",
+        // The panel is out of flow when floating: its width must live here, not on
+        // an in-flow wrapper, or the shrink-to-fit header field grows to match it.
+        inline ? "mt-2" : "absolute left-0 top-full z-50 mt-1 w-[26rem] max-w-[calc(100vw-2rem)]",
       )}
     >
       <p aria-live="polite" className="sr-only">

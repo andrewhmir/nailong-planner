@@ -157,20 +157,18 @@ export function SearchBox({ timezone, timeFormat, inline = false, autoFocus = fa
       </div>
 
       {open ? (
-        <div className={inline ? undefined : "w-[26rem] max-w-[calc(100vw-2rem)]"}>
-          <SearchResultsOverlay
-            id={listId}
-            query={debounced}
-            results={results}
-            isFetching={isFetching}
-            activeIndex={activeRow}
-            timezone={timezone}
-            timeFormat={timeFormat}
-            inline={inline}
-            onSelect={choose}
-            onActiveIndexChange={setActiveIndex}
-          />
-        </div>
+        <SearchResultsOverlay
+          id={listId}
+          query={debounced}
+          results={results}
+          isFetching={isFetching}
+          activeIndex={activeRow}
+          timezone={timezone}
+          timeFormat={timeFormat}
+          inline={inline}
+          onSelect={choose}
+          onActiveIndexChange={setActiveIndex}
+        />
       ) : null}
     </div>
   );
