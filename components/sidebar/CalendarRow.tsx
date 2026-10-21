@@ -4,6 +4,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -20,10 +21,14 @@ interface Props {
   childShades: string[];
   readOnly: boolean;
   showViewOnlyBadge: boolean;
+  /** The calendar "display only this calendar" is showing, if any. */
+  onlyId: string | null;
   onToggle: () => void;
   onAddChild: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onShowOnly: () => void;
+  onShowAll: () => void;
 }
 
 export function CalendarRow({
@@ -34,18 +39,23 @@ export function CalendarRow({
   childShades,
   readOnly,
   showViewOnlyBadge,
+  onlyId,
   onToggle,
   onAddChild,
   onEdit,
   onDelete,
+  onShowOnly,
+  onShowAll,
 }: Props) {
   const tokens = shadeTokens(ownerHue, isChild ? calendar.shadeIndex : PARENT_SHADE_INDEX);
+  const isOnly = onlyId === calendar.id;
 
   return (
     <li
       className={cn(
         "group flex h-8 min-w-0 items-center gap-2 rounded-sm px-3 hover:bg-well",
         isChild && "ml-5",
+        isOnly && "bg-well",
       )}
     >
       <Checkbox label={calendar.name} checked={checked} onCheckedChange={onToggle} />
@@ -79,31 +89,41 @@ export function CalendarRow({
         </span>
       ) : null}
 
-      {readOnly ? null : (
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            aria-label={`Options for ${calendar.name}`}
-            className={cn(
-              "grid h-6 w-6 shrink-0 place-items-center rounded-sm text-ink-mute transition-opacity",
-              "opacity-0 hover:text-ink focus-visible:opacity-100 data-[state=open]:opacity-100",
-              "group-hover:opacity-100 group-focus-within:opacity-100",
-            )}
-          >
-            <MoreVerticalIcon size={16} />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            {!isChild ? (
-              <DropdownMenuItem onSelect={onAddChild}>Add sub-calendar</DropdownMenuItem>
-            ) : null}
+      {/* The menu now renders for view-only calendars too: isolating one for a
+          read is exactly what that row is for, even though editing is locked. */}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label={`Options for ${calendar.name}`}
+          className={cn(
+            "grid h-6 w-6 shrink-0 place-items-center rounded-sm text-ink-mute transition-opacity",
+            "opacity-0 hover:text-ink focus-visible:opacity-100 data-[state=open]:opacity-100",
+            "group-hover:opacity-100 group-focus-within:opacity-100",
+          )}
+        >
+          <MoreVerticalIcon size={16} />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          {!isChild && !readOnly ? (
+            <DropdownMenuItem onSelect={onAddChild}>Add sub-calendar</DropdownMenuItem>
+          ) : null}
+          {readOnly ? null : (
             <DropdownMenuItem onSelect={onEdit}>
               {isChild ? "Rename" : "Calendar settings"}
             </DropdownMenuItem>
+          )}
+          {readOnly ? null : (
             <DropdownMenuItem danger onSelect={onDelete}>
               Delete
             </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+          )}
+          <DropdownMenuSeparator />
+          {isOnly ? (
+            <DropdownMenuItem onSelect={onShowAll}>Display all calendars</DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onSelect={onShowOnly}>Display only this calendar</DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </li>
   );
 }

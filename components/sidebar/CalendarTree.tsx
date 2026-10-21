@@ -88,6 +88,13 @@ export function CalendarTree({ visibility, currentUserId, currentUserName, partn
 
   const roots = data ?? [];
 
+  const only = visibility.state.only;
+  const onlyName = only
+    ? roots
+        .flatMap((root) => [root, ...root.children])
+        .find((calendar) => calendar.id === only)?.name
+    : undefined;
+
   function toggle(calendar: CalendarRowType, children: CalendarRowType[] = []) {
     const parent = calendar.parentId ? roots.find((root) => root.id === calendar.parentId) : undefined;
     const currentlyVisible = isCalendarVisible(visibility.state, calendar, currentUserId, parent);
@@ -171,6 +178,23 @@ export function CalendarTree({ visibility, currentUserId, currentUserName, partn
         <p className="px-3 py-2 text-sm text-danger-ink">Could not load calendars.</p>
       ) : null}
 
+      {onlyName ? (
+        <div
+          role="status"
+          className="mx-3 mt-2 flex items-center gap-2 rounded-md bg-well px-2 py-1.5 text-sm text-ink"
+        >
+          <span className="min-w-0 flex-1 truncate">Showing only {onlyName}</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => visibility.setOnly(null)}
+            className="shrink-0 text-link"
+          >
+            Show all
+          </Button>
+        </div>
+      ) : null}
+
       {GROUP_ORDER.map((group) => {
         const groupRoots = roots.filter((root) => groupOf(root, currentUserId) === group);
         if (groupRoots.length === 0) {
@@ -198,6 +222,9 @@ export function CalendarTree({ visibility, currentUserId, currentUserName, partn
                         onAddChild={() => setDialog({ mode: "create-child", parentId: root.id })}
                         onEdit={() => setDialog({ mode: "edit", calendar: root })}
                         onDelete={() => confirmDelete(root)}
+                        onlyId={only}
+                        onShowOnly={() => visibility.setOnly(root.id)}
+                        onShowAll={() => visibility.setOnly(null)}
                       />
                       {root.children.map((child) => {
                         const childEffective = effectivePermission(child, root);
@@ -215,6 +242,9 @@ export function CalendarTree({ visibility, currentUserId, currentUserName, partn
                             onAddChild={() => undefined}
                             onEdit={() => setDialog({ mode: "edit", calendar: child })}
                             onDelete={() => confirmDelete(child)}
+                            onlyId={only}
+                            onShowOnly={() => visibility.setOnly(child.id)}
+                            onShowAll={() => visibility.setOnly(null)}
                           />
                         );
                       })}

@@ -361,6 +361,22 @@ export function CalendarShell({
     [calendars, readOnlyCalendarIds],
   );
 
+  // "Display only this calendar" also sets where new events land — but only
+  // when that calendar is writable; isolating a view-only one leaves creation
+  // on the settings default.
+  const defaultEventCalendarId = useMemo(() => {
+    const only = visibility.state.only;
+    if (only) {
+      const writable = writableCalendars.some(
+        (root) => root.id === only || root.children.some((child) => child.id === only),
+      );
+      if (writable) {
+        return only;
+      }
+    }
+    return preferences.lastEventCalendarId;
+  }, [preferences.lastEventCalendarId, visibility.state.only, writableCalendars]);
+
   function changeView(next: PlannerView) {
     viewChosenByUser.current = true;
     calendarRef.current?.getApi().changeView(next);
@@ -830,7 +846,7 @@ export function CalendarShell({
         <QuickCreatePopover
           draft={quickDraft}
           calendars={writableCalendars}
-          defaultCalendarId={preferences.lastEventCalendarId}
+          defaultCalendarId={defaultEventCalendarId}
           timezone={timezone}
           timeFormat={preferences.timeFormat}
           onClose={() => setQuickDraft(null)}
@@ -876,6 +892,7 @@ export function CalendarShell({
                 initialRule={dialog.initialRule}
                 timezone={timezone}
                 calendars={writableCalendars}
+                defaultCalendarId={defaultEventCalendarId}
                 onClose={finishCloseDialog}
                 onCancel={requestCloseDialog}
                 onDirtyChange={setDialogDirty}

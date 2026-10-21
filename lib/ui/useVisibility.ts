@@ -8,6 +8,8 @@ export interface VisibilityApi {
   setGroup: (group: GroupKey, visible: boolean) => void;
   toggleCalendar: (id: string) => void;
   setCalendars: (ids: string[], visible: boolean) => void;
+  /** `null` clears "display only this calendar". */
+  setOnly: (id: string | null) => void;
 }
 
 /** Visibility state persisted per user in `localStorage`. */
@@ -27,6 +29,7 @@ export function useVisibility(userId: string): VisibilityApi {
         setState({
           groups: { ...DEFAULT_VISIBILITY.groups, ...(parsed.groups ?? {}) },
           calendars: parsed.calendars ?? {},
+          only: typeof parsed.only === "string" ? parsed.only : null,
         });
       }
     } catch {
@@ -51,6 +54,8 @@ export function useVisibility(userId: string): VisibilityApi {
     setState((previous) => ({
       ...previous,
       groups: { ...previous.groups, [group]: visible },
+      // Touching the pills is how you leave the isolated view.
+      only: null,
     }));
   }, []);
 
@@ -58,6 +63,7 @@ export function useVisibility(userId: string): VisibilityApi {
     setState((previous) => ({
       ...previous,
       calendars: { ...previous.calendars, [id]: !(previous.calendars[id] ?? true) },
+      only: null,
     }));
   }, []);
 
@@ -67,9 +73,13 @@ export function useVisibility(userId: string): VisibilityApi {
       for (const id of ids) {
         next[id] = visible;
       }
-      return { ...previous, calendars: next };
+      return { ...previous, calendars: next, only: null };
     });
   }, []);
 
-  return { state, setGroup, toggleCalendar, setCalendars };
+  const setOnly = useCallback((id: string | null) => {
+    setState((previous) => ({ ...previous, only: id }));
+  }, []);
+
+  return { state, setGroup, toggleCalendar, setCalendars, setOnly };
 }

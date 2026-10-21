@@ -12,6 +12,13 @@ export function visibleCalendarIds(
   state: VisibilityState,
   userId: string,
 ): Set<string> {
+  // "Display only this calendar" is exact, and it may name a sub-calendar whose
+  // parent is filtered out. Returning it directly avoids the branch being pruned
+  // below before the isolated child is ever reached.
+  if (state.only !== null) {
+    return new Set([state.only]);
+  }
+
   const ids = new Set<string>();
   for (const root of roots) {
     if (!isCalendarVisible(state, root, userId)) {

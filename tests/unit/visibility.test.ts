@@ -54,3 +54,41 @@ describe("calendar visibility", () => {
     expect(isCalendarVisible(parentHidden, child, viewer, parent)).toBe(false);
   });
 });
+
+describe("display only this calendar", () => {
+  it("draws exactly the isolated calendar and nothing else", () => {
+    const only: VisibilityState = { ...DEFAULT_VISIBILITY, only: "c1" };
+
+    expect(isCalendarVisible(only, calendar({ id: "c1" }), viewer)).toBe(true);
+    expect(isCalendarVisible(only, calendar({ id: "c2" }), viewer)).toBe(false);
+  });
+
+  it("outranks the pills and the per-calendar checkboxes", () => {
+    // Even with every pill off and the isolated calendar's own box unticked, the
+    // view the user explicitly asked for is what gets drawn.
+    const only: VisibilityState = {
+      ...DEFAULT_VISIBILITY,
+      groups: { ours: false, me: false, partner: false },
+      calendars: { c1: false },
+      only: "c1",
+    };
+
+    expect(isCalendarVisible(only, calendar({ id: "c1" }), viewer)).toBe(true);
+  });
+
+  it("keeps a parent's sub-calendars hidden — only that one calendar is drawn", () => {
+    const only: VisibilityState = { ...DEFAULT_VISIBILITY, only: "parent-id" };
+    const parent = calendar({ id: "parent-id" });
+    const child = calendar({ id: "child-id", parentId: "parent-id" });
+
+    expect(isCalendarVisible(only, parent, viewer)).toBe(true);
+    expect(isCalendarVisible(only, child, viewer, parent)).toBe(false);
+  });
+
+  it("restores the normal view once cleared", () => {
+    const cleared: VisibilityState = { ...DEFAULT_VISIBILITY, only: null };
+
+    expect(isCalendarVisible(cleared, calendar({ id: "c1" }), viewer)).toBe(true);
+    expect(isCalendarVisible(cleared, calendar({ id: "c2" }), viewer)).toBe(true);
+  });
+});
