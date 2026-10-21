@@ -151,6 +151,24 @@ Private helpers: `pad2`, `currentMonthRange` (household timezone -> first of thi
 
 **Tests** — `tests/integration/settings-api.test.ts` (household name/timezone/week start, invalid timezone, blank name, profile name).
 
+### lib/api/handlers/import.ts
+
+**Purpose** — Adapters for the four Google Calendar import routes: reads the multipart upload (repeated `files` fields and an optional JSON `mapping` field), hands the text to `lib/services/import.ts`, and returns the preview, report, history or rollback result.
+
+**Public API** — `previewImportHandler(db, ctx, request): Promise<Response>` -> `200 { preview }`; `commitImportHandler(db, ctx, request): Promise<Response>` -> `201 { report }`; `listImportBatchesHandler(db, ctx): Response` -> `200 { batches }`; `rollbackImportBatchHandler(db, ctx, id): Response` -> `200 { rollback }`.
+
+**State & side effects** — Reads the uploaded text into memory (the service enforces the 5 MB / 20-file / 50 000-event caps); the handlers themselves write nothing. A missing or malformed `mapping` field is `400 VALIDATION` before the service runs; a non-object mapping is rejected with `fields.mapping`. Every other status (403/404/409) comes from the service and travels through `guarded` -> `apiError` unchanged.
+
+**Depends on / Used by** — `guarded` from `./support`, `AppError`, `Database`, `ViewerContext`, and the four service functions. Used by `app/api/import/preview/route.ts`, `app/api/import/commit/route.ts`, `app/api/import/batches/route.ts` and `app/api/import/batches/[id]/rollback/route.ts`; those routes only add `withViewer` plus `dynamic = "force-dynamic"`.
+
+**Debugging**
+- 400 "Send the export as multipart/form-data." -> the client posted JSON or an empty body -> check the `FormData` construction in `components/import/ImportWizard.tsx`.
+- 400 "Send the calendar mapping as JSON." -> the mapping field was not serialised -> `readImportRequest`.
+- The upload arrives with no files -> the form field name must be exactly `files`.
+- A 500 on commit -> an unexpected throw outside `AppError` -> read the server log; the SQLite transaction rolled back.
+
+**Tests** — `tests/integration/import-api.test.ts` (preview/commit/list/rollback through the handlers, mapping errors, status codes, route wiring).
+
 ### lib/api/handlers/support.ts
 
 **Purpose** — The three helpers every handler uses: an error boundary, a JSON body reader, and a Zod-to-`fields` mapper.
@@ -164,7 +182,7 @@ Private helpers: `pad2`, `currentMonthRange` (household timezone -> first of thi
 
 **State & side effects** — None; no DB, no logging, no side effects beyond consuming the request body (`readJson` can only be called once per request).
 
-**Depends on / Used by** — `apiError` from `lib/api/route.ts`, `AppError`, `ZodError` type, `NextResponse`. Imported by `handlers/calendars.ts`, `handlers/events.ts`, `handlers/preferences.ts`, `handlers/settings.ts`.
+**Depends on / Used by** — `apiError` from `lib/api/route.ts`, `AppError`, `ZodError` type, `NextResponse`. Imported by `handlers/calendars.ts`, `handlers/events.ts`, `handlers/import.ts`, `handlers/preferences.ts`, `handlers/settings.ts`.
 
 **Debugging**
 - 400 "Send a JSON body." with no `fields` -> the body was empty or not JSON, so validation never ran -> `readJson` at the top of the handler.

@@ -259,6 +259,66 @@ Handlers in `lib/api/handlers/events.ts`; range parsing, search clamping and the
 
 **Tests** — `tests/integration/events-api.test.ts`, `tests/e2e/events.spec.ts`, `tests/e2e/undo.spec.ts`, `tests/e2e/details.spec.ts`.
 
+## Import routes
+
+Google Calendar import over `lib/api/handlers/import.ts`: the browser uploads exported `.ics` files as `multipart/form-data` (repeated `files` fields) plus an optional JSON `mapping` field. No OAuth, no network calls; the service parses in memory and caps the payload at 5 MB / 50 000 events. All four read the viewer through `withViewer`, so 401/403 behave like every other route.
+
+### app/api/import/preview/route.ts
+
+**Purpose** — Parses the uploaded calendars and reports what a commit would do, without writing.
+
+**API** — `POST` multipart: one to twenty `files` fields (each an `.ics` document) → `200 { preview: ImportPreview }` with per-calendar `{ name, events, recurring, overrides, earliest, latest, createCount, updateCount, unchangedCount }`, totals, `warnings` (unknown TZIDs, skipped events) and `dropped` ({ alarms, attendees, attachments }). Errors: 400 "Send the export as multipart/form-data.", "Choose at least one .ics file.", "That export is too large (5 MB max).", "That file is not an iCalendar (.ics) document.".
+
+**State & side effects** — Read-only: parses the files, looks up existing rows by `external_key` to classify create/update/unchanged, and returns counts. Nothing is persisted, not even the upload.
+
+**Depends on / Used by** — `withViewer`; `previewImportHandler`; `previewImport` from `lib/services/import.ts`. Client: step 1 of `components/import/ImportWizard.tsx`, which posts the selected `File[]` and keeps them in state for the commit.
+
+**Debugging** — Preview shows fewer events than the file contains -> the skipped events are named in `warnings` -> unknown TZID or missing UID/DTSTART -> check `parseIcs`. Every event says `createCount` on a re-import -> `external_key` is unstable -> compare two parses.
+
+**Tests** — `tests/integration/import-api.test.ts`, `tests/unit/ics-parse.test.ts`.
+
+### app/api/import/commit/route.ts
+
+**Purpose** — Applies the mapping and writes the events in one transaction.
+
+**API** — `POST` multipart: the same `files` fields plus a required JSON `mapping` field (`{ [sourceCalendarName]: { mode: "new" } | { mode: "existing", calendarId } }`) → `201 { report: ImportReport }` with `{ batchId, created, updated, unchanged, calendarsCreated, warnings, dropped }`. Errors: 400 for a missing/malformed `mapping` ("Send the calendar mapping as JSON.", "Choose where each calendar goes."), a missing entry per source calendar (`fields["mapping.<name>"]`), or the preview's file errors; 403 "This calendar is view-only." when a chosen existing target denies the write (nothing is written — the transaction is rolled back); 404 for a calendar outside the household.
+
+**State & side effects** — One SQLite transaction: creates `From Google` roots/children as needed (reusing a same-named child on a re-import), inserts or updates events by `external_key`, writes one `import_batch` plus one `import_change` per event. `unchanged` events are not written.
+
+**Depends on / Used by** — `withViewer`; `commitImportHandler`; `commitImport` from `lib/services/import.ts`. Client: step 3 of `ImportWizard.tsx`, which then shows the report and invalidates `["events"]`/`["calendars"]`.
+
+**Debugging** — Commit 403s -> the target calendar is view-only for the viewer -> pick a writable calendar; nothing was written. Commit succeeds but the calendar shows no events -> the events landed in the mapped calendar, which may be collapsed in the sidebar -> check `calendarsCreated` and the calendar tree. Re-import counts everything as `unchanged` after editing an event in Nailong -> the import compares the source file's hash, not the row.
+
+**Tests** — `tests/integration/import-api.test.ts`, `tests/integration/import-service.test.ts`, `tests/e2e/import.spec.ts`.
+
+### app/api/import/batches/route.ts
+
+**Purpose** — Import history for Settings, newest first.
+
+**API** — `GET` → `200 { batches: ImportBatchView[] }` with `{ id, sourceName, createdAt, status: "committed" | "rolled_back", rolledBackAt, created, updated }`. Errors: 401/403 from `withViewer`.
+
+**State & side effects** — Read-only, household-scoped: reads `import_batch` and the counts stored in its JSON report.
+
+**Depends on / Used by** — `withViewer`; `listImportBatchesHandler`; `listImportBatches`. Client: `components/import/ImportBatchesCard.tsx`.
+
+**Debugging** — A batch is missing -> it belongs to the other household (queries are household-scoped) -> check `household_id`. Counts are 0 -> the stored report JSON is absent/corrupt -> `parseStoredReport` falls back to zeros.
+
+**Tests** — `tests/integration/import-api.test.ts`.
+
+### app/api/import/batches/[id]/rollback/route.ts
+
+**Purpose** — Undoes one committed import batch.
+
+**API** — `POST` (empty body) → `200 { rollback: { batchId, deleted, restored, skipped, calendarsDeleted } }`. Errors: 404 "Import batch not found." for an unknown or other-household id, 409 "This import has already been undone." when the batch is not `committed`.
+
+**State & side effects** — One transaction: deletes events the batch created, restores updated events from `before_json`, skips any event whose `updatedAt` is newer than the batch (the user edited it), deletes the now-empty calendars the batch created, and marks the batch `rolled_back` with `rolled_back_at`. `skipped` tells the caller what was left alone.
+
+**Depends on / Used by** — `withViewer<{ id: string }>`; `rollbackImportBatchHandler`; `rollbackImportBatch`. Client: the report step and the history card in `components/import/ImportWizard.tsx` / `ImportBatchesCard.tsx` both expose "Undo".
+
+**Debugging** — Undo leaves an event behind -> it was edited after the import (`skipped`) or belongs to another batch -> check `import_change.batch_id` and `event.updated_at`. Undo removes the calendars but not the events -> events were skipped because of later edits; deleting a non-empty calendar would cascade, so the importer leaves it.
+
+**Tests** — `tests/integration/import-api.test.ts`, `tests/integration/import-service.test.ts`, `tests/e2e/import.spec.ts`.
+
 ## Settings routes
 
 Three one-handler routes over `lib/api/handlers/settings.ts` and `lib/api/handlers/preferences.ts`. None of them is restricted by role — both members are equal, and every field is per-user or household-wide.
