@@ -12,13 +12,24 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CalendarIcon, SettingsIcon } from "@/components/ui/icons";
+import {
+  CalendarIcon,
+  FocusIcon,
+  NotesIcon,
+  SettingsIcon,
+  TasksIcon,
+  TodayIcon,
+  type IconProps,
+} from "@/components/ui/icons";
+import { ROADMAP, gateLabel, type RoadmapEntry, type RoadmapId } from "@/lib/roadmap";
 import { cn } from "@/lib/utils";
 import { Brand } from "./Brand";
 
 interface Props {
   householdName: string;
   currentUser: { id: string; name: string };
+  /** Opens the shared "what's coming" dialog for a gated destination. */
+  onComingSoon: (entry: RoadmapEntry, trigger: HTMLElement) => void;
 }
 
 // Canvas's rail ring: white for the dark tile, plus a gray inner edge so the
@@ -27,6 +38,15 @@ const RAIL_FOCUS =
   "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-white focus-visible:shadow-[inset_0_0_0_2px_var(--color-ink-mute),inset_0_0_0_4px_#ffffff]";
 
 const RAIL_ITEM = `grid h-12 w-[54px] place-items-center transition-colors duration-200 ${RAIL_FOCUS}`;
+
+const ICONS: Readonly<Record<RoadmapId, (props: IconProps) => React.ReactElement>> = {
+  calendar: CalendarIcon,
+  tasks: TasksIcon,
+  today: TodayIcon,
+  notes: NotesIcon,
+  focus: FocusIcon,
+  settings: SettingsIcon,
+};
 
 /** Dark presentation tooltip; hover and focus both reveal it. */
 function RailTooltip({ label }: { label: string }) {
@@ -40,14 +60,66 @@ function RailTooltip({ label }: { label: string }) {
   );
 }
 
-export function GlobalNavRail({ householdName, currentUser }: Props) {
+interface EntryProps {
+  entry: RoadmapEntry;
+  active: boolean;
+  onComingSoon: Props["onComingSoon"];
+}
+
+function RailEntry({ entry, active, onComingSoon }: EntryProps) {
+  const Icon = ICONS[entry.id];
+
+  if (entry.status === "planned") {
+    const label = `${entry.label} — ${gateLabel(entry)}`;
+    return (
+      <div className="group relative w-full">
+        <button
+          type="button"
+          aria-label={label}
+          aria-haspopup="dialog"
+          onClick={(event) => onComingSoon(entry, event.currentTarget)}
+          className={cn(RAIL_ITEM, "text-white/40 hover:bg-rail-hover hover:text-white/75")}
+        >
+          <Icon size={26} />
+        </button>
+        <RailTooltip label={label} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="group relative w-full">
+      <Link
+        href={entry.href}
+        aria-label={entry.label}
+        aria-current={active ? "page" : undefined}
+        className={cn(
+          RAIL_ITEM,
+          active ? "bg-rail-active-bg text-accent" : "text-white hover:bg-rail-hover",
+        )}
+      >
+        <Icon size={26} />
+      </Link>
+      <RailTooltip label={entry.label} />
+    </div>
+  );
+}
+
+export function GlobalNavRail({ householdName, currentUser, onComingSoon }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
 
-  const onCalendar = pathname === "/";
-  const onSettings = pathname === "/settings" || pathname.startsWith("/settings/");
+  const settings = ROADMAP.find((entry) => entry.id === "settings");
+  const destinations = ROADMAP.filter((entry) => entry.id !== "settings");
   const initial = currentUser.name.trim().charAt(0).toUpperCase() || "?";
+
+  function isActive(entry: RoadmapEntry): boolean {
+    if (entry.href === "/") {
+      return pathname === "/";
+    }
+    return pathname === entry.href || pathname.startsWith(`${entry.href}/`);
+  }
 
   async function signOut() {
     if (signingOut) {
@@ -91,37 +163,22 @@ export function GlobalNavRail({ householdName, currentUser }: Props) {
         <Brand name={householdName} testId="rail-logomark" />
       </Link>
 
-      <div className="group relative w-full">
-        <Link
-          href="/"
-          aria-label="Calendar"
-          aria-current={onCalendar ? "page" : undefined}
-          className={cn(
-            RAIL_ITEM,
-            onCalendar ? "bg-rail-active-bg text-accent" : "text-white hover:bg-rail-hover",
-          )}
-        >
-          <CalendarIcon size={26} />
-        </Link>
-        <RailTooltip label="Calendar" />
-      </div>
+      {destinations.map((entry) => (
+        <RailEntry
+          key={entry.id}
+          entry={entry}
+          active={isActive(entry)}
+          onComingSoon={onComingSoon}
+        />
+      ))}
 
-      <div className="group relative w-full">
-        <Link
-          href="/settings"
-          aria-label="Settings"
-          aria-current={onSettings ? "page" : undefined}
-          className={cn(
-            RAIL_ITEM,
-            onSettings ? "bg-rail-active-bg text-accent" : "text-white hover:bg-rail-hover",
-          )}
-        >
-          <SettingsIcon size={26} />
-        </Link>
-        <RailTooltip label="Settings" />
-      </div>
+      {settings ? (
+        <div className="mt-auto w-full pt-2">
+          <RailEntry entry={settings} active={isActive(settings)} onComingSoon={onComingSoon} />
+        </div>
+      ) : null}
 
-      <div className="mt-auto pt-2">
+      <div className="pt-2">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button

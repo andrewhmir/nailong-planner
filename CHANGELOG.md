@@ -9,6 +9,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 > **Nothing has shipped yet.** The current build is **v0.1.0, still in
 > development**; the entries below describe what that build contains so far.
 
+### Added — roadmap rail
+
+- **The roadmap lives in the rail** — Calendar is live; Tasks
+  (`Coming in v0.2.0`), Today, Notes and Focus sit greyed beside it. Each opens a
+  short "what's coming" dialog with what it will do and which release it belongs
+  to, instead of linking to a dead route; hovering still names the promise. Only
+  the next release is ever committed to a version — everything after it reads
+  `Planned` — and the rail itself never scrolls or carries version text.
+- **One source of truth** — `lib/roadmap.ts` holds the destinations, the version
+  and the gate labels, so promoting a feature is a single `status` flip and an
+  `APP_VERSION` that is test-locked to `package.json`.
+
 ### Added — daily-driver parity
 
 - **Anchored event details** — one click opens a popover with the repeat summary,

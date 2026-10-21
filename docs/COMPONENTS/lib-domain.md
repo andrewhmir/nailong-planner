@@ -16,7 +16,36 @@ shifts by a day, or an API error carries the wrong code or status.
 | lib/time/zone.ts | Wall-clock/locale-date <-> UTC instant conversion; the all-day contract |
 | lib/env.ts | Zod-validated `process.env`, parsed once at import |
 | lib/errors.ts | `AppError` and the five error codes services throw |
+| lib/roadmap.ts | Rail destinations, `APP_VERSION` and the promised-version policy |
 | lib/utils.ts | `cn()` — clsx plus Tailwind conflict resolution |
+
+## Roadmap
+
+### lib/roadmap.ts
+
+**Purpose** — The rail's destinations and the release promise behind each one. One array drives the desktop rail, the phone drawer, the breadcrumb map and the gated "what's coming" dialogs, so a release is a `status` flip rather than an edit in four files.
+
+**Public API**
+- `APP_VERSION: string` — must equal `version` in `package.json`.
+- `type RoadmapStatus = "live" | "planned"`; `type RoadmapId = "calendar" | "tasks" | "today" | "notes" | "focus" | "settings"`.
+- `interface RoadmapEntry { id: RoadmapId; label: string; href: string; status: RoadmapStatus; version?: string; blurb: string; capabilities: string[] }`.
+- `ROADMAP: readonly RoadmapEntry[]` — rail order; `settings` is last because the rail pins it above the account menu.
+- `gateLabel(entry: Pick<RoadmapEntry, "version">): string` — `"Coming in v0.2.0"` when `version` is set, else `"Planned"`.
+- `LIVE_ENTRIES: readonly RoadmapEntry[]` — entries with `status: "live"`; feeds `ROUTE_CRUMBS`.
+
+**State & side effects** — None: a module-level constant array and pure helpers. No I/O, no hooks, no storage.
+
+**Version policy** — Only the next release may be promised: exactly one planned entry carries `version`, and `tests/unit/roadmap.test.ts` fails if a second appears. Everything later reads `Planned`. Flipping `status` to `"live"` is the whole ceremony — the rail turns the grey button into a `Link`, `ROUTE_CRUMBS` picks the route up, and `gateLabel` stops rendering.
+
+**Depends on / Used by** — No imports. Consumers: `components/shell/GlobalNavRail.tsx` (tiles and tooltips), `components/shell/AppShell.tsx` (`ROUTE_CRUMBS`, phone drawer), `components/shell/ComingSoonDialog.tsx` (`gateLabel`), `tests/unit/roadmap.test.ts`.
+
+**Debugging** —
+- A gated rail item shows the wrong release -> `version` was edited in a component instead of here -> this file.
+- A shipped page still shows "Calendar" in the breadcrumb -> its entry is still `status: "planned"` -> this file.
+- `APP_VERSION` drifts from `package.json` -> the unit test fails on the next run -> bump this constant in the version commit.
+- Two versions are promised at once -> the "only the next release" test fails -> decide which one is next, drop the other's `version`.
+
+**Tests** — `tests/unit/roadmap.test.ts` (version parity with `package.json`, unique ids/hrefs, one promised version, gate labels); `tests/e2e/roadmap-nav.spec.ts` drives the rail and dialogs.
 
 ## Colour and shade inheritance
 

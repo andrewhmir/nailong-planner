@@ -9,7 +9,8 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 | `components/shell/AppShell.tsx` | Viewport-locked frame: rail, breadcrumb, desktop sidebar, phone sheet |
 | `components/shell/Brand.tsx` | Logomark tile (initial in a white square), optional name |
 | `components/shell/BreadcrumbBar.tsx` | 72px header: household + route crumb, search, person pills |
-| `components/shell/GlobalNavRail.tsx` | 54px dark rail: Calendar/Settings links, account menu, sign out |
+| `components/shell/ComingSoonDialog.tsx` | "What's coming" dialog behind a gated roadmap destination |
+| `components/shell/GlobalNavRail.tsx` | 54px dark rail: live destinations, greyed roadmap icons, account menu |
 | `components/shell/VisibilityProvider.tsx` | React context carrying the `VisibilityApi` to descendants |
 | `components/sidebar/CalendarDialog.tsx` | Create/rename calendar form (owner, view-only, hue) |
 | `components/sidebar/CalendarRow.tsx` | One sidebar calendar row: checkbox, swatch, shade strip, menu |
@@ -23,19 +24,20 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 
 **Purpose** — The application frame for every `app/(app)` route. It renders the nav rail, breadcrumb bar, one desktop sidebar, and a phone/tablet sheet that reuses the same calendar tree, inside a `h-dvh overflow-hidden` viewport lock.
 
-**Public API** — `export interface MemberSummary { id: string; name: string; isSelf: boolean }`; `export function AppShell(props: Props)`. Props: `currentUser: { id; name }`, `members: MemberSummary[]`, `householdName: string`, `timezone: string`, `timeFormat: TimeFormat`, `children: React.ReactNode`. Route labels live in module scope: `ROUTE_CRUMBS` (`"/" → "Calendar"`, `"/settings" → "Settings"`) and `FALLBACK_CRUMB = "Calendar"`.
+**Public API** — `export interface MemberSummary { id: string; name: string; isSelf: boolean }`; `export function AppShell(props: Props)`. Props: `currentUser: { id; name }`, `members: MemberSummary[]`, `householdName: string`, `timezone: string`, `timeFormat: TimeFormat`, `children: React.ReactNode`. Route labels live in module scope: `ROUTE_CRUMBS`, built from `LIVE_ENTRIES` in `lib/roadmap.ts`, and `FALLBACK_CRUMB = "Calendar"`.
 
-**State & side effects** — `usePathname()` for the crumb and rail highlight; `sidebarOpen` state for the sheet; `useVisibility(currentUser.id)` owns the visibility state (persisted under `localStorage` key `nailong.visibility.<userId>` by that hook); `useTreeFold(currentUser.id)` owns the sidebar's fold state (persisted under `nailong.treeFold.<userId>`) and is passed to both tree copies as `fold`, so folding moves them in lockstep; `VisibilityProvider` publishes the visibility API. No queries and no URL writes. The `CalendarTree` element is created once and rendered twice (desktop `aside` and the sheet), so both copies share the TanStack cache and the fold state but have independent local dialog state. Focus is not trapped in the sheet.
+**State & side effects** — `usePathname()` for the crumb and rail highlight; `sidebarOpen` state for the sheet; `comingSoon: RoadmapEntry | null` plus a `comingSoonTrigger` ref drive the shared "what's coming" dialog — the rail and the phone drawer both call `openComingSoon(entry, trigger)`, and `closeComingSoon` restores focus to that trigger once the dialog has unmounted; `useVisibility(currentUser.id)` owns the visibility state (persisted under `localStorage` key `nailong.visibility.<userId>` by that hook); `useTreeFold(currentUser.id)` owns the sidebar's fold state (persisted under `nailong.treeFold.<userId>`) and is passed to both tree copies as `fold`, so folding moves them in lockstep; `VisibilityProvider` publishes the visibility API. No queries and no URL writes. The `CalendarTree` element is created once and rendered twice (desktop `aside` and the sheet), so both copies share the TanStack cache and the fold state but have independent local dialog state. Focus is not trapped in the sheet.
 
-**Depends on / Used by** — `next/link`, `next/navigation`, `components/sidebar/CalendarTree`, `components/sidebar/SidebarMiniMonth`, `components/ui/button`, `components/ui/icons`, `lib/services/preferences` (`TimeFormat`), `lib/ui/useTreeFold`, `lib/ui/useVisibility`. Plus `./Brand`, `./BreadcrumbBar`, `./GlobalNavRail`, `./VisibilityProvider`. Rendered by `app/(app)/layout.tsx`, which resolves the session, members, household name/timezone and preferences.
+**Depends on / Used by** — `next/link`, `next/navigation`, `components/sidebar/CalendarTree`, `components/sidebar/SidebarMiniMonth`, `components/ui/button`, `components/ui/icons`, `lib/roadmap` (`LIVE_ENTRIES`, `ROADMAP`, `gateLabel`, `RoadmapEntry`), `lib/services/preferences` (`TimeFormat`), `lib/ui/useTreeFold`, `lib/ui/useVisibility`. Plus `./Brand`, `./BreadcrumbBar`, `./ComingSoonDialog`, `./GlobalNavRail`, `./VisibilityProvider`. Rendered by `app/(app)/layout.tsx`, which resolves the session, members, household name/timezone and preferences.
 
 **Debugging** —
-- A new `(app)` route shows "Calendar" as its crumb -> `ROUTE_CRUMBS` has no entry and route-derived labels are the only mechanism -> add the path here.
+- A new `(app)` route shows "Calendar" as its crumb -> its roadmap entry is still `status: "planned"` (route-derived labels are the only mechanism) -> flip `lib/roadmap.ts`, not this file.
+- A gated dialog closes onto the document body instead of its trigger -> the opening control unmounted before the close (the phone drawer closed first) -> `openComingSoon`/`closeComingSoon`.
 - The document scrolls on a phone -> the `h-dvh overflow-hidden` frame or `min-h-0` on an inner flex child was dropped -> this file's top-level `div` and `main`.
 - The sidebar sheet opens on desktop -> `lg:hidden` on the overlay wrapper was lost -> the `sidebarOpen` block.
 - Calendar mutations from the sheet seem to reset -> two `CalendarTree` instances with separate `dialog`/`pendingDelete` state -> expected; the shared cache keeps data consistent.
 
-**Tests** — `tests/e2e/shell.spec.ts`, `tests/e2e/mobile.spec.ts`, `tests/e2e/viewport-fit.spec.ts`, `tests/e2e/sidebar.spec.ts`.
+**Tests** — `tests/e2e/shell.spec.ts`, `tests/e2e/mobile.spec.ts`, `tests/e2e/viewport-fit.spec.ts`, `tests/e2e/sidebar.spec.ts`, `tests/e2e/roadmap-nav.spec.ts`.
 
 ### components/shell/Brand.tsx
 
@@ -72,21 +74,42 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 
 ### components/shell/GlobalNavRail.tsx
 
-**Purpose** — The dark 54 px rail on `md` and up: household logomark, Calendar and Settings links with tooltips, and an account menu that signs out.
+**Purpose** — The dark 54 px rail on `md` and up: household logomark, the live destinations from the roadmap, greyed-out planned destinations, Settings pinned above the account menu, and an account menu that signs out.
 
-**Public API** — `export function GlobalNavRail(props: { householdName: string; currentUser: { id: string; name: string } })`. Internal: `RAIL_FOCUS`, `RAIL_ITEM`, `RailTooltip`.
+**Public API** — `export function GlobalNavRail(props: { householdName: string; currentUser: { id: string; name: string }; onComingSoon: (entry: RoadmapEntry, trigger: HTMLElement) => void })`. Internal: `RAIL_FOCUS`, `RAIL_ITEM`, `ICONS` (roadmap id → icon), `RailTooltip`, `RailEntry`.
 
-**State & side effects** — `usePathname()` decides `aria-current="page"` (`/` for Calendar, `/settings` or `/settings/*` for Settings); `signingOut` disables the trigger and the menu item. Sign out is a direct `fetch("/api/auth/sign-out", { method: "POST", … body: "{}" })` (not the Better Auth client); on `response.ok` it calls `router.replace("/login")` then `router.refresh()`; on failure it re-enables the button and toasts "Could not sign out. Try again.". The dropdown item calls `event.preventDefault()` to keep the menu mounted while pending. Tooltips appear on hover and `group-focus-within`, and are `aria-hidden`.
+**State & side effects** — `usePathname()` picks the active tile (`/` for Calendar, otherwise `href` or `href/…`); `ROADMAP` supplies every entry, with Settings rendered in a `mt-auto` block so it sits just above the account menu. Planned entries are `<button aria-haspopup="dialog">` tiles at `text-white/40`, icon-only, that call `onComingSoon`; their accessible name carries the promise (`"Tasks — Coming in v0.2.0"`). There is deliberately no version text on the rail and no scroll container around the tiles. `signingOut` disables the trigger and the menu item. Sign out is a direct `fetch("/api/auth/sign-out", { method: "POST", … body: "{}" })` (not the Better Auth client); on `response.ok` it calls `router.replace("/login")` then `router.refresh()`; on failure it re-enables the button and toasts "Could not sign out. Try again.". The dropdown item calls `event.preventDefault()` to keep the menu mounted while pending. Tooltips appear on hover and `group-focus-within`, and are `aria-hidden`.
 
-**Depends on / Used by** — `next/link`, `next/navigation`, `sonner`, `components/ui/dropdown-menu`, `components/ui/icons`, `lib/utils`, `./Brand`. Rendered by `AppShell`; hidden below `md`, where `AppShell`'s top bar replaces it.
+**Depends on / Used by** — `next/link`, `next/navigation`, `sonner`, `components/ui/dropdown-menu`, `components/ui/icons`, `lib/roadmap` (`ROADMAP`, `gateLabel`, `RoadmapEntry`, `RoadmapId`), `lib/utils`, `./Brand`. Rendered by `AppShell`; hidden below `md`, where `AppShell`'s top bar replaces it.
 
 **Debugging** —
+- A rail item routes although it is not shipped -> its roadmap `status` is `live` -> `lib/roadmap.ts`, not this file.
+- A gated tile looks as bright as a live one -> the `text-white/40` dim was replaced -> this file's planned branch.
+- The rail shows a scrollbar -> an `overflow-y-auto` wrapper crept back in; the tiles must fit without scrolling -> this file's `nav` children.
+- Version text reappears on the rail -> deliberate design change, not a bug: the promise lives in the tooltip and the dialog -> this file + `ComingSoonDialog`.
 - Sign out appears to succeed but the session survives -> `router.replace` ran without the POST succeeding -> check the `response.ok` branch and the `/api/auth/sign-out` route.
 - The account menu closes immediately after clicking Sign out -> the `preventDefault` in `onSelect` was removed -> this file.
 - Focus ring invisible on the white active tile -> the inset `RAIL_FOCUS` shadow was simplified to a plain outline -> this file.
 - Rail shows on a phone -> `hidden … md:flex` changed -> this file's `nav`.
 
-**Tests** — `tests/e2e/shell.spec.ts` (rail, focus ring, sign-out success/failure, tab order), `tests/e2e/auth.spec.ts`.
+**Tests** — `tests/e2e/shell.spec.ts` (rail, focus ring, sign-out success/failure, tab order), `tests/e2e/roadmap-nav.spec.ts`, `tests/e2e/auth.spec.ts`.
+
+### components/shell/ComingSoonDialog.tsx
+
+**Purpose** — The "what's coming" dialog a gated rail destination opens: the destination's name and one-line promise, the release it belongs to (`Coming in v0.2.0` or `Planned`) and the list of capabilities. It exists so a greyed icon leads somewhere honest instead of a dead route.
+
+**Public API** — `export function ComingSoonDialog(props: { entry: RoadmapEntry | null; onClose: () => void })`. Controlled by `AppShell`; renders `DialogContent` with `sheet` (a phone bottom sheet) only while `entry` is set, and a `DialogClose` "Got it" button.
+
+**State & side effects** — No state of its own. `onOpenChange(false)` — Esc, backdrop click or "Got it" — calls `onClose`, and `AppShell` returns focus to the control that opened it. Portal-rendered, so it can open above the phone drawer without closing it.
+
+**Depends on / Used by** — `components/ui/dialog` (`Dialog`, `DialogClose`, `DialogContent`), `components/ui/button`, `lib/roadmap` (`gateLabel`, `RoadmapEntry`). Rendered once by `AppShell`.
+
+**Debugging** —
+- The dialog never opens -> the entry was passed with `status: "live"` (live entries navigate instead) -> `lib/roadmap.ts`.
+- Focus lands on `document.body` after closing -> the opening control unmounted before the close ran -> `AppShell`'s `openComingSoon`/`closeComingSoon`.
+- A planned entry's dialog is missing its release line -> `gateLabel` falls back to "Planned" when `version` is unset -> `lib/roadmap.ts`.
+
+**Tests** — `tests/e2e/roadmap-nav.spec.ts` (open, contents, Esc, focus return, phone drawer).
 
 ## Visibility context
 

@@ -65,6 +65,17 @@ test.describe("desktop screenshots", () => {
     await page.screenshot({ path: "docs/screenshots/search.png" });
   });
 
+  test("planned destination dialog", async ({ page }) => {
+    await signIn(page, ANDREW, fixtures.password);
+    await page
+      .getByRole("navigation", { name: "Primary navigation" })
+      .getByRole("button", { name: "Tasks — Coming in v0.2.0" })
+      .click();
+    await expect(page.getByRole("dialog", { name: "Tasks" })).toBeVisible();
+    await settle(page);
+    await page.screenshot({ path: "docs/screenshots/roadmap-dialog.png" });
+  });
+
   test("settings", async ({ page }) => {
     await signIn(page, ANDREW, fixtures.password);
     await page.goto("/settings");

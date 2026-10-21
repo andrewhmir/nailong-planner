@@ -41,6 +41,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 | `tests/unit/treeFold.test.ts` | Sidebar fold defaults are expanded, one group/calendar folds without touching its siblings, toggles stay immutable, corrupt or non-boolean storage falls back to expanded | `npx vitest run tests/unit/treeFold.test.ts` |
 | `tests/unit/calendarPicker.test.ts` | Picker rows and depth, expand/collapse, parent vs assigned shade colours, slate fallback, auto-expand for a selected child | `npx vitest run tests/unit/calendarPicker.test.ts` |
 | `tests/unit/icons.test.ts` | Icon contract: 1.5px `currentColor` stroke, no fill, 20px default, `aria-hidden` unless a `title` is given | `npx vitest run tests/unit/icons.test.ts` |
+| `tests/unit/roadmap.test.ts` | `APP_VERSION` matches `package.json`; unique roadmap ids and hrefs; exactly one promised version; `gateLabel` wording; the live set is Calendar + Settings | `npx vitest run tests/unit/roadmap.test.ts` |
 
 ## Integration tests
 
@@ -66,6 +67,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 |---|---|---|
 | `tests/e2e/auth.spec.ts` | Unauthenticated redirect, login fields, a wrong password error, a successful sign-in, session survival across reload | `npx playwright test tests/e2e/auth.spec.ts` |
 | `tests/e2e/shell.spec.ts` | 54px rail, breadcrumb derived from the route, visible focus on the dark rail, 320px no-scroll, long-name truncation, real sign-out and a failed sign-out | `npx playwright test tests/e2e/shell.spec.ts` |
+| `tests/e2e/roadmap-nav.spec.ts` | Gated destinations render as dimmed buttons (never links), the rail itself never scrolls, a gated dialog shows its promise and returns focus, and the phone drawer lists the same gates | `npx playwright test tests/e2e/roadmap-nav.spec.ts` |
 | `tests/e2e/sidebar.spec.ts` | Household groups, child shade strip, visibility persistence, add sub-calendar, owned calendar creation, view-only toggle, person pill, long-name truncation, panel scrolling, parent and group folding with reload persistence, auto-open on add sub-calendar | `npx playwright test tests/e2e/sidebar.spec.ts` |
 | `tests/e2e/events.spec.ts` | Month grid with seeded events, create from the toolbar, edit/delete via the popover, drag to another day, weekly series in the next month, skipping one occurrence, week view | `npx playwright test tests/e2e/events.spec.ts` |
 | `tests/e2e/quick-create.spec.ts` | Click-a-day bubble, Enter saves, Escape discards, clicking another control on the page dismisses it, "More options" carries the draft, dirty-dialog guard, `Shift+C`, clicking an existing event replaces the bubble | `npx playwright test tests/e2e/quick-create.spec.ts` |
@@ -112,7 +114,8 @@ The suites are documented as lookup tables rather than one section per file: fin
 | Mobile layout and sheets | `tests/e2e/mobile.spec.ts`; the phone default view in `tests/e2e/view-preference.spec.ts` and `tests/unit/view.test.ts` |
 | Design tokens and theme | `tests/e2e/design-tokens.spec.ts`; palette maths and contrast in `tests/unit/palette.test.ts` |
 | Auth and session | `tests/e2e/auth.spec.ts`; the two-account cap and hashing in `tests/integration/auth.test.ts` |
-| App shell, rail and breadcrumbs | `tests/e2e/shell.spec.ts` |
+| App shell, rail and breadcrumbs | `tests/e2e/shell.spec.ts`; gated roadmap rail in `tests/e2e/roadmap-nav.spec.ts` |
+| Roadmap promises and gated destinations | `tests/e2e/roadmap-nav.spec.ts`; version parity and one-promised-version rule in `tests/unit/roadmap.test.ts` |
 | Sidebar tree and calendar management | `tests/e2e/sidebar.spec.ts`; nested-picker rendering in `tests/e2e/calendar-picker.spec.ts`; fold-state rules in `tests/unit/treeFold.test.ts` |
 | FullCalendar Canvas styles | `tests/e2e/calendar-style.spec.ts`; the primitives' geometry in `tests/e2e/primitives.spec.ts` |
 | UI primitives (button, dialog, scrim) | `tests/e2e/primitives.spec.ts` |

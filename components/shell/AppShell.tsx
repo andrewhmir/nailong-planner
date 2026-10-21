@@ -2,16 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CalendarTree } from "@/components/sidebar/CalendarTree";
 import { SidebarMiniMonth } from "@/components/sidebar/SidebarMiniMonth";
 import { Button } from "@/components/ui/button";
 import { MenuIcon } from "@/components/ui/icons";
+import { LIVE_ENTRIES, ROADMAP, gateLabel, type RoadmapEntry } from "@/lib/roadmap";
 import type { TimeFormat } from "@/lib/services/preferences";
 import { useTreeFold } from "@/lib/ui/useTreeFold";
 import { useVisibility } from "@/lib/ui/useVisibility";
 import { Brand } from "./Brand";
 import { BreadcrumbBar } from "./BreadcrumbBar";
+import { ComingSoonDialog } from "./ComingSoonDialog";
 import { GlobalNavRail } from "./GlobalNavRail";
 import { VisibilityProvider } from "./VisibilityProvider";
 
@@ -33,12 +35,11 @@ interface Props {
 /**
  * The crumb belongs to the page, but the layout that renders AppShell owns the
  * shell, so no page can pass props down. Route-derived is therefore the only
- * mechanism: add an entry here when a new page is added under `app/(app)`.
+ * mechanism: add a roadmap entry with `status: "live"` when a page ships.
  */
-const ROUTE_CRUMBS: Record<string, string> = {
-  "/": "Calendar",
-  "/settings": "Settings",
-};
+const ROUTE_CRUMBS: Record<string, string> = Object.fromEntries(
+  LIVE_ENTRIES.map((entry) => [entry.href, entry.label]),
+);
 
 /** Any unlisted `(app)` route falls back to the app's home label. */
 const FALLBACK_CRUMB = "Calendar";
@@ -53,10 +54,30 @@ export function AppShell({
 }: Props) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [comingSoon, setComingSoon] = useState<RoadmapEntry | null>(null);
+  /** The control that opened the gated dialog, so focus can return to it. */
+  const comingSoonTrigger = useRef<HTMLElement | null>(null);
   const visibility = useVisibility(currentUser.id);
   const fold = useTreeFold(currentUser.id);
   const partnerName = members.find((member) => !member.isSelf)?.name ?? "Partner";
   const activeCrumb = ROUTE_CRUMBS[pathname] ?? FALLBACK_CRUMB;
+
+  function openComingSoon(entry: RoadmapEntry, trigger: HTMLElement) {
+    comingSoonTrigger.current = trigger;
+    setComingSoon(entry);
+  }
+
+  function closeComingSoon() {
+    const trigger = comingSoonTrigger.current;
+    comingSoonTrigger.current = null;
+    setComingSoon(null);
+    // The dialog unmounts on the next paint; return focus after that.
+    window.setTimeout(() => {
+      if (trigger && trigger.isConnected) {
+        trigger.focus();
+      }
+    }, 0);
+  }
 
   const tree = (
     <CalendarTree
@@ -76,7 +97,11 @@ export function AppShell({
           and breadcrumb bar therefore stay put, and anything that genuinely
           overflows scrolls inside `main` instead of moving the page. */}
       <div className="flex h-dvh flex-col overflow-hidden text-ink md:flex-row">
-        <GlobalNavRail householdName={householdName} currentUser={currentUser} />
+        <GlobalNavRail
+          householdName={householdName}
+          currentUser={currentUser}
+          onComingSoon={openComingSoon}
+        />
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* Phone: the rail becomes a 56px dark top bar. */}
@@ -143,17 +168,37 @@ export function AppShell({
               className="absolute inset-x-0 bottom-0 flex max-h-[75vh] flex-col overflow-y-auto rounded-t-md border border-line bg-surface p-4 shadow-dialog md:inset-y-[72px] md:right-auto md:w-56 md:rounded-md md:border-r md:shadow-menu"
             >
               <div className="flex items-center justify-between">
-                <Link
-                  href="/settings"
-                  className="rounded-sm px-2 py-1 text-sm text-link hover:bg-well md:hidden"
-                  onClick={() => setSidebarOpen(false)}
-                >
-                  Settings
-                </Link>
+                <span className="px-2 text-sm font-bold text-ink">Go to</span>
                 <Button variant="ghost" size="sm" onClick={() => setSidebarOpen(false)}>
                   Close
                 </Button>
               </div>
+              <nav aria-label="Destinations" className="mb-2 flex flex-col">
+                {ROADMAP.map((entry) =>
+                  entry.status === "live" ? (
+                    <Link
+                      key={entry.id}
+                      href={entry.href}
+                      className="rounded-sm px-2 py-1 text-sm text-link hover:bg-well"
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      {entry.label}
+                    </Link>
+                  ) : (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      aria-label={`${entry.label} — ${gateLabel(entry)}`}
+                      aria-haspopup="dialog"
+                      onClick={(event) => openComingSoon(entry, event.currentTarget)}
+                      className="flex items-center justify-between gap-2 rounded-sm px-2 py-1 text-left text-sm text-ink hover:bg-well"
+                    >
+                      <span>{entry.label}</span>
+                      <span className="text-xs text-ink-mute">{gateLabel(entry)}</span>
+                    </button>
+                  ),
+                )}
+              </nav>
               <nav className="min-h-0 flex-1 overflow-y-auto" aria-label="Calendar list">
                 <SidebarMiniMonth currentUserId={currentUser.id} timezone={timezone} />
                 {tree}
@@ -161,6 +206,8 @@ export function AppShell({
             </div>
           </div>
         ) : null}
+
+        <ComingSoonDialog entry={comingSoon} onClose={closeComingSoon} />
       </div>
     </VisibilityProvider>
   );

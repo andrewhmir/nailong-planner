@@ -71,6 +71,11 @@ rather not have edited.
 
 ## Features
 
+- **A roadmap in the rail** — Calendar is live; Tasks (`Coming in v0.2.0`),
+  Today, Notes and Focus sit greyed in the nav rail. Each opens a short
+  "what's coming" panel naming its release and what it will do, so the roadmap
+  is part of the app instead of a document nobody reads. Only the next version
+  is ever promised; everything after it says `Planned`.
 - **Google-Calendar-shaped daily loops** — a day/slot click, a range drag or
   `Shift+C` opens a quick-create bubble (Enter saves, "More options" escalates to
   the full editor); clicking an event opens anchored details with its repeat

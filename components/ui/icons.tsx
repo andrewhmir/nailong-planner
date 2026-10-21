@@ -197,4 +197,40 @@ export function ChevronDownIcon(props: IconProps) {
   );
 }
 
+export function TasksIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="m8 12 3 3 5-6" />
+    </Svg>
+  );
+}
+
+export function TodayIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+    </Svg>
+  );
+}
+
+export function NotesIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" />
+      <path d="M14 3v6h6M8 13h8M8 17h5" />
+    </Svg>
+  );
+}
+
+export function FocusIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="13" r="8" />
+      <path d="M12 9v4l2 2M9 2h6" />
+    </Svg>
+  );
+}
+
 

@@ -67,6 +67,7 @@ no visit planner, no timezone work (same timezone, confirmed).
 
 | Version | Pillar | Rail label | Theme |
 |---|---|---|---|
+| v0.1.0 | Calendar + roadmap nav | Calendar, Tasks, Today, Notes, Focus | Ship the calendar and the gated roadmap in the rail |
 | v0.2.0 | Tasks & triage | Tasks | Capture, triage, schedule, complete |
 | v0.3.0 | Today | Today | My day, composed; shared strip |
 | v0.4.0 | Notes | Notes | Personal notes, daily note, "Us" space |
@@ -155,7 +156,12 @@ appear in the drawer's destination list with the same chip and dialog. `AppShell
 must not grow a second source of destinations — both surfaces map over
 `ROADMAP`.
 
-### 5.4 Acceptance for the gating slice (v0.2.0 step 0, bounded)
+### 5.4 Acceptance for the gating slice (v0.1.0, bounded, before launch)
+
+The gated rail ships in **v0.1.0**, not as v0.2 step 0: the roadmap narrative is part
+of the first release. In v0.1.0 `Tasks` reads `Coming in v0.2.0`; `Today`, `Notes`
+and `Focus` read `Planned`. Flipping a status to `live` later is the only change a
+release needs.
 
 1. Rail shows Calendar, Tasks, Today, Notes, Focus, Settings; every planned entry
    carries a version chip and opens the dialog.
