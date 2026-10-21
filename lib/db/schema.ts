@@ -134,8 +134,8 @@ export const event = sqliteTable(
 
 /**
  * One row per committed Google Calendar import. `mapping` and `report` are JSON
- * snapshots so the wizard can prefill a re-import and the history can show what
- * happened; `status` flips to `rolled_back` when the batch is undone.
+ * snapshots kept for audit (the report also carries the calendar ids the
+ * rollback deletes); `status` flips to `rolled_back` when the batch is undone.
  */
 export const importBatch = sqliteTable(
   "import_batch",

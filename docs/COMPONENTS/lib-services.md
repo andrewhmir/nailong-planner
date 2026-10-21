@@ -168,18 +168,18 @@ Truth table: not view-only -> `true` for any viewer; view-only and `ownerId === 
 **Public API**
 - `const IMPORT_ROOT_NAME = "From Google"`; `interface ImportFile { name; text }`.
 - `type ImportCalendarMode = { mode: "new" } | { mode: "existing"; calendarId }`; `type ImportMapping = Record<string, ImportCalendarMode>` keyed by source calendar name.
-- `previewImport(db, ctx, files): ImportPreview` — per-calendar create/update/unchanged counts, warnings, dropped parts; no writes.
+- `previewImport(db, ctx, files): ImportPreview` — per-calendar create/update/unchanged counts, `nonHouseholdTimezones` (the R13 dry-run note), warnings, dropped parts; no writes.
 - `commitImport(db, ctx, { files, mapping }): ImportReport` — `{ batchId, created, updated, unchanged, calendarsCreated, warnings, dropped }`.
 - `rollbackImportBatch(db, ctx, batchId): RollbackReport` — `{ batchId, deleted, restored, skipped, calendarsDeleted }`.
 - `listImportBatches(db, ctx): ImportBatchView[]` — newest first, counts read from the stored report.
-- Limits: 20 files, 5 MB of text, 50 000 events per commit.
+- Limits: 20 files, 5 MB of text, 50 000 events per commit. An `externalKey` that appears twice in one upload is imported once and reported as a warning.
 
 **State & side effects**
 - Writes only inside `commitImport` and `rollbackImportBatch`, each one `db.transaction`.
-- Commit resolves targets: `{ mode: "new" }` reuses an existing child of an import root by name, otherwise creates the root (`From Google`, then `From Google 2`… with the next unused hue family) and the child; `{ mode: "existing" }` goes through `getCalendarAccess`/`assertCalendarWritable`, so a view-only target is refused with 403 and nothing is written.
-- Idempotency is `(household_id, external_key)`: an unknown key inserts; a matching `externalContentHash` counts `unchanged` and writes nothing; a different hash updates the imported fields and records an `update` change whose `before_json` is the previous row.
+- Commit resolves targets: `{ mode: "new" }` reuses an existing child of an import root by name (still passing the same `getCalendarAccess`/`assertCalendarWritable` check as an explicit mapping), otherwise creates the root (`From Google`, then `From Google 2`… with the next unused hue family) and the child; `{ mode: "existing" }` goes through the same permission pair, so a view-only target is refused with 403 and nothing is written.
+- Idempotency is `(household_id, external_key)`: an unknown key inserts; a matching `externalContentHash` **and the same target calendar** counts `unchanged` and writes nothing; a different hash **or a different mapped calendar** updates the imported fields (including `calendarId`) and records an `update` change whose `before_json` is the previous row.
 - Ledger: one `import_batch` (`status: committed`, JSON `mapping`/`report` include `createdCalendarIds` for the undo) plus one `import_change` per inserted/updated event.
-- Rollback deletes `create` rows and restores `update` rows from `before_json`, **skipping any event whose `updatedAt` is newer than the batch** (the user edited it after the import) and reporting it as `skipped`; then deletes the empty calendars it created, children before the root. A second rollback is a 409.
+- Rollback deletes `create` rows and restores `update` rows from `before_json` (including the row's previous `updatedAt`, so restoring an earlier batch does not look like a user edit), **skipping any event whose `updatedAt` is newer than the batch** (the user edited it after the import) and reporting it as `skipped`; then deletes the empty calendars it created, children before the root. A second rollback is a 409.
 
 **Depends on / Used by** — `lib/import/ics.ts` (`parseIcs`), `calendar`/`event`/`household`/`importBatch`/`importChange`, `lib/color/palette` (`HUE_FAMILIES`, `MAX_CHILDREN`, `HueFamily`), `./calendars` (`createCalendar`, `getCalendarAccess`, `assertCalendarWritable`). Will be used by `lib/api/handlers/import.ts` and the `/settings/import` wizard.
 

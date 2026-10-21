@@ -332,4 +332,115 @@ describe("import service", () => {
       close();
     }
   });
+
+  it("moves events when a re-import changes the mapped calendar", async () => {
+    const { db, close, ctxA } = await setup();
+    try {
+      const first = commitImport(db, ctxA, {
+        files: [threeEvents()],
+        mapping: { Family: { mode: "new" } },
+      });
+      expect(first.created).toBe(3);
+      const imported = db.select().from(event).where(eq(event.title, "Dentist")).get()!;
+
+      const home = createCalendar(db, ctxA, { name: "Home", hueFamily: "sky" });
+      const second = commitImport(db, ctxA, {
+        files: [threeEvents()],
+        mapping: { Family: { mode: "existing", calendarId: home.id } },
+      });
+
+      expect(second.created).toBe(0);
+      expect(second.updated).toBe(3);
+      expect(db.select().from(event).where(eq(event.id, imported.id)).get()?.calendarId).toBe(
+        home.id,
+      );
+    } finally {
+      close();
+    }
+  });
+
+  it("imports a UID that appears in two files once and warns", async () => {
+    const { db, close, ctxA } = await setup();
+    try {
+      const file = threeEvents();
+      const preview = previewImport(db, ctxA, [file, file]);
+      expect(preview.createCount).toBe(3);
+      expect(preview.warnings.length).toBeGreaterThanOrEqual(1);
+
+      const report = commitImport(db, ctxA, {
+        files: [file, file],
+        mapping: { Family: { mode: "new" } },
+      });
+      expect(report.created).toBe(3);
+      expect(db.select().from(event).all().filter((row) => row.householdId === "h1")).toHaveLength(3);
+    } finally {
+      close();
+    }
+  });
+
+  it("refuses to reuse a view-only From Google calendar", async () => {
+    const { db, close, ctxA, ctxB } = await setup();
+    try {
+      const root = createCalendar(db, ctxB, {
+        name: "From Google",
+        hueFamily: "teal",
+        ownerId: "user-b",
+        isViewOnlyForPartner: true,
+      });
+      createCalendar(db, ctxB, { name: "Family", parentId: root.id });
+
+      expect(() =>
+        commitImport(db, ctxA, {
+          files: [threeEvents()],
+          mapping: { Family: { mode: "new" } },
+        }),
+      ).toThrow(/view-only/i);
+      expect(db.select().from(event).all()).toHaveLength(0);
+    } finally {
+      close();
+    }
+  });
+
+  it("reports series that keep a non-household timezone", async () => {
+    const { db, close, ctxA } = await setup();
+    try {
+      const file = ics("Family", [
+        timedEvent("london@google.com", "Swim", "20270302T090000", "20270302T100000", "Europe/London"),
+      ]);
+      const preview = previewImport(db, ctxA, [file]);
+      expect(preview.nonHouseholdTimezones).toEqual(["Europe/London"]);
+    } finally {
+      close();
+    }
+  });
+
+  it("rolls back two batches in order without leaving events behind", async () => {
+    const { db, close, ctxA } = await setup();
+    try {
+      const mapping = { Family: { mode: "new" as const } };
+      const first = commitImport(db, ctxA, { files: [threeEvents()], mapping });
+      const second = commitImport(db, ctxA, {
+        files: [
+          ics("Family", [
+            timedEvent("a1@google.com", "Dentist (moved)", "20261103T110000", "20261103T120000"),
+            timedEvent("a2@google.com", "Swim", "20261104T170000", "20261104T180000"),
+            timedEvent("a3@google.com", "Music", "20261105T090000", "20261105T100000"),
+          ]),
+        ],
+        mapping,
+      });
+      expect(second.updated).toBe(1);
+
+      const rollbackSecond = rollbackImportBatch(db, ctxA, second.batchId);
+      expect(rollbackSecond.restored).toBe(1);
+      expect(rollbackSecond.skipped).toBe(0);
+
+      const rollbackFirst = rollbackImportBatch(db, ctxA, first.batchId);
+      expect(rollbackFirst.deleted).toBe(3);
+      expect(rollbackFirst.skipped).toBe(0);
+      expect(db.select().from(event).all().filter((row) => row.householdId === "h1")).toHaveLength(0);
+    } finally {
+      close();
+    }
+  });
 });

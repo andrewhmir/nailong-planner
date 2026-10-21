@@ -112,6 +112,30 @@ function readTime(prop: ICAL.Property | null): TimeParts | null {
   };
 }
 
+/** A wall time inside the spring-forward gap moves an hour later (RFC 5545 §3.3.5). */
+function wallToInstant(wall: string, zone: string): number {
+  for (let shift = 0; shift < 3; shift += 1) {
+    const [date, time] = wall.split("T");
+    const [year, month, day] = (date ?? "").split("-").map(Number);
+    const [hour, minute] = (time ?? "").split(":").map(Number);
+    const shifted = new Date(
+      Date.UTC(year ?? 1970, (month ?? 1) - 1, day ?? 1, (hour ?? 0) + shift, minute ?? 0),
+    );
+    const candidate =
+      `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}` +
+      `-${String(shifted.getUTCDate()).padStart(2, "0")}T${String(shifted.getUTCHours()).padStart(2, "0")}` +
+      `:${String(shifted.getUTCMinutes()).padStart(2, "0")}`;
+    try {
+      return localWallTimeToUtc(candidate, zone);
+    } catch (error) {
+      if (!(error instanceof AppError)) {
+        throw error;
+      }
+    }
+  }
+  throw new AppError("VALIDATION", `That time does not exist in ${zone}.`, 400);
+}
+
 function resolveTime(
   time: TimeParts | null,
   householdTimezone: string,
@@ -124,15 +148,15 @@ function resolveTime(
   }
   const wall = time.text.replace(/Z$/, "").slice(0, 16);
   if (time.isUtc) {
-    return { kind: "instant", instant: localWallTimeToUtc(wall, "UTC") };
+    return { kind: "instant", instant: wallToInstant(wall, "UTC") };
   }
   if (time.tzid) {
     if (!isKnownTimezone(time.tzid)) {
       return { kind: "unknown-zone", zone: time.tzid };
     }
-    return { kind: "instant", instant: localWallTimeToUtc(wall, time.tzid) };
+    return { kind: "instant", instant: wallToInstant(wall, time.tzid) };
   }
-  return { kind: "instant", instant: localWallTimeToUtc(wall, householdTimezone) };
+  return { kind: "instant", instant: wallToInstant(wall, householdTimezone) };
 }
 
 function textProp(component: ICAL.Component, name: string): string | null {
@@ -405,11 +429,20 @@ export function parseIcs(
   const drafts: Draft[] = [];
 
   for (const vevent of root.getAllSubcomponents("vevent")) {
-    const { draft, warning, dropped: eventDropped } = parseVevent(
-      vevent,
-      calendarName,
-      householdTimezone,
-    );
+    let parsedEvent: DraftResult;
+    try {
+      parsedEvent = parseVevent(vevent, calendarName, householdTimezone);
+    } catch {
+      // One malformed VEVENT must never abort the whole export.
+      const uidValue = vevent.getFirstPropertyValue("uid");
+      warnings.push({
+        uid: typeof uidValue === "string" ? uidValue : "",
+        title: textProp(vevent, "summary") ?? "Untitled event",
+        reason: "The event could not be read and was skipped.",
+      });
+      continue;
+    }
+    const { draft, warning, dropped: eventDropped } = parsedEvent;
     addDropped(dropped, eventDropped);
     if (warning) {
       warnings.push(warning);

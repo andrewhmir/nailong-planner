@@ -113,7 +113,7 @@ shifts by a day, or an API error carries the wrong code or status.
 **Parsing rules that matter**
 - `externalKey = sha256("ics|<uid>|<recurrenceId or empty>")` is the idempotency key; `contentHash` covers the imported fields and decides whether a re-import updates a row.
 - `tzid` is the property's `TZID` parameter (ical.js reports the value itself as floating); a `Z` timestamp or `UTC`/`Z` zone is stored as `tzid: null`, and a floating time is resolved in the household zone with `tzid: null`.
-- An unknown `TZID` (not accepted by `Intl.DateTimeFormat`) skips the event with a warning — never guess (spec R4).
+- An unknown `TZID` (not accepted by `Intl.DateTimeFormat`) skips the event with a warning — never guess (spec R4). A wall time inside the spring-forward gap is shifted an hour later (RFC 5545 §3.3.5), and one unreadable VEVENT becomes a warning instead of aborting the file.
 - All-day `DTEND` is exclusive in iCalendar and becomes an inclusive `endDate`; a missing `DTEND` falls back to `DURATION`, then to a one-day event.
 - A `RECURRENCE-ID` VEVENT becomes its own row with `rrule: null`, and its parent series gains that value in `exdates`, so the moved occurrence renders once.
 - VALARM / ATTENDEE / ATTACH are counted into `dropped` and not imported.

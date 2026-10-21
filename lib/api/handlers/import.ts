@@ -18,6 +18,8 @@ interface ImportRequest {
   mapping: unknown;
 }
 
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
+
 /**
  * Reads the multipart body used by both import endpoints: repeated `files`
  * fields carrying `.ics` documents and an optional JSON `mapping` field. The
@@ -35,6 +37,9 @@ async function readImportRequest(request: Request): Promise<ImportRequest> {
   for (const entry of form.getAll("files")) {
     if (typeof entry === "string") {
       continue;
+    }
+    if (entry.size > MAX_FILE_BYTES) {
+      throw new AppError("VALIDATION", "That export is too large (5 MB max).", 400);
     }
     const name = "name" in entry && typeof entry.name === "string" ? entry.name : "import.ics";
     files.push({ name, text: await entry.text() });

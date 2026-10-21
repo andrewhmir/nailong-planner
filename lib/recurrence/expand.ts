@@ -149,6 +149,29 @@ function safeRule(rule: string, dtstart: string): { between: (after: Date, befor
   }
 }
 
+/**
+ * `UNTIL` in an RRULE is a UTC instant; a floating expansion compares it with
+ * wall stamps, so it must be moved into the same coordinate system or the last
+ * occurrence of a DST-zone series silently disappears.
+ */
+function floatingRule(rule: string, zone: string): string {
+  return rule.replace(/UNTIL=(\d{8}T\d{6})Z/, (_match, stamp: string) => {
+    const instant = Date.UTC(
+      Number(stamp.slice(0, 4)),
+      Number(stamp.slice(4, 6)) - 1,
+      Number(stamp.slice(6, 8)),
+      Number(stamp.slice(9, 11)),
+      Number(stamp.slice(11, 13)),
+      Number(stamp.slice(13, 15)),
+    );
+    const wall = new Date(wallMsOf(instant, zone));
+    return (
+      `UNTIL=${wall.getUTCFullYear()}${pad(wall.getUTCMonth() + 1)}${pad(wall.getUTCDate())}` +
+      `T${pad(wall.getUTCHours())}${pad(wall.getUTCMinutes())}${pad(wall.getUTCSeconds())}`
+    );
+  });
+}
+
 function expandTimed(event: EventRow, range: OccurrenceRange, timezone: string): Occurrence[] {
   if (event.startAt === null) {
     return [plainOccurrence(event)];
@@ -157,7 +180,7 @@ function expandTimed(event: EventRow, range: OccurrenceRange, timezone: string):
   // TZID for imported events); the household zone is only the fallback.
   const zone = event.tzid ?? timezone;
   const startWall = wallMsOf(event.startAt, zone);
-  const rule = safeRule(event.rrule ?? "", utcStamp(startWall));
+  const rule = safeRule(floatingRule(event.rrule ?? "", zone), utcStamp(startWall));
   if (!rule) {
     return [plainOccurrence(event)];
   }

@@ -60,6 +60,8 @@ export interface ImportPreview {
   createCount: number;
   updateCount: number;
   unchangedCount: number;
+  /** Source timezones that differ from the household zone (spec R13 dry-run note). */
+  nonHouseholdTimezones: string[];
   warnings: IcsWarning[];
   dropped: IcsDropped;
 }
@@ -165,11 +167,23 @@ function parseFiles(files: ImportFile[], timezone: string): ParsedFiles {
   const warnings: IcsWarning[] = [];
   const dropped = emptyDropped();
   const calendars = new Map<string, IcsCalendarSummary>();
+  const seenKeys = new Set<string>();
 
   for (const file of files) {
     const fallback = file.name.replace(/\.ics$/i, "") || "Imported calendar";
     const parsed = parseIcs(file.text, timezone, fallback);
-    events.push(...parsed.events);
+    for (const item of parsed.events) {
+      if (seenKeys.has(item.externalKey)) {
+        warnings.push({
+          uid: item.uid,
+          title: item.title,
+          reason: "This event appears more than once in the upload; the first copy is used.",
+        });
+        continue;
+      }
+      seenKeys.add(item.externalKey);
+      events.push(item);
+    }
     warnings.push(...parsed.warnings);
     dropped.alarms += parsed.dropped.alarms;
     dropped.attendees += parsed.dropped.attendees;
@@ -317,7 +331,11 @@ function resolveTargets(
 
     const existingChild = findImportChild(db, ctx.householdId, name);
     if (existingChild) {
-      byName.set(name, existingChild.id);
+      // A partner can claim From Google and mark it view-only; reuse still has
+      // to pass the same permission check as an explicit mapping.
+      const access = getCalendarAccess(db, ctx, existingChild.id);
+      assertCalendarWritable(ctx, access);
+      byName.set(name, access.calendar.id);
       continue;
     }
 
@@ -434,7 +452,8 @@ export function previewImport(
   files: ImportFile[],
 ): ImportPreview {
   validateFiles(files);
-  const parsed = parseFiles(files, householdTimezone(db, ctx.householdId));
+  const timezone = householdTimezone(db, ctx.householdId);
+  const parsed = parseFiles(files, timezone);
   const existing = existingByKey(
     db,
     ctx.householdId,
@@ -466,11 +485,20 @@ export function previewImport(
     }
   }
 
+  const nonHouseholdTimezones = [
+    ...new Set(
+      parsed.events
+        .map((item) => item.tzid)
+        .filter((tzid): tzid is string => tzid !== null && tzid !== timezone),
+    ),
+  ];
+
   return {
     calendars: [...perCalendar.values()],
     createCount,
     updateCount,
     unchangedCount,
+    nonHouseholdTimezones,
     warnings: parsed.warnings,
     dropped: parsed.dropped,
   };
@@ -519,7 +547,10 @@ export function commitImport(
         created += 1;
         continue;
       }
-      if (row.externalContentHash === item.contentHash) {
+      // A mapping change is a real update even when the event content is
+      // identical: the row has to move to the newly chosen calendar.
+      const moved = row.calendarId !== calendarId;
+      if (row.externalContentHash === item.contentHash && !moved) {
         unchanged += 1;
         continue;
       }
@@ -637,7 +668,9 @@ export function rollbackImportBatch(
           externalRecurrenceId: before.externalRecurrenceId ?? null,
           externalKey: before.externalKey ?? null,
           externalContentHash: before.externalContentHash ?? null,
-          updatedAt: Date.now(),
+          // Restoring `Date.now()` would make an earlier batch treat this row as
+          // "edited by the user" and refuse to undo it.
+          updatedAt: before.updatedAt ?? batch.createdAt,
         })
         .where(eq(event.id, change.eventId))
         .run();

@@ -5,12 +5,17 @@ import { ANDREW, loadFixtures, signIn } from "./helpers";
 const fixtures = loadFixtures();
 const sample = path.resolve("tests/fixtures/ics/google-sample.ics");
 
+// The first hit compiles the route on a cold `.next-e2e`; leave room for that.
+test.setTimeout(120_000);
+
 test("imports a Google export, shows it on the calendar, and undoes it", async ({ page }) => {
   await signIn(page, ANDREW, fixtures.password);
 
   await page.goto("/settings");
   await page.getByRole("link", { name: "Open the importer" }).click();
-  await expect(page.getByRole("heading", { name: "Import from Google Calendar" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Import from Google Calendar" })).toBeVisible({
+    timeout: 45_000,
+  });
 
   await page.getByLabel("Google Calendar files").setInputFiles(sample);
   await expect(page.getByText("3 to add, 0 to update, 0 already up to date.")).toBeVisible();

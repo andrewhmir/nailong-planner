@@ -125,10 +125,14 @@ export function ImportWizard({ currentUserId }: { currentUserId: string }) {
   async function undoImport(batchId: string) {
     setBusy(true);
     try {
-      await readJson<{ rollback: { batchId: string } }>(
+      const payload = await readJson<{ rollback: { batchId: string; skipped: number } }>(
         await fetch(`/api/import/batches/${batchId}/rollback`, { method: "POST" }),
       );
-      toast.success("Import undone");
+      toast.success(
+        payload.rollback.skipped > 0
+          ? `Import undone — ${payload.rollback.skipped} event(s) kept because they changed after the import`
+          : "Import undone",
+      );
       void queryClient.invalidateQueries({ queryKey: ["events"] });
       void queryClient.invalidateQueries({ queryKey: ["calendars"] });
       void queryClient.invalidateQueries({ queryKey: ["import-batches"] });
@@ -214,6 +218,11 @@ export function ImportWizard({ currentUserId }: { currentUserId: string }) {
             {preview.createCount} to add, {preview.updateCount} to update, {preview.unchangedCount}{" "}
             already up to date.
           </p>
+          {preview.nonHouseholdTimezones.length > 0 ? (
+            <p className="mt-2 text-sm text-ink-soft">
+              These series keep their own timezone: {preview.nonHouseholdTimezones.join(", ")}.
+            </p>
+          ) : null}
           <div className="mt-3 overflow-x-auto">
             <table className="w-full border-collapse text-left text-sm">
               <thead>
@@ -229,6 +238,9 @@ export function ImportWizard({ currentUserId }: { currentUserId: string }) {
                   </th>
                   <th scope="col" className="py-2 pr-3 font-normal">
                     Repeating
+                  </th>
+                  <th scope="col" className="py-2 pr-3 font-normal">
+                    Overrides
                   </th>
                   <th scope="col" className="py-2 pr-3 font-normal">
                     Add
@@ -253,6 +265,7 @@ export function ImportWizard({ currentUserId }: { currentUserId: string }) {
                         : ""}
                     </td>
                     <td className="py-2 pr-3">{calendar.recurring}</td>
+                    <td className="py-2 pr-3">{calendar.overrides}</td>
                     <td className="py-2 pr-3">{calendar.createCount}</td>
                     <td className="py-2 pr-3">{calendar.updateCount}</td>
                     <td className="py-2">{calendar.unchangedCount}</td>
@@ -270,6 +283,9 @@ export function ImportWizard({ currentUserId }: { currentUserId: string }) {
                     {warning.title}: {warning.reason}
                   </li>
                 ))}
+                {preview.warnings.length > 10 ? (
+                  <li>…and {preview.warnings.length - 10} more.</li>
+                ) : null}
               </ul>
             </div>
           ) : null}
@@ -362,6 +378,17 @@ export function ImportWizard({ currentUserId }: { currentUserId: string }) {
           {report.calendarsCreated.length > 0 ? (
             <p className="mt-2 text-sm text-ink-soft">
               New calendars: {report.calendarsCreated.join(", ")}.
+            </p>
+          ) : null}
+          {report.warnings.length > 0 ? (
+            <p className="mt-2 text-sm text-ink-soft">
+              {report.warnings.length} events were skipped; the preview lists the reasons.
+            </p>
+          ) : null}
+          {report.dropped.alarms + report.dropped.attendees + report.dropped.attachments > 0 ? (
+            <p className="mt-2 text-sm text-ink-soft">
+              Not imported: {report.dropped.alarms} reminders, {report.dropped.attendees} guests,{" "}
+              {report.dropped.attachments} attachments.
             </p>
           ) : null}
           <div className="mt-6 flex flex-wrap gap-3">

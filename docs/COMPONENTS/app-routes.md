@@ -281,7 +281,7 @@ Google Calendar import over `lib/api/handlers/import.ts`: the browser uploads ex
 
 **Purpose** — Parses the uploaded calendars and reports what a commit would do, without writing.
 
-**API** — `POST` multipart: one to twenty `files` fields (each an `.ics` document) → `200 { preview: ImportPreview }` with per-calendar `{ name, events, recurring, overrides, earliest, latest, createCount, updateCount, unchangedCount }`, totals, `warnings` (unknown TZIDs, skipped events) and `dropped` ({ alarms, attendees, attachments }). Errors: 400 "Send the export as multipart/form-data.", "Choose at least one .ics file.", "That export is too large (5 MB max).", "That file is not an iCalendar (.ics) document.".
+**API** — `POST` multipart: one to twenty `files` fields (each an `.ics` document) → `200 { preview: ImportPreview }` with per-calendar `{ name, events, recurring, overrides, earliest, latest, createCount, updateCount, unchangedCount }`, totals, `nonHouseholdTimezones` (series whose source zone differs from the household zone), `warnings` (unknown TZIDs, skipped events, duplicate UIDs) and `dropped` ({ alarms, attendees, attachments }). Errors: 400 "Send the export as multipart/form-data.", "Choose at least one .ics file.", "That export is too large (5 MB max).", "That file is not an iCalendar (.ics) document.".
 
 **State & side effects** — Read-only: parses the files, looks up existing rows by `external_key` to classify create/update/unchanged, and returns counts. Nothing is persisted, not even the upload.
 

@@ -222,4 +222,39 @@ describe("expandOccurrences in a DST timezone", () => {
       "01:30",
     ]);
   });
+
+  it("keeps the last occurrence when UNTIL is a UTC instant in a DST zone", () => {
+    const occurrences = expandOccurrences(
+      londonSeries({ rrule: "FREQ=WEEKLY;BYDAY=TU;UNTIL=20270406T085959Z" }),
+      { from: atLondon("2027-03-01T00:00"), to: atLondon("2027-04-20T00:00") },
+      TAIPEI,
+    );
+
+    expect(occurrences.map((occurrence) => new Date(occurrence.startAt ?? 0).toISOString())).toEqual([
+      "2027-03-02T09:00:00.000Z",
+      "2027-03-09T09:00:00.000Z",
+      "2027-03-16T09:00:00.000Z",
+      "2027-03-23T09:00:00.000Z",
+      "2027-03-30T08:00:00.000Z",
+      "2027-04-06T08:00:00.000Z",
+    ]);
+  });
+
+  it("anchors a tzid-less series in a DST household zone", () => {
+    const series = timedRule({
+      tzid: null,
+      startAt: atLondon("2027-03-02T09:00"),
+      endAt: atLondon("2027-03-02T10:00"),
+      rrule: "FREQ=WEEKLY;BYDAY=TU",
+    });
+    const occurrences = expandOccurrences(
+      series,
+      { from: atLondon("2027-03-01T00:00"), to: atLondon("2027-04-14T00:00") },
+      LONDON,
+    );
+
+    expect(wallTimes(occurrences.map((occurrence) => occurrence.startAt))).toEqual(
+      Array(7).fill("09:00"),
+    );
+  });
 });

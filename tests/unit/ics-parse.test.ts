@@ -113,4 +113,24 @@ describe("parseIcs", () => {
   it("rejects text that is not an iCalendar document", () => {
     expect(() => parseIcs("hello, this is not a calendar", TAIPEI)).toThrow(/iCalendar/);
   });
+
+  it("shifts a start time inside a spring-forward gap instead of failing the import", () => {
+    const text = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "X-WR-CALNAME:Family",
+      "BEGIN:VEVENT",
+      "UID:gap@google.com",
+      "SUMMARY:Gap breakfast",
+      "DTSTART;TZID=Europe/London:20270328T013000",
+      "DTEND;TZID=Europe/London:20270328T023000",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const event = parseIcs(text, TAIPEI).events[0]!;
+    expect(event.tzid).toBe(LONDON);
+    // 01:30 does not exist on 2027-03-28 in London; RFC 5545 shifts it to 02:30 BST.
+    expect(event.startAt).toBe(localWallTimeToUtc("2027-03-28T02:30", LONDON));
+  });
 });
