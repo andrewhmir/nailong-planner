@@ -51,7 +51,7 @@ test("the calendar card is reachable from the settings sub-nav", async ({ page }
   await page.waitForLoadState("networkidle");
   const nav = page.getByRole("navigation", { name: "Settings sections" });
   await nav.getByRole("link", { name: "Calendar" }).click();
-  await expect(page.getByRole("heading", { name: "Calendar" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Calendar", exact: true })).toBeVisible();
   await expect(page.getByRole("group", { name: "Time format" })).toBeVisible();
 });
 

@@ -1,7 +1,21 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { ANDREW, loadFixtures, signIn } from "./helpers";
 
 const fixtures = loadFixtures();
+
+// The suite shares one database and CI retries a failed test, so the probe needs
+// a unique title and an explicit cleanup: otherwise a retry sees two events with
+// the same text and every "toHaveCount(0)" assertion becomes ambiguous.
+async function deleteProbe(page: Page, title: string): Promise<void> {
+  const response = await page.request.get("/api/events?from=0&to=4102444800000");
+  if (!response.ok()) {
+    return;
+  }
+  const payload = (await response.json()) as { events: Array<{ id: string; title: string }> };
+  for (const event of payload.events.filter((candidate) => candidate.title === title)) {
+    await page.request.delete(`/api/events/${event.id}`, { data: { scope: "all" } });
+  }
+}
 
 test.beforeEach(async ({ page }) => {
   await signIn(page, ANDREW, fixtures.password);
@@ -46,12 +60,13 @@ test("the toolbar button opens the shortcut sheet too", async ({ page }) => {
 });
 
 test("z is undo, but Delete removes the selected event", async ({ page }) => {
+  const title = `Shortcut probe ${Date.now()}`;
   const start = new Date();
   start.setHours(15, 0, 0, 0);
   const created = await page.request.post("/api/events", {
     data: {
       calendarId: fixtures.calendars.math,
-      title: "Shortcut probe",
+      title,
       allDay: false,
       startAt: start.getTime(),
       endAt: start.getTime() + 60 * 60 * 1000,
@@ -61,17 +76,19 @@ test("z is undo, but Delete removes the selected event", async ({ page }) => {
   await page.reload();
   await page.getByRole("button", { name: "List", exact: true }).click();
 
-  await page.getByText("Shortcut probe").click();
+  await page.getByText(title).click();
   await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.keyboard.press("Delete");
-  await expect(page.getByText("Shortcut probe")).toHaveCount(0);
+  await expect(page.getByText(title)).toHaveCount(0);
 
   // The optimistic removal lands before the mutation's undo entry exists.
   await expect(
     page.locator("[data-sonner-toast]", { hasText: "Event deleted" }),
   ).toBeVisible();
   await page.keyboard.press("z");
-  await expect(page.getByText("Shortcut probe")).toBeVisible();
+  await expect(page.getByText(title)).toBeVisible();
+  await deleteProbe(page, title);
 });
 
 test("the settings toggle disables single-key shortcuts", async ({ page }) => {

@@ -15,6 +15,11 @@ export default defineConfig({
   use: {
     baseURL: BASE_URL,
     trace: "retain-on-failure",
+    // The server renders "today" in TZ=Asia/Taipei (see webServer.env below). A
+    // browser left in the host zone (UTC on CI) hydrates a different date, which
+    // React reports as a hydration mismatch and which shifts every date-based
+    // assertion. Pin the browser so client and server agree on the day.
+    timezoneId: "Asia/Taipei",
     ...devices["Desktop Chrome"],
   },
   webServer: {

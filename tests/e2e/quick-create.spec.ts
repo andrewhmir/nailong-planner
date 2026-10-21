@@ -53,8 +53,9 @@ test("clicking another control on the page closes the bubble", async ({ page }) 
   await expect(page.getByLabel("Title")).toBeFocused();
 
   // Any click outside the bubble dismisses it without saving: the toolbar's
-  // Today button stands in for "some other button on the screen".
-  await page.getByRole("button", { name: "Today" }).click();
+  // Today button stands in for "some other button on the screen". `exact` is
+  // load-bearing: the nav rail also has a greyed "Today — Planned" destination.
+  await page.getByRole("button", { name: "Today", exact: true }).click();
   await expect(page.getByLabel("Title")).toHaveCount(0);
   await expect(page.getByText("Dinner with Sam")).toHaveCount(0);
 });
