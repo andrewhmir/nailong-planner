@@ -61,8 +61,32 @@ npx tsx scripts/restore-check.mts --backup .dev/backups/<newest>.db.gz
 
 ## Things deliberately absent
 
-- Reminders/notifications, Google Calendar sync, ICS import/export, dark mode, PWA, multi-household — all v0.2+.
+- Reminders/notifications, two-way Google Calendar sync, read-only ICS subscriptions and export feeds, dark mode, PWA, multi-household — all v0.2+. One-time Google Calendar import ships today (see below); it is not sync.
 - Public sign-up, email delivery, password reset by email — by design; this app has exactly two accounts.
+
+## Importing from Google Calendar
+
+Settings → **Google Calendar import** → *Open the importer* (`/settings/import`).
+
+1. In Google Calendar: Settings → *Import & export* → **Export**, or take a
+   [Google Takeout](https://takeout.google.com) archive and download it.
+2. Unzip the download and choose the `.ics` files in the importer. One file is
+   one calendar (`X-WR-CALNAME` names it).
+3. Review the preview: per-calendar event counts, date range, repeating count,
+   and a warning list (an unknown `TZID` is skipped rather than guessed). Nothing
+   has been written yet.
+4. Map each source calendar: by default it becomes a sub-calendar of a new
+   **From Google** calendar; you can also pick any writable calendar.
+5. Press **Import** — the whole batch is one SQLite transaction, so a failure
+   writes nothing.
+6. Undo from the report or from **Past imports** at any time; events you edited
+   in Nailong after the import are left alone and reported as skipped.
+
+Run `npm run backup` before importing real data. Re-running the same export is
+safe: events are matched by their Google UID (plus `RECURRENCE-ID` for moved
+occurrences), so the import updates in place instead of duplicating. Colors can
+be changed after the import; each `From Google` root takes the next free hue
+family.
 
 ## Moving to another host
 

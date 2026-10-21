@@ -101,6 +101,12 @@ rather not have edited.
   all-day and timed events, IANA timezones.
 - **Recurring events** — RFC 5545 RRULE, with single-occurrence deletion via
   EXDATEs.
+- **Google Calendar import** — Settings → *Import from Google Calendar*: upload
+  the `.ics` files from a Google export, preview every calendar's counts and
+  warnings, map each one under a new **From Google** calendar or an existing
+  one, then commit in one transaction. Re-importing the same export updates in
+  place (no duplicates) and every import can be undone. No OAuth, no Google
+  Cloud project.
 - **Two-person permissions** — a per-calendar view-only flag, enforced
   server-side on every write, with sub-calendars inheriting the protection.
 - **Private by design** — sign-up disabled, exactly two accounts provisioned,
@@ -200,10 +206,10 @@ Historical design specs and plans (never edited):
 
 ## Out of scope for v0.1.0
 
-Reminders and notifications · Google Calendar sync / ICS · a 30-day trash bin
-(undo is session-only in v0.1.0) · custom repeat rules and per-occurrence
-overrides · dark mode · PWA · tasks, notes and other modules · more than two
-users.
+Reminders and notifications · two-way Google Calendar sync and read-only ICS
+subscriptions / export feeds · a 30-day trash bin (undo is session-only in
+v0.1.0) · custom repeat rules and per-occurrence overrides · dark mode · PWA ·
+tasks, notes and other modules · more than two users.
 
 ## Contributing
 

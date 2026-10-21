@@ -26,7 +26,8 @@ The suites are documented as lookup tables rather than one section per file: fin
 |---|---|---|
 | `tests/unit/permissions.test.ts` | `canWriteCalendar`: shared calendars are writable by both, a view-only calendar only by its owner | `npx vitest run tests/unit/permissions.test.ts` |
 | `tests/unit/time.test.ts` | Wall-time→UTC round-trips, the 47-hour DST day, rejection of DST-gap and malformed times, inclusive all-day ranges | `npx vitest run tests/unit/time.test.ts` |
-| `tests/unit/recurrence.test.ts` | `expandOccurrences`: series anchored to its stored start, preserved duration, EXDATE skipping, monthly-31st, all-day expansion | `npx vitest run tests/unit/recurrence.test.ts` |
+| `tests/unit/recurrence.test.ts` | `expandOccurrences`: series anchored to its stored start, preserved duration, EXDATE skipping, monthly-31st, all-day expansion, and wall-clock expansion across both DST changes in the series' own `tzid` | `npx vitest run tests/unit/recurrence.test.ts` |
+| `tests/unit/ics-parse.test.ts` | `parseIcs`: timed events with `TZID`, escaped text, exclusive all-day `DTEND`, RRULE + EXDATE, `RECURRENCE-ID` overrides, unknown-TZID skip, floating times, `DURATION`, content-hash stability | `npx vitest run tests/unit/ics-parse.test.ts` |
 | `tests/unit/format.test.ts` | 12h/24h time, inclusive multi-day all-day text, midnight-crossing ranges, occurrence-relative headings (F28) | `npx vitest run tests/unit/format.test.ts` |
 | `tests/unit/recurrence-label.test.ts` | `describeRrule` wording for Google-style rules and the empty string for unknown input | `npx vitest run tests/unit/recurrence-label.test.ts` |
 | `tests/unit/palette.test.ts` | Eight distinct shades per family, pinned parent shade and child order, hex twins for FullCalendar, 4.5:1 container contrast | `npx vitest run tests/unit/palette.test.ts` |
@@ -54,6 +55,9 @@ The suites are documented as lookup tables rather than one section per file: fin
 | `tests/integration/preferences-api.test.ts` | Defaults without a stored row, partial PATCH persistence, rejection of unknown view/format, per-user scoping | `npx vitest run tests/integration/preferences-api.test.ts` |
 | `tests/integration/regressions.test.ts` | Review-found regressions: a view-only root protects its children, ownership claiming rules, title-only PATCH of an all-day event, refusing a view-only move target | `npx vitest run tests/integration/regressions.test.ts` |
 | `tests/integration/search-api.test.ts` | Title/location/description matching, the two-character floor, household scoping, one row per series, LIKE escaping, title-first ranking and the limit | `npx vitest run tests/integration/search-api.test.ts` |
+| `tests/integration/import-schema.test.ts` | External-key uniqueness per household, many NULL keys, `tzid`/external columns round-trip, `import_change` cascades with its batch | `npx vitest run tests/integration/import-schema.test.ts` |
+| `tests/integration/import-service.test.ts` | Preview without writes, transactional commit and calendar creation, idempotent re-import, in-place update with `before_json`, view-only refusal, unknown-TZID warning, size cap, rollback and the edited-after-import skip rule, batch history | `npx vitest run tests/integration/import-service.test.ts` |
+| `tests/integration/import-api.test.ts` | Multipart preview/commit through the handlers, missing/malformed mapping 400s, list + rollback status codes (409/404), `withViewer` wiring | `npx vitest run tests/integration/import-api.test.ts` |
 
 ## E2E specs
 
@@ -75,6 +79,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 | `tests/e2e/view-preference.spec.ts` | Desktop defaults to month and phone to list, the last view survives reload, a stored default beats `auto` after `localStorage` is cleared, overlapping events sit side by side | `npx playwright test tests/e2e/view-preference.spec.ts` |
 | `tests/e2e/settings.spec.ts` | Household name saves and repopulates, sub-nav marks the hash, password and 2FA panels exist, 2FA setup shows the code field and backup codes, security headers on a real response | `npx playwright test tests/e2e/settings.spec.ts` |
 | `tests/e2e/mini-month.spec.ts` | Mini-month jumps the grid, next-month navigation, the toolbar title opens a date picker, `?date=` deep link, the title stays a heading | `npx playwright test tests/e2e/mini-month.spec.ts` |
+| `tests/e2e/import.spec.ts` | Settings → importer, upload a Google `.ics`, preview counts, map to a new `From Google` calendar, commit, event visible on the calendar, undo from the history table | `npx playwright test tests/e2e/import.spec.ts` |
 | `tests/e2e/mobile.spec.ts` | At 375px the month grid does not overflow horizontally and the calendar tree opens as a sheet that closes | `npx playwright test tests/e2e/mobile.spec.ts` |
 | `tests/e2e/viewport-fit.spec.ts` | Eight viewports: document never scrolls, whole month fits, grid does not scroll internally, chrome cannot move; week hours and the settings page scroll inside their panels | `npx playwright test tests/e2e/viewport-fit.spec.ts` |
 | `tests/e2e/design-tokens.spec.ts` | Canvas tokens on `:root` (`--color-ink`, `--color-accent`, `--color-link`, `--color-rail`, `--color-field`, `--radius-md`) and self-hosted Lato actually loading | `npx playwright test tests/e2e/design-tokens.spec.ts` |
@@ -112,7 +117,8 @@ The suites are documented as lookup tables rather than one section per file: fin
 | UI primitives (button, dialog, scrim) | `tests/e2e/primitives.spec.ts` |
 | Screenshots and fonts | `tests/e2e/screenshot.spec.ts` (with `CAPTURE_SCREENSHOTS=1`); the Lato assertion in `tests/e2e/design-tokens.spec.ts` |
 | Event CRUD, drag and occurrence deletion | `tests/e2e/events.spec.ts`; service-level rules in `tests/integration/events.test.ts` |
-| Recurrence expansion (RRULE, EXDATE, duration) | `tests/unit/recurrence.test.ts`; the stored-EXDATE side in `tests/integration/events.test.ts` |
+| Recurrence expansion (RRULE, EXDATE, duration, DST wall-clock) | `tests/unit/recurrence.test.ts`; the stored-EXDATE side in `tests/integration/events.test.ts` |
+| Google Calendar import | `tests/unit/ics-parse.test.ts`, `tests/integration/import-service.test.ts`, `tests/integration/import-api.test.ts`, `tests/integration/import-schema.test.ts`, `tests/e2e/import.spec.ts` |
 | View-only permissions | `tests/unit/permissions.test.ts`, `tests/integration/events.test.ts`, `tests/integration/regressions.test.ts`, `tests/e2e/viewonly.spec.ts` |
 | Schema, foreign keys and tenancy | `tests/integration/db.test.ts`; the cross-household 404s in `tests/integration/calendars-api.test.ts` and `events-api.test.ts` |
 | Event payload building | `tests/unit/event-payload.test.ts`; the occurrence mapping in `tests/unit/toFcEvent.test.ts` |

@@ -48,6 +48,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   server-side on every write, with sub-calendars inheriting the protection.
 - **Private by design** — sign-up disabled, exactly two accounts provisioned,
   TOTP two-factor available, DB-backed sessions.
+- **Google Calendar import** — Settings → Google Calendar import uploads the
+  `.ics` files from a Google export, previews per-calendar counts and warnings,
+  maps each calendar under a new **From Google** root or an existing one, commits
+  in one transaction, and can undo the whole batch. Idempotent by Google UID, so
+  a re-import updates in place. Imported series keep their source timezone
+  (`event.tzid`) and recurrence expands in local wall time, so a DST transition
+  does not shift them. No OAuth and no Google Cloud project.
 - **Small footprint** — SQLite in WAL mode, one Docker image, one volume.
 
 ### Added — foundation (initial build)

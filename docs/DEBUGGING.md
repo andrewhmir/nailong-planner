@@ -228,6 +228,11 @@ any wrapper in the shell/calendar tree.
 | A script sees none of the `.env` values | each script must call `loadEnv()` **before** importing `lib/env` (hence the dynamic `await import(...)`); only the first of `.env.local`/`.env` is loaded, from `process.cwd()` | `scripts/load-env.mts`, `lib/env.ts` |
 | E2E sign-in fails though the seed ran | `scripts/seed-test-db.mts` forces a fixed secret after loading env; `playwright.config.ts` must set the same one | both files |
 | E2E passes now but fails on a later date | `tests/e2e/view-preference.spec.ts` hardcodes "October 2026" while the seed fixtures come from the current month | that spec, `scripts/seed-test-db.mts` |
+| An imported event is at the wrong time | the `.ics` used jCal-style date values instead of RFC 5545 compact ones, the `TZID` parameter was dropped, or the event's `tzid` is null so it expanded in the household zone | `lib/import/ics.ts` `resolveTime`, the event's `tzid`; fixtures in `tests/fixtures/ics/` |
+| Re-importing a Google export duplicates events | `external_key` changed between parses (UID or `RECURRENCE-ID` read differently), or the old rows predate the external columns (null keys) | `lib/import/ics.ts` `externalKeyFor`, `event.external_key` |
+| Importing an event with an unknown timezone silently drops it | by design: the parser skips it and lists it under `warnings` (R4) | the preview warning list, `parseIcs` |
+| "Undo this import" leaves events behind | they were edited in Nailong after the import (`updatedAt > batch.createdAt`) and are reported as `skipped`; or they belong to an earlier batch | `import_change.batch_id`, `lib/services/import.ts` `rollbackImportBatch` |
+| Import commit returns 403 | the mapped target calendar is view-only for this viewer; the whole transaction rolled back | the mapping step, `canWriteCalendar`, `lib/services/import.ts` `resolveTargets` |
 | Migration/column missing | committed SQL migrations not applied; generated migration not committed | `npm run db:migrate`, `drizzle/`, `lib/db/schema.ts` |
 | `docs:check` fails | a source file was added/moved/deleted without its `### <path>` section | output names the heading and the doc to edit |
 
