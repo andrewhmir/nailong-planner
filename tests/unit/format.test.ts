@@ -55,6 +55,15 @@ function timedEvent(startWall: string, endWall: string): EventView {
   });
 }
 
+/**
+ * The occurrence key `expandOccurrences` produces for a timed occurrence: an ISO
+ * instant, not a wall-clock string. Passing a bare "YYYY-MM-DDTHH:mm" would be
+ * parsed in the host zone, so the test would only pass on a machine in `TZ`.
+ */
+function occurrenceInstant(wall: string): string {
+  return new Date(localWallTimeToUtc(wall, TZ)).toISOString();
+}
+
 describe("formatWallTime", () => {
   it("renders 24h and 12h wall times", () => {
     expect(formatWallTime("19:00", "24h")).toBe("19:00");
@@ -93,20 +102,21 @@ describe("formatOccurrenceWhen", () => {
 
   it("shows the end date when a timed event crosses midnight", () => {
     const event = timedEvent("2026-10-21T22:00", "2026-10-22T06:00");
-    expect(formatOccurrenceWhen(event, "2026-10-21T22:00", TZ, "24h")).toBe(
+    expect(formatOccurrenceWhen(event, occurrenceInstant("2026-10-21T22:00"), TZ, "24h")).toBe(
       "21 Oct 22:00 – 22 Oct 06:00",
     );
   });
 
   it("renders a same-day timed occurrence as a time range", () => {
     const event = timedEvent("2026-10-21T19:00", "2026-10-21T20:30");
-    expect(formatOccurrenceWhen(event, "2026-10-21T19:00", TZ, "24h")).toBe("19:00 – 20:30");
-    expect(formatOccurrenceWhen(event, "2026-10-21T19:00", TZ, "12h")).toBe("7:00 PM – 8:30 PM");
+    const start = occurrenceInstant("2026-10-21T19:00");
+    expect(formatOccurrenceWhen(event, start, TZ, "24h")).toBe("19:00 – 20:30");
+    expect(formatOccurrenceWhen(event, start, TZ, "12h")).toBe("7:00 PM – 8:30 PM");
   });
 
   it("uses the occurrence start for a repeating series, not the series start", () => {
     const event = timedEvent("2026-10-21T22:00", "2026-10-22T06:00");
-    const occurrenceStart = new Date(localWallTimeToUtc("2026-10-28T22:00", TZ)).toISOString();
+    const occurrenceStart = occurrenceInstant("2026-10-28T22:00");
     expect(formatOccurrenceWhen(event, occurrenceStart, TZ, "24h")).toBe(
       "28 Oct 22:00 – 29 Oct 06:00",
     );
