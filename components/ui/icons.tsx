@@ -65,8 +65,7 @@ export function ChevronLeftIcon(props: IconProps) {
   );
 }
 
-export function ChevronRightIcon(props: IconProps) {
-  return (
+export function ChevronRightIcon(props: IconProps) {  return (
     <Svg {...props}>
       <path d="m9 18 6-6-6-6" />
     </Svg>
@@ -189,4 +188,13 @@ export function SearchIcon(props: IconProps) {
     </Svg>
   );
 }
+
+export function ChevronDownIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="m6 9 6 6 6-6" />
+    </Svg>
+  );
+}
+
 

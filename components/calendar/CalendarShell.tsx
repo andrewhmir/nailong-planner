@@ -43,7 +43,7 @@ import { focusSearch } from "@/lib/ui/searchBus";
 import { pushUndo, undoLast } from "@/lib/ui/undo";
 import { useKeyboardShortcuts } from "@/lib/ui/useKeyboardShortcuts";
 import { useUndoHotkey } from "@/lib/ui/useUndoHotkey";
-import { isCalendarVisible } from "@/lib/ui/visibility";
+import { visibleCalendarIds } from "@/lib/ui/visibleCalendars";
 import { CalendarView, type RenderableOccurrence } from "./CalendarView";
 import { EventDetailsPopover } from "./EventDetailsPopover";
 import { EventDialog, type EventDialogInitial } from "./EventDialog";
@@ -165,6 +165,7 @@ export function CalendarShell({
 
   const [view, setView] = useState<PlannerView>("dayGridMonth");
   const [label, setLabel] = useState("Calendar");
+  const [anchorDate, setAnchorDate] = useState(() => utcToLocalDate(Date.now(), timezone));
   const [range, setRange] = useState<EventRange | null>(null);
   const [dialog, setDialog] = useState<EventDialogState | null>(null);
   const [dialogDirty, setDialogDirty] = useState(false);
@@ -185,25 +186,19 @@ export function CalendarShell({
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
 
-  const visibleCalendarIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const root of calendars ?? []) {
-      const rootVisible = isCalendarVisible(visibility.state, root, currentUserId);
-      if (rootVisible) {
-        ids.add(root.id);
-        for (const child of root.children) {
-          if (isCalendarVisible(visibility.state, child, currentUserId, root)) {
-            ids.add(child.id);
-          }
-        }
-      }
-    }
-    return ids;
-  }, [calendars, currentUserId, visibility.state]);
+  const visibleIds = useMemo(
+    () =>
+      visibleCalendarIds(
+        (calendars ?? []) as CalendarNode[],
+        visibility.state,
+        currentUserId,
+      ),
+    [calendars, currentUserId, visibility.state],
+  );
 
   const visibleEvents = useMemo(
-    () => (events ?? []).filter((event) => visibleCalendarIds.has(event.calendarId)),
-    [events, visibleCalendarIds],
+    () => (events ?? []).filter((event) => visibleIds.has(event.calendarId)),
+    [events, visibleIds],
   );
 
   const calendarNames = useMemo(() => {
@@ -362,6 +357,10 @@ export function CalendarShell({
     setView(next);
   }
 
+  function jumpToDate(date: string): void {
+    calendarRef.current?.getApi().gotoDate(date);
+  }
+
   function rememberOpener(): void {
     openerRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -474,6 +473,7 @@ export function CalendarShell({
 
   function handleDatesSet(info: DatesInfo) {
     setLabel(info.view.title);
+    setAnchorDate(utcToLocalDate(info.view.currentStart.getTime(), timezone));
     const type = info.view.type;
     if (type && VIEW_TYPES[type]) {
       setView(VIEW_TYPES[type]!);
@@ -759,6 +759,8 @@ export function CalendarShell({
       <Toolbar
         label={label}
         view={view}
+        anchorDate={anchorDate}
+        onJumpToDate={jumpToDate}
         onViewChange={changeView}
         onPrev={() => calendarRef.current?.getApi().prev()}
         onToday={() => calendarRef.current?.getApi().today()}

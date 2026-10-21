@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { CalendarTree } from "@/components/sidebar/CalendarTree";
+import { SidebarMiniMonth } from "@/components/sidebar/SidebarMiniMonth";
 import { Button } from "@/components/ui/button";
 import { MenuIcon } from "@/components/ui/icons";
 import type { TimeFormat } from "@/lib/services/preferences";
@@ -108,6 +109,9 @@ export function AppShell({
 
           <div className="flex min-h-0 flex-1">
             <aside className="hidden min-h-0 w-56 shrink-0 flex-col border-r border-line bg-surface lg:flex">
+              <div className="shrink-0 overflow-y-auto">
+                <SidebarMiniMonth currentUserId={currentUser.id} timezone={timezone} />
+              </div>
               <nav
                 className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
                 aria-label="Calendar list"
@@ -148,6 +152,7 @@ export function AppShell({
                 </Button>
               </div>
               <nav className="min-h-0 flex-1 overflow-y-auto" aria-label="Calendar list">
+                <SidebarMiniMonth currentUserId={currentUser.id} timezone={timezone} />
                 {tree}
               </nav>
             </div>
