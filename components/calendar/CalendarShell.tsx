@@ -2,13 +2,14 @@
 
 import type {
   CalendarRef,
+  DateClickInfo,
   DateSelectInfo,
   DatesSetInfo,
   EventClickInfo,
   EventDropInfo,
   EventResizeDoneInfo,
 } from "@fullcalendar/react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -43,6 +44,11 @@ import { isCalendarVisible } from "@/lib/ui/visibility";
 import { CalendarView, type RenderableOccurrence } from "./CalendarView";
 import { EventDetailsPopover } from "./EventDetailsPopover";
 import { EventDialog, type EventDialogInitial } from "./EventDialog";
+import { QuickCreatePopover, type QuickCreateDraft } from "./QuickCreatePopover";
+import {
+  defaultRangeForDate,
+  defaultRangeFromSelection,
+} from "./quickCreateDefaults";
 import { parseOccurrenceFcId } from "./toFcEvent";
 import { Toolbar, type PlannerView } from "./Toolbar";
 
@@ -69,6 +75,12 @@ interface EventSelection {
   occurrenceStart: string;
   anchorRect: DOMRect;
   anchorElement: HTMLElement | null;
+}
+
+interface EventDialogState {
+  mode: "create" | "edit";
+  initial: EventDialogInitial;
+  initialRule: string | null;
 }
 
 const VIEW_TYPES: Record<string, PlannerView> = {
@@ -132,6 +144,16 @@ function undoToast(message: string): void {
   });
 }
 
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.tagName === "SELECT" ||
+      target.isContentEditable)
+  );
+}
+
 export function CalendarShell({
   timezone,
   currentUserId,
@@ -147,16 +169,16 @@ export function CalendarShell({
   const [view, setView] = useState<PlannerView>("dayGridMonth");
   const [label, setLabel] = useState("Calendar");
   const [range, setRange] = useState<EventRange | null>(null);
-  const [dialog, setDialog] = useState<{
-    mode: "create" | "edit";
-    initial: EventDialogInitial;
-    initialRule: string | null;
-  } | null>(null);
+  const [dialog, setDialog] = useState<EventDialogState | null>(null);
+  const [dialogDirty, setDialogDirty] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [quickDraft, setQuickDraft] = useState<QuickCreateDraft | null>(null);
   const [selection, setSelection] = useState<EventSelection | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{
     event: EventView;
     occurrenceStart: string;
   } | null>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
 
   const { data: events } = useEvents(range);
   const createEvent = useCreateEvent();
@@ -283,26 +305,59 @@ export function CalendarShell({
     [calendars, readOnlyCalendarIds],
   );
 
-  // Every device starts on the month grid: the shell guarantees it fits the
-  // viewport, so a phone no longer needs the taller agenda as its landing view.
-  // Week, Day and List stay one tap away and scroll inside the calendar panel.
+  // Shift+C opens the bubble at the centre of the viewport with today's default
+  // range. `c` and `+ Event` stay on the full dialog (Google's split, D2).
+  useEffect(() => {
+    if (!preferences.shortcutsEnabled) {
+      return;
+    }
+    function onKeyDown(event: KeyboardEvent): void {
+      if (!event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+        return;
+      }
+      if (event.key.toLowerCase() !== "c" || isTextEntryTarget(event.target)) {
+        return;
+      }
+      event.preventDefault();
+      const today = utcToLocalDate(Date.now(), timezone);
+      setQuickDraft({
+        ...defaultRangeForDate(today, null, new Date(), timezone),
+        dateWall: today,
+        anchor: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+      });
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [preferences.shortcutsEnabled, timezone]);
 
   function changeView(next: PlannerView) {
     calendarRef.current?.getApi().changeView(next);
     setView(next);
   }
 
-  function openCreate(defaults?: { start: string; end: string; allDay: boolean }) {
+  function rememberOpener(): void {
+    openerRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
+
+  function openDialog(next: EventDialogState, dirty = false): void {
+    rememberOpener();
+    setDialogDirty(dirty);
+    setQuickDraft(null);
+    setDialog(next);
+  }
+
+  function openCreate() {
     const today = utcToLocalDate(Date.now(), timezone);
-    setDialog({
+    openDialog({
       mode: "create",
-      initial: defaults ?? { start: `${today}T09:00`, end: `${today}T10:00`, allDay: false },
+      initial: { start: `${today}T09:00`, end: `${today}T10:00`, allDay: false },
       initialRule: null,
     });
   }
 
-  function openEdit(event: EventView, occurrenceStart: string) {
-    setDialog({
+  function openEdit(event: EventView) {
+    openDialog({
       mode: "edit",
       initial: {
         event,
@@ -312,11 +367,10 @@ export function CalendarShell({
       },
       initialRule: event.rrule,
     });
-    void occurrenceStart;
   }
 
   function openDuplicate(event: EventView) {
-    setDialog({
+    openDialog({
       mode: "create",
       initial: {
         event,
@@ -329,6 +383,59 @@ export function CalendarShell({
     });
   }
 
+  function finishCloseDialog(): void {
+    setDialog(null);
+    setConfirmDiscard(false);
+    setDialogDirty(false);
+    openerRef.current?.focus();
+    openerRef.current = null;
+  }
+
+  /** Close request from Escape, an outside click, Cancel or the X. */
+  function requestCloseDialog(): void {
+    if (dialogDirty) {
+      setConfirmDiscard(true);
+      return;
+    }
+    finishCloseDialog();
+  }
+
+  function keepEditing(): void {
+    setConfirmDiscard(false);
+  }
+
+  function discardChanges(): void {
+    finishCloseDialog();
+  }
+
+  function openQuickCreate(draft: QuickCreateDraft): void {
+    setDialog(null);
+    setQuickDraft(draft);
+  }
+
+  function handleMoreOptions(values: {
+    title: string;
+    calendarId: string;
+    startWall: string;
+    endWall: string;
+    allDay: boolean;
+  }): void {
+    openDialog(
+      {
+        mode: "create",
+        initial: {
+          start: values.startWall,
+          end: values.endWall,
+          allDay: values.allDay,
+          pendingTitle: values.title,
+        },
+        initialRule: null,
+      },
+      // The typed title must not be lost silently.
+      values.title.trim().length > 0,
+    );
+  }
+
   function handleDatesSet(info: DatesInfo) {
     setLabel(info.view.title);
     const type = info.view.type;
@@ -338,25 +445,37 @@ export function CalendarShell({
     setRange({ from: info.start.getTime(), to: info.end.getTime() });
   }
 
-  function handleSelect(info: SelectInfo) {
-    if (info.allDay) {
-      const startDate = utcToLocalDate(info.start.getTime(), timezone);
-      const endDate = utcToLocalDate(new Date(info.end.getTime() - 1).getTime(), timezone);
-      setDialog({
-        mode: "create",
-        initial: { start: `${startDate}T09:00`, end: `${endDate}T10:00`, allDay: true },
-        initialRule: null,
-      });
-      return;
-    }
-    setDialog({
-      mode: "create",
-      initial: {
-        start: utcToLocalWallTime(info.start.getTime(), timezone),
-        end: utcToLocalWallTime(info.end.getTime(), timezone),
-        allDay: false,
+  function handleDateClick(info: DateClickInfo) {
+    const dateWall = utcToLocalDate(info.date.getTime(), timezone);
+    const timeWall = info.allDay
+      ? null
+      : utcToLocalWallTime(info.date.getTime(), timezone).slice(11);
+    const pointer = info.jsEvent;
+    openQuickCreate({
+      ...defaultRangeForDate(dateWall, timeWall, new Date(), timezone),
+      dateWall,
+      anchor: {
+        x: pointer?.clientX ?? window.innerWidth / 2,
+        y: pointer?.clientY ?? window.innerHeight / 2,
       },
-      initialRule: null,
+    });
+  }
+
+  function handleSelect(info: SelectInfo) {
+    const selectionRange = defaultRangeFromSelection(
+      info.start.getTime(),
+      info.end.getTime(),
+      info.allDay,
+      timezone,
+    );
+    const pointer = info.jsEvent as MouseEvent | null;
+    openQuickCreate({
+      ...selectionRange,
+      dateWall: selectionRange.startWall.slice(0, 10),
+      anchor: {
+        x: pointer?.clientX ?? window.innerWidth / 2,
+        y: pointer?.clientY ?? window.innerHeight / 2,
+      },
     });
   }
 
@@ -526,7 +645,7 @@ export function CalendarShell({
         onPrev={() => calendarRef.current?.getApi().prev()}
         onToday={() => calendarRef.current?.getApi().today()}
         onNext={() => calendarRef.current?.getApi().next()}
-        onNewEvent={() => openCreate()}
+        onNewEvent={openCreate}
       />
 
       <CalendarView
@@ -538,25 +657,75 @@ export function CalendarShell({
         calendarNames={calendarNames}
         readOnlyCalendarIds={readOnlyCalendarIds}
         onDatesSet={handleDatesSet as (info: DatesSetInfo) => void}
+        onDateClick={handleDateClick}
         onSelect={handleSelect as (info: DateSelectInfo) => void}
         onEventClick={handleEventClick}
         onEventMove={handleEventMove as never}
       />
 
+      {quickDraft ? (
+        <QuickCreatePopover
+          draft={quickDraft}
+          calendars={writableCalendars}
+          defaultCalendarId={preferences.lastEventCalendarId}
+          timezone={timezone}
+          timeFormat={preferences.timeFormat}
+          onClose={() => setQuickDraft(null)}
+          onMoreOptions={handleMoreOptions}
+        />
+      ) : null}
+
       {dialog ? (
-        <Dialog open onOpenChange={(open) => (open ? undefined : setDialog(null))}>
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (open) {
+              return;
+            }
+            if (confirmDiscard) {
+              keepEditing();
+              return;
+            }
+            requestCloseDialog();
+          }}
+        >
           <DialogContent
-            title={dialog.mode === "edit" ? "Edit event" : "New event"}
-            description={`Times are in ${timezone.replace("_", " ")}.`}
+            title={
+              confirmDiscard
+                ? "Discard this event?"
+                : dialog.mode === "edit"
+                  ? "Edit event"
+                  : "New event"
+            }
+            description={
+              confirmDiscard
+                ? "Your changes will be lost."
+                : `Times are in ${timezone.replace("_", " ")}.`
+            }
+            sheet
           >
-            <EventDialog
-              mode={dialog.mode}
-              initial={dialog.initial}
-              initialRule={dialog.initialRule}
-              timezone={timezone}
-              calendars={writableCalendars}
-              onClose={() => setDialog(null)}
-            />
+            {/* The form stays mounted while the confirm is shown, so "Keep
+                editing" returns with every keystroke intact. */}
+            <div className={confirmDiscard ? "hidden" : undefined} aria-hidden={confirmDiscard}>
+              <EventDialog
+                mode={dialog.mode}
+                initial={dialog.initial}
+                initialRule={dialog.initialRule}
+                timezone={timezone}
+                calendars={writableCalendars}
+                onClose={finishCloseDialog}
+                onCancel={requestCloseDialog}
+                onDirtyChange={setDialogDirty}
+              />
+            </div>
+            {confirmDiscard ? (
+              <div className="flex justify-end gap-3">
+                <Button onClick={keepEditing}>Keep editing</Button>
+                <Button variant="primary" onClick={discardChanges}>
+                  Discard
+                </Button>
+              </div>
+            ) : null}
           </DialogContent>
         </Dialog>
       ) : null}
@@ -573,7 +742,7 @@ export function CalendarShell({
           anchorRect={selection.anchorRect}
           anchorElement={selection.anchorElement}
           onEdit={() => {
-            openEdit(selectedEvent, selection.occurrenceStart);
+            openEdit(selectedEvent);
             setSelection(null);
           }}
           onDuplicate={() => {

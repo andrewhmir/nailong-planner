@@ -187,7 +187,11 @@ export function formatOccurrenceHeading(
   occurrenceStart: string,
   timezone: string,
 ): string {
-  const date = occurrenceDate(event, occurrenceStart, timezone);
+  return formatWallDate(occurrenceDate(event, occurrenceStart, timezone));
+}
+
+/** "2026-10-28" → "Wed, 28 Oct 2026"; an unparseable value comes back untouched. */
+export function formatWallDate(date: string): string {
   const parsed = parseDate(date);
   if (!parsed) {
     return date;

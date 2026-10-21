@@ -5,6 +5,7 @@ import {
   formatInstant,
   formatOccurrenceHeading,
   formatOccurrenceWhen,
+  formatWallDate,
   formatWallTime,
 } from "@/lib/time/format";
 import { localWallTimeToUtc } from "@/lib/time/zone";
@@ -113,8 +114,7 @@ describe("formatOccurrenceWhen", () => {
   });
 });
 
-describe("formatOccurrenceHeading", () => {
-  it("resolves the clicked occurrence's own date (F28)", () => {
+describe("formatOccurrenceHeading", () => {  it("resolves the clicked occurrence's own date (F28)", () => {
     const event = timedEvent("2026-10-15T13:00", "2026-10-15T14:00");
     expect(formatOccurrenceHeading(event, "2026-10-27T13:00", TZ)).toBe("Tue, 27 Oct 2026");
   });
@@ -123,5 +123,12 @@ describe("formatOccurrenceHeading", () => {
     const event = allDayEvent("2026-10-21", "2026-10-23");
     expect(formatOccurrenceHeading(event, "2026-10-21", TZ)).toBe("Wed, 21 Oct 2026");
     expect(formatOccurrenceHeading(event, "2026-11-04", TZ)).toBe("Wed, 4 Nov 2026");
+  });
+});
+
+describe("formatWallDate", () => {
+  it("heads a bare date the same way as an occurrence", () => {
+    expect(formatWallDate("2026-10-28")).toBe("Wed, 28 Oct 2026");
+    expect(formatWallDate("not-a-date")).toBe("not-a-date");
   });
 });

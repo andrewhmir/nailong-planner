@@ -3,6 +3,7 @@
 import FullCalendar from "@fullcalendar/react";
 import type {
   CalendarRef,
+  DateClickInfo,
   DateSelectInfo,
   DatesSetInfo,
   EventClickInfo,
@@ -41,6 +42,7 @@ interface Props {
   calendarNames: ReadonlyMap<string, string>;
   readOnlyCalendarIds: ReadonlySet<string>;
   onDatesSet: (info: DatesSetInfo) => void;
+  onDateClick: (info: DateClickInfo) => void;
   onSelect: (info: DateSelectInfo) => void;
   onEventClick: (info: EventClickInfo) => void;
   onEventMove: (info: EventDropInfo | EventResizeDoneInfo) => void;
@@ -55,6 +57,7 @@ export function CalendarView({
   calendarNames,
   readOnlyCalendarIds,
   onDatesSet,
+  onDateClick,
   onSelect,
   onEventClick,
   onEventMove,
@@ -132,6 +135,7 @@ export function CalendarView({
         eventResizableFromStart
         events={fcEvents}
         datesSet={onDatesSet}
+        dateClick={onDateClick}
         select={onSelect}
         eventClick={onEventClick}
         eventDrop={onEventMove}
