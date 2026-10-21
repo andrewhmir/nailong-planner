@@ -161,9 +161,40 @@ Truth table: not view-only -> `true` for any viewer; view-only and `ownerId === 
 
 **Tests** — `tests/integration/search-api.test.ts` (fields, casing, minimum length, household isolation, one row per series, wildcard escaping, ranking and limit); `tests/e2e/search.spec.ts` covers the endpoint through the UI.
 
+### lib/services/import.ts
+
+**Purpose** — Google Calendar import without OAuth: previews parsed `.ics` files without writing, commits them in one SQLite transaction (creating `From Google` calendars, upserting events idempotently by external key, recording an undo ledger), and rolls a committed batch back.
+
+**Public API**
+- `const IMPORT_ROOT_NAME = "From Google"`; `interface ImportFile { name; text }`.
+- `type ImportCalendarMode = { mode: "new" } | { mode: "existing"; calendarId }`; `type ImportMapping = Record<string, ImportCalendarMode>` keyed by source calendar name.
+- `previewImport(db, ctx, files): ImportPreview` — per-calendar create/update/unchanged counts, warnings, dropped parts; no writes.
+- `commitImport(db, ctx, { files, mapping }): ImportReport` — `{ batchId, created, updated, unchanged, calendarsCreated, warnings, dropped }`.
+- `rollbackImportBatch(db, ctx, batchId): RollbackReport` — `{ batchId, deleted, restored, skipped, calendarsDeleted }`.
+- `listImportBatches(db, ctx): ImportBatchView[]` — newest first, counts read from the stored report.
+- Limits: 20 files, 5 MB of text, 50 000 events per commit.
+
+**State & side effects**
+- Writes only inside `commitImport` and `rollbackImportBatch`, each one `db.transaction`.
+- Commit resolves targets: `{ mode: "new" }` reuses an existing child of an import root by name, otherwise creates the root (`From Google`, then `From Google 2`… with the next unused hue family) and the child; `{ mode: "existing" }` goes through `getCalendarAccess`/`assertCalendarWritable`, so a view-only target is refused with 403 and nothing is written.
+- Idempotency is `(household_id, external_key)`: an unknown key inserts; a matching `externalContentHash` counts `unchanged` and writes nothing; a different hash updates the imported fields and records an `update` change whose `before_json` is the previous row.
+- Ledger: one `import_batch` (`status: committed`, JSON `mapping`/`report` include `createdCalendarIds` for the undo) plus one `import_change` per inserted/updated event.
+- Rollback deletes `create` rows and restores `update` rows from `before_json`, **skipping any event whose `updatedAt` is newer than the batch** (the user edited it after the import) and reporting it as `skipped`; then deletes the empty calendars it created, children before the root. A second rollback is a 409.
+
+**Depends on / Used by** — `lib/import/ics.ts` (`parseIcs`), `calendar`/`event`/`household`/`importBatch`/`importChange`, `lib/color/palette` (`HUE_FAMILIES`, `MAX_CHILDREN`, `HueFamily`), `./calendars` (`createCalendar`, `getCalendarAccess`, `assertCalendarWritable`). Will be used by `lib/api/handlers/import.ts` and the `/settings/import` wizard.
+
+**Debugging**
+- Preview says 0 events -> the parser dropped them (unknown TZID, missing UID/DTSTART) -> read `preview.warnings`.
+- Re-import duplicates rows -> `external_key` differs between parses -> compare `event.external_key` with `parseIcs` output.
+- A commit updates an event the user edited in Nailong -> only events with the same `external_key` are touched, and a content-hash mismatch is what updates them; imported series are not protected from later re-imports by design.
+- Undo left an event behind -> it was edited after the import (`skipped`) or it was imported by an earlier batch -> check `import_change.batch_id` and the event's `updated_at`.
+- Undo left `From Google` behind -> it still holds events from another batch -> `calendarsCreated` cleanup only removes empty calendars.
+
+**Tests** — `tests/integration/import-service.test.ts` (preview counts, commit, idempotent re-import, update isolation, view-only refusal, unknown timezone, size limit, rollback and skip rule, batch history).
+
 ## Focused verification
 
 ```bash
-npx vitest run tests/integration/calendars.test.ts tests/integration/events.test.ts tests/integration/search-api.test.ts tests/unit/permissions.test.ts
+npx vitest run tests/integration/calendars.test.ts tests/integration/events.test.ts tests/integration/search-api.test.ts tests/integration/import-service.test.ts tests/unit/permissions.test.ts
 npm run lint && npm run typecheck
 ```
