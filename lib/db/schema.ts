@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
 /**
@@ -102,6 +102,19 @@ export const event = sqliteTable(
     endDate: text("end_date"),
     rrule: text("rrule"),
     exdates: text("exdates"),
+    /**
+     * IANA zone a recurring timed series keeps its wall-clock time in. Null means
+     * the household zone (every event created in Nailong). Imported series store
+     * their source TZID so expansion survives a DST transition.
+     */
+    tzid: text("tzid"),
+    /** Import provenance. Null on events created in Nailong. */
+    externalSource: text("external_source"),
+    externalUid: text("external_uid"),
+    externalRecurrenceId: text("external_recurrence_id"),
+    /** sha256("ics|<uid>|<recurrence-id or empty>") — the import idempotency key. */
+    externalKey: text("external_key"),
+    externalContentHash: text("external_content_hash"),
     createdBy: text("created_by").notNull(),
     createdAt: integer("created_at")
       .notNull()
@@ -114,7 +127,56 @@ export const event = sqliteTable(
     index("event_household_start_idx").on(table.householdId, table.startAt),
     index("event_household_start_date_idx").on(table.householdId, table.startDate),
     index("event_calendar_idx").on(table.calendarId),
+    // SQLite permits any number of NULL keys, so native events stay unique-free.
+    uniqueIndex("event_household_external_key_idx").on(table.householdId, table.externalKey),
   ],
+);
+
+/**
+ * One row per committed Google Calendar import. `mapping` and `report` are JSON
+ * snapshots so the wizard can prefill a re-import and the history can show what
+ * happened; `status` flips to `rolled_back` when the batch is undone.
+ */
+export const importBatch = sqliteTable(
+  "import_batch",
+  {
+    id: text("id").primaryKey(),
+    householdId: text("household_id")
+      .notNull()
+      .references(() => household.id, { onDelete: "cascade" }),
+    createdBy: text("created_by").notNull(),
+    sourceName: text("source_name").notNull(),
+    status: text("status").notNull().default("committed"),
+    mapping: text("mapping"),
+    report: text("report"),
+    createdAt: integer("created_at")
+      .notNull()
+      .$defaultFn(() => Date.now()),
+    rolledBackAt: integer("rolled_back_at"),
+  },
+  (table) => [index("import_batch_household_idx").on(table.householdId)],
+);
+
+/**
+ * The undo ledger: one row per inserted or updated event, holding the previous
+ * row (for updates) so a rollback can restore exactly what the import replaced.
+ * No FK on `eventId` — the rollback deletes those rows itself.
+ */
+export const importChange = sqliteTable(
+  "import_change",
+  {
+    id: text("id").primaryKey(),
+    batchId: text("batch_id")
+      .notNull()
+      .references(() => importBatch.id, { onDelete: "cascade" }),
+    eventId: text("event_id").notNull(),
+    action: text("action").notNull(),
+    beforeJson: text("before_json"),
+    createdAt: integer("created_at")
+      .notNull()
+      .$defaultFn(() => Date.now()),
+  },
+  (table) => [index("import_change_batch_idx").on(table.batchId)],
 );
 
 export type HouseholdRow = typeof household.$inferSelect;
@@ -122,6 +184,8 @@ export type MemberRow = typeof member.$inferSelect;
 export type UserPreferenceRow = typeof userPreference.$inferSelect;
 export type CalendarRow = typeof calendar.$inferSelect;
 export type EventRow = typeof event.$inferSelect;
+export type ImportBatchRow = typeof importBatch.$inferSelect;
+export type ImportChangeRow = typeof importChange.$inferSelect;
 
 // Better Auth's tables (user, session, account, verification, twoFactor), generated
 // by `npx @better-auth/cli generate` and re-exported so one schema map serves both.

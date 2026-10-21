@@ -50,15 +50,18 @@ Cross-table rules that are enforced in code rather than SQL:
 
 ### lib/db/schema.ts
 
-**Purpose** — Drizzle ORM table definitions for the five domain tables, their inferred row types, and a re-export of Better Auth's tables so one schema map serves the app and the auth adapter.
+**Purpose** — Drizzle ORM table definitions for the seven domain tables, their inferred row types, and a re-export of Better Auth's tables so one schema map serves the app and the auth adapter.
 
-**Public API** — tables `household`, `member`, `userPreference`, `calendar`, `event`; types `HouseholdRow`, `MemberRow`, `UserPreferenceRow`, `CalendarRow`, `EventRow` (all `typeof table.$inferSelect`); `export * from "./auth-schema"` at the bottom, which re-exports `user`, `session`, `account`, `verification`, `twoFactor` and their `relations()` helpers.
+**Public API** — tables `household`, `member`, `userPreference`, `calendar`, `event`, `importBatch`, `importChange`; types `HouseholdRow`, `MemberRow`, `UserPreferenceRow`, `CalendarRow`, `EventRow`, `ImportBatchRow`, `ImportChangeRow` (all `typeof table.$inferSelect`); `export * from "./auth-schema"` at the bottom, which re-exports `user`, `session`, `account`, `verification`, `twoFactor` and their `relations()` helpers.
 
 **State & side effects** — No connection, no I/O, no side effects. Column semantics that matter:
 - Every domain table's `createdAt`/`updatedAt` is `integer(...).$defaultFn(() => Date.now())`, so inserts get epoch milliseconds from JS and selects return `number`, not `Date`.
 - `calendar.parentId` uses `references((): AnySQLiteColumn => calendar.id)` to express the self-FK; `onDelete: "cascade"`.
 - `event.allDay`, `calendar.isViewOnlyForPartner`, `userPreference.showWeekNumbers` and `shortcutsEnabled` are `integer` (0/1), not `boolean`.
 - `event.exdates` is nullable JSON text; `event.startAt`/`endAt` and `startDate`/`endDate` are both nullable because all-day and timed rows populate different pairs.
+- `event.tzid` is the IANA zone a recurring timed series is expanded in; null means the household zone. Imported Google series store their source `TZID`, so the recurrence engine keeps their wall-clock time across a DST change.
+- `event.externalSource`/`externalUid`/`externalRecurrenceId`/`externalKey`/`externalContentHash` are import provenance, all null for events created in Nailong. `event_household_external_key_idx` is a unique index on `(household_id, external_key)`; SQLite allows unlimited NULL keys, so native events never collide.
+- `import_batch` records one committed import (`status` `committed` | `rolled_back`, JSON `mapping`/`report`); `import_change` is its undo ledger, one row per inserted/updated event with `before_json` holding the replaced row. Deleting a batch cascades its changes; `import_change.event_id` deliberately has no FK.
 - Comments mark `hueFamily` as root-only and `shadeIndex` as child-only (roots render at `PARENT_SHADE_INDEX`), and `ownerId` null as a shared calendar.
 
 **Depends on / Used by** — imports `drizzle-orm/sqlite-core`. Imported by `lib/api/route.ts`, every `lib/services/*` module, all pages under `app/(app)/`, the query hooks (type-only), `lib/auth/server.ts` (schema map), `tests/helpers/db.ts`, `tests/helpers/fixtures.ts`, and most integration/unit tests.
@@ -67,8 +70,10 @@ Cross-table rules that are enforced in code rather than SQL:
 - All-day event missing from the grid while it exists in the table -> the range filter converts `range.from`/`range.to` to local `YYYY-MM-DD` with the household timezone and compares them to `startDate`/`endDate` -> check `household.timezone` and `listEvents` in `lib/services/events.ts`.
 - `createdAt` prints as `[object Object]` or throws on `.getTime()` -> the code treated `EventRow.createdAt` as a `Date`; domain tables return `number` (contrast with `auth-schema.ts`).
 - Calendar delete removes more rows than expected -> `parent_id` is a cascading self-FK; check the child tree before deleting (`lib/services/calendars.ts`).
+- Re-importing the same Google export creates duplicates -> the upsert is keyed on `(household_id, external_key)`; a duplicate means `external_key` was null or rebuilt differently -> check `parseIcs` in `lib/import/ics.ts`.
+- A recurring imported event shifts by an hour after a DST change -> `event.tzid` is null or expansion is UTC-anchored -> check `expandOccurrences` in `lib/recurrence/expand.ts`.
 
-**Tests** — `tests/integration/db.test.ts` (migrations apply, cascade deletes, FK enforcement, all-day/timed column separation); fixtures in `tests/helpers/fixtures.ts`.
+**Tests** — `tests/integration/db.test.ts` (migrations apply, cascade deletes, FK enforcement, all-day/timed column separation); `tests/integration/import-schema.test.ts` (external-key uniqueness, NULL keys, import ledger cascade); fixtures in `tests/helpers/fixtures.ts`.
 
 ### lib/db/auth-schema.ts
 
