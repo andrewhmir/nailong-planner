@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ANDREW, loadFixtures, signIn } from "./helpers";
+import { ANDREW, loadFixtures, setCheckbox, signIn } from "./helpers";
 
 const fixtures = loadFixtures();
 
@@ -59,9 +59,9 @@ test("week numbers and shortcuts toggles persist", async ({ page }) => {
   await page.goto("/settings#calendar");
   // Wait for hydration before driving controlled Radix checkboxes.
   await page.waitForLoadState("networkidle");
-  await page.getByLabel("Week numbers").check();
+  await setCheckbox(page, "Week numbers", true);
   await expect(page.getByLabel("Week numbers")).toBeChecked();
-  await page.getByLabel("Keyboard shortcuts").uncheck();
+  await setCheckbox(page, "Keyboard shortcuts", false);
   await expect(page.getByLabel("Keyboard shortcuts")).not.toBeChecked();
 
   await page.reload();

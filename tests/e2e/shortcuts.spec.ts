@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ANDREW, loadFixtures, signIn } from "./helpers";
+import { ANDREW, loadFixtures, setCheckbox, signIn } from "./helpers";
 
 const fixtures = loadFixtures();
 
@@ -94,7 +94,7 @@ test("z is undo, but Delete removes the selected event", async ({ page }) => {
 test("the settings toggle disables single-key shortcuts", async ({ page }) => {
   await page.goto("/settings#calendar");
   await page.waitForLoadState("networkidle");
-  await page.getByRole("checkbox", { name: /Keyboard shortcuts/ }).uncheck();
+  await setCheckbox(page, /Keyboard shortcuts/, false);
   await expect(page.getByRole("checkbox", { name: /Keyboard shortcuts/ })).not.toBeChecked();
 
   await page.goto("/");
