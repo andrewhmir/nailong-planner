@@ -115,6 +115,32 @@ test.describe("as the owner", () => {
     await deleteProbe(page, "Math only probe");
   });
 
+  test("isolating a calendar dismisses an open bubble, and the next one targets it", async ({
+    page,
+  }) => {
+    // The reported flow: a bubble opened before isolating proposed the settings
+    // default (Biology). Choosing "display only Math" dismisses it, so the next
+    // click opens a fresh bubble with the isolated calendar.
+    const patch = await page.request.patch("/api/settings/preferences", {
+      data: { lastEventCalendarId: fixtures.calendars.biology },
+    });
+    expect(patch.ok(), await patch.text()).toBeTruthy();
+    await page.reload();
+    await expect(page.getByRole("checkbox", { name: "Math" })).toBeVisible();
+
+    await page.locator(`[data-date="${monthDay(22)}"]`).click({ position: { x: 8, y: 8 } });
+    const trigger = page.getByTestId("calendar-picker-trigger");
+    await expect(trigger).toContainText("Biology");
+
+    await page.getByRole("button", { name: "Options for Math" }).click();
+    await page.getByRole("menuitem", { name: "Display only this calendar" }).click();
+    await expect(page.getByText("Showing only Math")).toBeVisible();
+    await expect(page.getByLabel("Title")).toHaveCount(0);
+
+    await page.locator(`[data-date="${monthDay(25)}"]`).click({ position: { x: 8, y: 8 } });
+    await expect(page.getByTestId("calendar-picker-trigger")).toContainText("Math");
+  });
+
   test("re-checking any calendar leaves the isolated view", async ({ page }) => {
     const householdId = await calendarId(page, "Household");
     await createProbe(page, householdId, "Ours probe", monthDay(17));

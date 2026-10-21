@@ -333,8 +333,8 @@ export function CalendarShell({
         window.clearInterval(timer);
         handledLinkRef.current = linkKey;
         // The result click is the newest action: it supersedes a quick-create
-        // bubble that was already up (desktop bubbles have no outside-click
-        // dismissal of their own).
+        // bubble that was already up (the bubble also dismisses itself on an
+        // outside click, but this covers the same render).
         setQuickDraft(null);
         setSelection({
           eventId: target.id,
@@ -610,8 +610,8 @@ export function CalendarShell({
       return;
     }
     const element = info.el as HTMLElement;
-    // Clicking an event supersedes a quick-create bubble: the desktop bubble has
-    // no outside-click dismissal, so the shell has to drop it here.
+    // Clicking an event supersedes a quick-create bubble: the bubble dismisses
+    // itself on the pointerdown, and this keeps the state change explicit.
     overlaySeqRef.current += 1;
     setQuickDraft(null);
     setSelection({

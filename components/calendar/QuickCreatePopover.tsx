@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -95,18 +95,48 @@ export function QuickCreatePopover({
   const isPhone = useMediaQuery("(max-width: 767px)");
 
   const [title, setTitle] = useState("");
-  const [calendarId, setCalendarId] = useState(() =>
-    defaultCalendarId && calendarSwatch(calendars, defaultCalendarId) ? defaultCalendarId : "",
-  );
+  // Only an explicit pick sticks. `null` follows `defaultCalendarId`, so a
+  // change in "display only this calendar" (or in the saved default) reaches a
+  // bubble that is already on screen — the shell reuses this instance for the
+  // next draft, so a default frozen at mount would go stale.
+  const [pickedCalendarId, setPickedCalendarId] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   const createEvent = useCreateEvent();
   const deleteEvent = useDeleteEvent();
   const updatePreferences = useUpdatePreferences();
 
+  // Clicking anywhere else on the page — toolbar, sidebar, another day — closes
+  // the bubble, like GCal. The phone sheet is a Radix Dialog and dismisses
+  // itself, and the calendar list is portalled, so it opts out by marker.
+  useEffect(() => {
+    if (isPhone) {
+      return;
+    }
+    function handlePointerDown(event: PointerEvent): void {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      if (rootRef.current?.contains(target) || target.closest("[data-dismiss-ignore]")) {
+        return;
+      }
+      onClose();
+    }
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => document.removeEventListener("pointerdown", handlePointerDown, true);
+  }, [isPhone, onClose]);
+
   // Calendars arrive after the bubble opens; fall back live instead of freezing
   // an empty selection.
-  const effectiveCalendarId = calendarId || calendars[0]?.id || "";
+  const preferredCalendarId = pickedCalendarId ?? defaultCalendarId;
+  const effectiveCalendarId =
+    (preferredCalendarId && calendarSwatch(calendars, preferredCalendarId)
+      ? preferredCalendarId
+      : "") ||
+    calendars[0]?.id ||
+    "";
 
   function save(): void {
     const trimmed = title.trim();
@@ -183,7 +213,7 @@ export function QuickCreatePopover({
         <CalendarPicker
           calendars={calendars}
           value={effectiveCalendarId}
-          onChange={setCalendarId}
+          onChange={setPickedCalendarId}
         />
 
         <div className="flex items-center gap-2">
@@ -244,6 +274,7 @@ export function QuickCreatePopover({
 
   return (
     <div
+      ref={rootRef}
       role="dialog"
       aria-label="New event"
       style={{ position: "fixed", left, top, width: CARD_WIDTH }}

@@ -116,6 +116,10 @@ export function CalendarPicker({ calendars, value, onChange, variant = "chip", i
             }
           }}
           className="z-50 w-[264px] rounded-md border border-line-strong bg-surface p-1 shadow-menu outline-none"
+          // The list is portalled out of the bubble's DOM subtree; this marker
+          // keeps an enclosing dismiss-on-outside-click surface from closing
+          // when the user is only picking a row.
+          data-dismiss-ignore
         >
           <ul data-testid="calendar-picker-list" className="max-h-[320px] list-none overflow-y-auto p-0">
             {rows.map((row) => {

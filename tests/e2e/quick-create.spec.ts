@@ -48,6 +48,17 @@ test("Escape closes the bubble without saving", async ({ page }) => {
   await expect(page.getByText("Dinner with Sam")).toHaveCount(0);
 });
 
+test("clicking another control on the page closes the bubble", async ({ page }) => {
+  await page.locator(`[data-date="${monthDay(24)}"]`).click({ position: { x: 8, y: 8 } });
+  await expect(page.getByLabel("Title")).toBeFocused();
+
+  // Any click outside the bubble dismisses it without saving: the toolbar's
+  // Today button stands in for "some other button on the screen".
+  await page.getByRole("button", { name: "Today" }).click();
+  await expect(page.getByLabel("Title")).toHaveCount(0);
+  await expect(page.getByText("Dinner with Sam")).toHaveCount(0);
+});
+
 test("More options carries the draft into the full dialog", async ({ page }) => {
   // Click the quiet top-left of the cell: other specs leave events on some days,
   // and clicking an event chip opens details instead of the quick-create bubble.
