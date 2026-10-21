@@ -243,6 +243,7 @@ any wrapper in the shell/calendar tree.
 | Import commit returns 403 | the mapped target calendar is view-only for this viewer; the whole transaction rolled back | the mapping step, `canWriteCalendar`, `lib/services/import.ts` `resolveTargets` |
 | Migration/column missing | committed SQL migrations not applied; generated migration not committed | `npm run db:migrate`, `drizzle/`, `lib/db/schema.ts` |
 | Header search field widens when clicked/focused | the results panel's `w-[26rem]` sat on an in-flow wrapper inside the shrink-to-fit header block, so the `w-full` field grew with it | `components/calendar/SearchBox.tsx`, `components/calendar/SearchResultsOverlay.tsx`; `tests/e2e/search.spec.ts` "does not resize the search field" |
+| A focused field's ring is clipped on one side inside a dialog | an `overflow-y-auto` scroll area clips at its padding box; the 2px outline sits 2px outside the field, so a field flush with that edge loses 4px of ring. Give the scroll area horizontal padding, never just the side the scrollbar sits on | the scroll area's `px-*` in `components/calendar/EventDialog.tsx`; `tests/e2e/events.spec.ts` "keeps the focused field's ring clear of its scroll edges" |
 | `docs:check` fails | a source file was added/moved/deleted without its `### <path>` section | output names the heading and the doc to edit |
 
 ## 5. Adding a feature — the touch list

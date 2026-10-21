@@ -107,3 +107,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   series start.
 - A failed drag or resize reverts instead of leaving the block in the wrong
   place.
+- Focusing the event dialog's title field no longer shaves the left side off its
+  focus ring: the dialog's scroll area clips at its padding box, so it now keeps
+  horizontal padding on both sides instead of only under the scrollbar.

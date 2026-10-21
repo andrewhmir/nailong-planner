@@ -66,6 +66,33 @@ test("skipping one occurrence leaves the rest of the series", async ({ page }) =
   await expect.poll(async () => occurrences.count()).toBe(before - 1);
 });
 
+test("the create dialog keeps the focused field's ring clear of its scroll edges", async ({ page }) => {
+  await page.getByRole("button", { name: "New event" }).click();
+  const field = page.locator("#event-title");
+  await expect(field).toBeFocused();
+
+  // `CONTROL` paints a 2px accent outline 2px outside the border box. A scroll
+  // container clips at its padding box, so less than 4px of horizontal padding
+  // shaves the ring off - the title field is first in the form, flush left.
+  const room = await field.evaluate((el) => {
+    const scroller = el.closest("form")?.querySelector<HTMLElement>(".overflow-y-auto");
+    if (!scroller) throw new Error("event dialog scroll area not found");
+    const style = getComputedStyle(scroller);
+    const borderLeft = parseFloat(style.borderLeftWidth);
+    const borderRight = parseFloat(style.borderRightWidth);
+    const scrollbar = scroller.offsetWidth - scroller.clientWidth - borderLeft - borderRight;
+    const rect = scroller.getBoundingClientRect();
+    const fieldRect = el.getBoundingClientRect();
+    return {
+      left: fieldRect.left - (rect.left + borderLeft),
+      right: rect.right - borderRight - scrollbar - fieldRect.right,
+    };
+  });
+
+  expect(room.left).toBeGreaterThanOrEqual(4);
+  expect(room.right).toBeGreaterThanOrEqual(4);
+});
+
 test("switching to the week view keeps events visible", async ({ page }) => {
   await page.getByRole("button", { name: "New event" }).click();
   await page.getByLabel("Title").fill("Week check");
