@@ -25,11 +25,11 @@ test("slash focuses search and Escape closes the results", async ({ page }) => {
   const search = page.getByLabel("Search events").first();
   await expect(search).toBeFocused();
 
-  await search.fill("math");
-  await expect(page.getByRole("option", { name: /Math quiz/ })).toBeVisible();
+  await search.fill("kyoto");
+  await expect(page.getByRole("option", { name: /Kyoto trip/ })).toBeVisible();
 
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("option", { name: /Math quiz/ })).toHaveCount(0);
+  await expect(page.getByRole("option", { name: /Kyoto trip/ })).toHaveCount(0);
 });
 
 test("short query shows the hint, not an empty box", async ({ page }) => {

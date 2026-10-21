@@ -35,6 +35,36 @@ test.describe("desktop screenshots", () => {
     await page.screenshot({ path: "docs/screenshots/calendar-desktop.png" });
   });
 
+  test("quick create bubble", async ({ page }) => {
+    await signIn(page, ANDREW, fixtures.password);
+    const now = new Date();
+    const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
+      Math.min(now.getDate() + 3, 28),
+    ).padStart(2, "0")}`;
+    await page.locator(`[data-date="${day}"]`).click({ position: { x: 8, y: 8 } });
+    await expect(page.getByLabel("Title")).toBeFocused();
+    await page.getByLabel("Title").fill("Dinner with Sam");
+    await settle(page);
+    await page.screenshot({ path: "docs/screenshots/quick-create.png" });
+    await page.keyboard.press("Escape");
+  });
+
+  test("event details", async ({ page }) => {
+    await signIn(page, ANDREW, fixtures.password);
+    await page.getByText("Weekly class").first().click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await settle(page);
+    await page.screenshot({ path: "docs/screenshots/event-details.png" });
+  });
+
+  test("search results", async ({ page }) => {
+    await signIn(page, ANDREW, fixtures.password);
+    await page.getByLabel("Search events").first().fill("kyo");
+    await expect(page.getByRole("option", { name: /Kyoto trip/ })).toBeVisible();
+    await settle(page);
+    await page.screenshot({ path: "docs/screenshots/search.png" });
+  });
+
   test("settings", async ({ page }) => {
     await signIn(page, ANDREW, fixtures.password);
     await page.goto("/settings");

@@ -46,22 +46,39 @@ test("the toolbar button opens the shortcut sheet too", async ({ page }) => {
 });
 
 test("z is undo, but Delete removes the selected event", async ({ page }) => {
-  await page.getByText("Math quiz").click();
+  const start = new Date();
+  start.setHours(15, 0, 0, 0);
+  const created = await page.request.post("/api/events", {
+    data: {
+      calendarId: fixtures.calendars.math,
+      title: "Shortcut probe",
+      allDay: false,
+      startAt: start.getTime(),
+      endAt: start.getTime() + 60 * 60 * 1000,
+    },
+  });
+  expect(created.ok()).toBeTruthy();
+  await page.reload();
+  await page.getByRole("button", { name: "List", exact: true }).click();
+
+  await page.getByText("Shortcut probe").click();
   await page.keyboard.press("Escape");
   await page.keyboard.press("Delete");
-  await expect(page.getByText("Math quiz")).toHaveCount(0);
+  await expect(page.getByText("Shortcut probe")).toHaveCount(0);
 
   // The optimistic removal lands before the mutation's undo entry exists.
   await expect(
     page.locator("[data-sonner-toast]", { hasText: "Event deleted" }),
   ).toBeVisible();
   await page.keyboard.press("z");
-  await expect(page.getByText("Math quiz")).toBeVisible();
+  await expect(page.getByText("Shortcut probe")).toBeVisible();
 });
 
 test("the settings toggle disables single-key shortcuts", async ({ page }) => {
   await page.goto("/settings#calendar");
+  await page.waitForLoadState("networkidle");
   await page.getByRole("checkbox", { name: /Keyboard shortcuts/ }).uncheck();
+  await expect(page.getByRole("checkbox", { name: /Keyboard shortcuts/ })).not.toBeChecked();
 
   await page.goto("/");
   await page.keyboard.press("w");

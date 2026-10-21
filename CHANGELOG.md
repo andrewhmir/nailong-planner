@@ -4,20 +4,57 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased] — v0.1.0 in development
 
-## [0.1.0] - 2026-10-21
+> **Nothing has shipped yet.** The current build is **v0.1.0, still in
+> development**; the entries below describe what that build contains so far.
 
-First public release.
+### Added — daily-driver parity
 
-### Added
+- **Anchored event details** — one click opens a popover with the repeat summary,
+  a Maps link for the location, clamped notes with "Show more", and
+  Edit / Duplicate / Close / Delete actions. Repeating occurrences show the
+  clicked occurrence's own date. Focus moves to Edit and returns to the event
+  block on close; phones get the same body in a dialog.
+- **Google-Calendar-style quick create** — click a day or time slot, drag a
+  range, or press `Shift+C`; type a title, pick a calendar, press Enter. "More
+  options" carries the draft into the full editor. `+ Event` and `c` still open
+  the full editor.
+- **Session undo** — deleting, moving/resizing and creating show a 10-second
+  `Undo` toast; `z` and `Ctrl/Cmd+Z` undo the last change even after the toast is
+  gone, unless you are typing in a text field. A failed drag snaps back.
+- **Household-wide search** — `/` focuses a header search over event titles,
+  notes and locations with ranked, highlighted results grouped by month. Picking
+  a result jumps the grid to the event's date and opens its details, even when
+  that month is not loaded.
+- **Per-user preferences** — time format (12/24-hour), default view (`Auto`
+  resolves to agenda on phones and month on desktop), week numbers, keyboard
+  shortcuts toggle, and default event calendar. The Settings → Calendar card
+  applies each change immediately and stores it in the database.
+- **Keyboard shortcuts** — `c`, `Shift+C`, `/`, `t`, `g`, `j`/`n`, `k`/`p`,
+  `d`/`w`/`m`/`l`, `e`, `Delete`/`Backspace`, `z`, `Ctrl/Cmd+Z`, `Esc`, plus a
+  `?` shortcut sheet. Single-key shortcuts never fire while typing.
+- **Mini-month and jump-to-date** — a neutral-dot mini calendar in the sidebar
+  navigates by date, the toolbar title opens a date picker, and `?date=` deep
+  links open any month.
+- **Remembered view and mobile first run** — the last view per device survives a
+  reload; `Auto` lands phones on the agenda with a floating **+ Event** button.
+- **Optimistic mutations** — create, edit, move and delete render instantly and
+  roll back on a server error.
+- **Nested calendar hierarchy** — root calendars own a hue family, sub-calendars
+  take a new shade of it, so "School" reads as one family while "Math" and
+  "Biology" stay distinguishable.
+- **Two-person permissions** — a per-calendar view-only flag enforced
+  server-side on every write, with sub-calendars inheriting the protection.
+- **Private by design** — sign-up disabled, exactly two accounts provisioned,
+  TOTP two-factor available, DB-backed sessions.
+- **Small footprint** — SQLite in WAL mode, one Docker image, one volume.
+
+### Added — foundation (initial build)
 
 - Two-person household calendar on Next.js 16 (App Router), React 19 and
   Tailwind CSS 4, wearing a Canvas-LMS-inspired shell: dark global rail,
   breadcrumb bar and course-style calendar panel.
-- Nested calendar hierarchy: root calendars own a hue family, sub-calendars take
-  a new shade of it, so "School" reads as one family while "Math" and "Biology"
-  stay distinguishable.
 - FullCalendar 7 month / week / day / list views with drag-to-create,
   drag-to-move, resize, recurring events (RFC 5545 RRULE + EXDATE) and IANA
   timezone handling.
@@ -30,6 +67,14 @@ First public release.
 - Unit/integration suites (Vitest), end-to-end suites (Playwright), and CI
   (lint, typecheck, tests, build, E2E, CodeQL, Dependabot).
 
+### Changed
+
+- Grid polish: 15-minute drag snap, 30-minute slot lines, week/day views open
+  around the current time, `+N more` is a real touch target, overlapping events
+  sit side by side, and short landscape viewports keep the whole month visible.
+- Deleting a calendar asks in a Canvas dialog instead of `window.confirm`.
+- Phones now default to the agenda view (`Auto`); the month grid is one tap away.
+
 ### Fixed
 
 - The page no longer scrolls: the shell is pinned to the viewport (`h-dvh`), so
@@ -37,10 +82,9 @@ First public release.
   height (`height="100%"` + `expandRows`). The whole month is visible at once on
   desktop, tablet, and phone sizes; week/day/list views scroll inside the
   calendar panel.
-- Phones now open on the month grid instead of a taller agenda that had to
-  overflow the viewport.
 - Dialogs are capped to the viewport (`90dvh`) and scroll internally.
 - Neutral, non-partner-centric copy for shared and view-only calendars.
-
-[Unreleased]: https://github.com/andrewhmir/nailong-planner/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/andrewhmir/nailong-planner/releases/tag/v0.1.0
+- Repeating-event details now show the clicked occurrence's date instead of the
+  series start.
+- A failed drag or resize reverts instead of leaving the block in the wrong
+  place.

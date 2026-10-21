@@ -23,6 +23,7 @@ test.afterEach(async ({ page }) => {
 
 test("time format changes the grid and survives reload", async ({ page }) => {
   await page.goto("/settings#calendar");
+  await page.waitForLoadState("networkidle");
   await page.getByRole("button", { name: "12-hour" }).click();
   await expect(page.getByText(/preferences updated/i)).toBeVisible();
 
@@ -37,6 +38,7 @@ test("time format changes the grid and survives reload", async ({ page }) => {
 
 test("the default view select persists", async ({ page }) => {
   await page.goto("/settings#calendar");
+  await page.waitForLoadState("networkidle");
   await page.getByLabel("Default view").selectOption("timeGridWeek");
   await expect(page.getByText(/preferences updated/i)).toBeVisible();
 
@@ -46,6 +48,7 @@ test("the default view select persists", async ({ page }) => {
 
 test("the calendar card is reachable from the settings sub-nav", async ({ page }) => {
   await page.goto("/settings");
+  await page.waitForLoadState("networkidle");
   const nav = page.getByRole("navigation", { name: "Settings sections" });
   await nav.getByRole("link", { name: "Calendar" }).click();
   await expect(page.getByRole("heading", { name: "Calendar" })).toBeVisible();
@@ -54,8 +57,12 @@ test("the calendar card is reachable from the settings sub-nav", async ({ page }
 
 test("week numbers and shortcuts toggles persist", async ({ page }) => {
   await page.goto("/settings#calendar");
+  // Wait for hydration before driving controlled Radix checkboxes.
+  await page.waitForLoadState("networkidle");
   await page.getByLabel("Week numbers").check();
+  await expect(page.getByLabel("Week numbers")).toBeChecked();
   await page.getByLabel("Keyboard shortcuts").uncheck();
+  await expect(page.getByLabel("Keyboard shortcuts")).not.toBeChecked();
 
   await page.reload();
   await expect(page.getByLabel("Week numbers")).toBeChecked();

@@ -11,15 +11,38 @@ language of Canvas LMS: a dark global rail, a breadcrumb bar, and a course-style
 navigation panel — Lato type, Canvas blue, and 3–6px radii throughout.
 
 The calendar borrows Google Calendar's model — several colour-coded calendars,
-per-calendar visibility, click-and-drag events — and adds a **two-level
-hierarchy**: sub-calendars render in shades of their parent's colour, so
-"School" reads as one family while "Math" and "Biology" stay distinguishable.
+per-calendar visibility, click-and-drag events, and the daily loops people
+already know: click a day to quick-create, click an event for details, `/` to
+search, `z` to undo — and adds a **two-level hierarchy**: sub-calendars render in
+shades of their parent's colour, so "School" reads as one family while "Math" and
+"Biology" stay distinguishable.
 
 One shared household, two accounts, no public sign-up. Everything is visible to
 both; a per-calendar **view-only** flag protects a calendar its owner would
 rather not have edited.
 
 ![Nailong Planner month view](docs/screenshots/calendar-desktop.png)
+
+<details>
+<summary>Quick create (day click, range drag or Shift+C)</summary>
+
+![Quick create bubble](docs/screenshots/quick-create.png)
+
+</details>
+
+<details>
+<summary>Event details</summary>
+
+![Event details popover](docs/screenshots/event-details.png)
+
+</details>
+
+<details>
+<summary>Search</summary>
+
+![Search results](docs/screenshots/search.png)
+
+</details>
 
 <details>
 <summary>Settings page</summary>
@@ -29,9 +52,9 @@ rather not have edited.
 </details>
 
 <details>
-<summary>Phone (month view)</summary>
+<summary>Phone (agenda view — the Auto default)</summary>
 
-![Nailong Planner phone month view](docs/screenshots/calendar-mobile.png)
+![Nailong Planner phone agenda view](docs/screenshots/calendar-mobile.png)
 
 </details>
 
@@ -48,6 +71,23 @@ rather not have edited.
 
 ## Features
 
+- **Google-Calendar-shaped daily loops** — a day/slot click, a range drag or
+  `Shift+C` opens a quick-create bubble (Enter saves, "More options" escalates to
+  the full editor); clicking an event opens anchored details with its repeat
+  summary, location link and duplicate action; `/` searches the whole household
+  and jumps the grid to the result.
+- **Undoable edits** — deletes, moves, resizes and creates render optimistically
+  and are undoable from the toast or with `z` / `Ctrl+Z`; a failed drag snaps
+  back.
+- **Per-user preferences** — 12/24-hour time, default view (`Auto` = agenda on
+  phones, month on desktop), week numbers, keyboard shortcuts and default event
+  calendar, applied immediately from Settings → Calendar and stored per user.
+- **Keyboard-first** — Google Calendar's keys (`c`, `Shift+C`, `/`, `t`, `g`,
+  `j`/`n`, `k`/`p`, `d`/`w`/`m`/`l`, `e`, `Delete`, `z`, `Ctrl/Cmd+Z`, `?`) with
+  a shortcut sheet, and no single-key shortcut fires while you are typing.
+- **Mini-month and date deep links** — a neutral-dot mini calendar in the
+  sidebar, a jump-to-date picker on the toolbar title, and `?date=`/`?event=`
+  links that open the matching month and event.
 - **Whole month at a glance** — the shell is pinned to the viewport, so the nav
   rail and breadcrumb never scroll away and the month grid always uses the
   height that is left. Week/day hours and long agendas scroll inside the
@@ -68,7 +108,8 @@ rather not have edited.
 
 - **Next.js 16** (App Router, TypeScript, standalone output), React 19, Tailwind CSS 4
 - **Canvas LMS design language** — Canvas colour, spacing and type tokens; **Lato** self-hosted from vendored woff2 files (SIL OFL 1.1, [`app/fonts/OFL.txt`](app/fonts/OFL.txt))
-- **FullCalendar 7.1.3** (pinned exact) with the RRULE plugin — drag, resize, recurring events, IANA timezones
+- **FullCalendar 7.1.3** (pinned exact) — drag, resize, week numbers, IANA
+  timezones — with recurrence expanded by [`rrule`](https://github.com/jkbrzt/rrule)
 - **SQLite** (better-sqlite3, WAL) + **Drizzle ORM** with committed SQL migrations
 - **Better Auth 1.7** — email + password, sign-up disabled, TOTP two-factor, DB-backed sessions
 - **TanStack Query** for client caching, **Zod** for validation
@@ -137,12 +178,15 @@ layer; SQL access is confined to `lib/services/*` to keep that change contained.
 
 - Design spec: [`docs/superpowers/specs/2026-10-19-nailong-planner-design.md`](docs/superpowers/specs/2026-10-19-nailong-planner-design.md)
 - Canvas redesign spec: [`docs/superpowers/specs/2026-10-20-canvas-ui-redesign-design.md`](docs/superpowers/specs/2026-10-20-canvas-ui-redesign-design.md)
+- UX parity design: [`docs/superpowers/specs/2026-10-21-calendar-ux-parity-design.md`](docs/superpowers/specs/2026-10-21-calendar-ux-parity-design.md)
+- UX parity implementation plan: [`docs/superpowers/plans/2026-10-21-ux-parity-v0.1.0.md`](docs/superpowers/plans/2026-10-21-ux-parity-v0.1.0.md)
 - Implementation plan: [`docs/superpowers/plans/2026-10-19-nailong-planner-v0.1.0.md`](docs/superpowers/plans/2026-10-19-nailong-planner-v0.1.0.md)
 - Operations, backups, recovery: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 
 ## Out of scope for v0.1.0
 
-Reminders and notifications · Google Calendar sync / ICS · per-occurrence
+Reminders and notifications · Google Calendar sync / ICS · a 30-day trash bin
+(undo is session-only in v0.1.0) · custom repeat rules and per-occurrence
 overrides · dark mode · PWA · tasks, notes and other modules · more than two
 users.
 
