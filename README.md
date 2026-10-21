@@ -93,7 +93,10 @@ rather not have edited.
   height that is left. Week/day hours and long agendas scroll inside the
   calendar panel only; the page itself never scrolls.
 - **Nested calendars** — a root calendar owns a hue family; sub-calendars take
-  the next unused shade of it (up to 7 children per root).
+  the next unused shade of it (up to 7 children per root). The event dialog's
+  calendar picker shows that nesting (expand a root to reveal its children, and
+  the list scrolls past 320px), and *display only this calendar* narrows the
+  grid to one calendar and assigns new events to it.
 - **Google-Calendar-style events** — click-drag to create, drag to move, resize,
   all-day and timed events, IANA timezones.
 - **Recurring events** — RFC 5545 RRULE, with single-occurrence deletion via
