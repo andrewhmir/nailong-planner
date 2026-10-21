@@ -7,7 +7,7 @@ Everything the Next.js App Router exposes: the root layout and the global styles
 | Route / file | Purpose |
 |---|---|
 | `app/globals.css` | Tailwind 4 entry, `@theme` design tokens, base layer, motion and coarse-pointer rules |
-| `app/layout.tsx` | Root layout: Lato via `next/font/local`, metadata, `<html>`/`<body>` |
+| `app/layout.tsx` | Root layout: Lato via `next/font/local`, metadata, app icon files, `<html>`/`<body>` |
 | `app/providers.tsx` | Client boundary mounting TanStack Query and the sonner `Toaster` |
 | `app/(app)/layout.tsx` | Auth guard + `AppShell` for every signed-in page; owns the viewport contract |
 | `app/(app)/page.tsx` | `/` — the calendar page, renders `CalendarShell` |
@@ -49,7 +49,7 @@ Radii ("Canvas is nearly square"): `--radius-sm` 3px, `--radius-md` 4px, `--radi
 
 ### app/layout.tsx
 
-**Purpose** — The single root layout: loads Lato, imports `globals.css`, declares metadata, renders `<html lang="en">` with the font variable class and a bare `<body>`.
+**Purpose** — The single root layout: loads Lato, imports `globals.css`, declares metadata, renders `<html lang="en">` with the font variable class and a bare `<body>`. The sibling metadata images `app/icon.png` (256 px), `app/apple-icon.png` (180 px) and `app/favicon.ico` (16/32/48 px) are the Nailong logo cropped to its head with the dark backdrop keyed out (transparent alpha); they are the browser-tab and home-screen icons, and Next emits their `<link>` tags from the file convention, so no `metadata.icons` entry is needed.
 
 **Public API** — Default export `RootLayout({ children })`; `export const metadata: Metadata` with `title: "Nailong Planner"` and `description: "A private planner for two."`; `localFont` registers `./fonts/lato-400.woff2` and `./fonts/lato-700.woff2` as `--font-lato` with `display: "swap"`.
 
@@ -57,7 +57,7 @@ Radii ("Canvas is nearly square"): `--radius-sm` 3px, `--radius-md` 4px, `--radi
 
 **Depends on / Used by** — `./globals.css`, `./fonts/lato-*.woff2`, `next/font/local`. Renders every route, including `/login`; `--font-sans` in `globals.css` resolves through the `--font-lato` variable set here.
 
-**Debugging** — Text renders in Helvetica -> the `className={lato.variable}` on `<html>` was dropped or the font files are missing -> check `localFont` and the class. A second `<html>`/`<body>` appears in the DOM -> a nested layout added one -> only this file may render them. Toasts or TanStack Query are missing on `/login` -> expected, `Providers` is mounted in `app/(app)/layout.tsx`, not here.
+**Debugging** — Text renders in Helvetica -> the `className={lato.variable}` on `<html>` was dropped or the font files are missing -> check `localFont` and the class. A second `<html>`/`<body>` appears in the DOM -> a nested layout added one -> only this file may render them. Toasts or TanStack Query are missing on `/login` -> expected, `Providers` is mounted in `app/(app)/layout.tsx`, not here. The browser tab still shows a blank/Next icon -> the metadata images were deleted or the server predates them -> restart `npm run dev` (rebuild for `next start`) and confirm the `<link rel="icon">` and `<link rel="apple-touch-icon">` tags in the page head.
 
 **Tests** — `tests/e2e/design-tokens.spec.ts` (asserts Lato is self-hosted and applied).
 
