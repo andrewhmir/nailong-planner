@@ -1,0 +1,179 @@
+# Settings surfaces and UI primitives
+
+This area covers the two settings components (the page-level form and the per-user Calendar card) and the small `components/ui/` primitives every surface in the app is built from — buttons, Radix wrappers, the icon set and the sonner theming. Read it when changing a settings control, when a preference does not reach the calendar, or when a primitive's wrapper behaviour differs from the underlying Radix/HTML component.
+
+**How to update this doc:** every source file in this area has its own `### <repo-relative path>` section. When you add, move, or delete a file, add/move/delete its section and run `npm run docs:check`.
+
+| File | Role |
+|---|---|
+| components/settings/CalendarPreferencesCard.tsx | Settings → Calendar card; every control writes a preference immediately, no Save |
+| components/settings/SettingsForm.tsx | Settings page shell: anchored sections for profile, household, calendar and account security |
+| components/ui/button.tsx | Project-wide `<button>` with Canvas variants and sizes |
+| components/ui/checkbox.tsx | Radix checkbox wrapper with an `aria-label`-only API |
+| components/ui/dialog.tsx | Radix dialog wrapper with a required title and optional phone bottom sheet |
+| components/ui/dropdown-menu.tsx | Radix dropdown wrappers used by the nav rail and sidebar rows |
+| components/ui/icons.tsx | The project's only icon source: inline 24×24 stroke SVGs |
+| components/ui/toast.tsx | sonner `ToasterProps` (Canvas flash styling); the toast/undo API itself is `sonner` + `lib/ui/undo.ts` |
+
+## Settings surfaces
+
+### components/settings/CalendarPreferencesCard.tsx
+
+**Purpose** — Renders the `#calendar` section of the settings page: the five per-user preferences the calendar loops read. Every control saves on change and mirrors into the React Query cache; there is no Save button.
+
+**Public API** — `export function CalendarPreferencesCard({ initialPreferences, currentUserId }: Props)`; `Props = { initialPreferences: UserPreferences; currentUserId: string }`, with `UserPreferences` imported as a type from `@/lib/services/preferences`. Local, non-exported: `VIEW_OPTIONS` (`auto`, `dayGridMonth`, `timeGridWeek`, `timeGridDay`, `listMonth`), `TIME_FORMATS` (`24h`, `12h`), and the `FIELD`/`LABEL`/`CARD`/`CARD_HEADING` class recipes duplicated from `SettingsForm.tsx`.
+
+**State & side effects** — No React state. `usePreferences(initialPreferences)` (query key `["preferences"]`, `initialData`, `staleTime: Infinity`), `useUpdatePreferences()` (`PATCH /api/settings/preferences`, optimistic merge plus a sequence guard against out-of-order responses), and `useCalendars()` (query key `["calendars"]`, `GET /api/calendars`). Each control writes one key:
+
+| Control | Preference key written |
+|---|---|
+| Time format segmented buttons (`aria-pressed`) | `timeFormat` — `"24h"` or `"12h"` |
+| Default view `<select>` | `defaultView` — `auto`, `dayGridMonth`, `timeGridWeek`, `timeGridDay`, `listMonth` |
+| Week numbers checkbox | `showWeekNumbers` |
+| Keyboard shortcuts checkbox | `shortcutsEnabled` |
+| Default event calendar `<select>` | `lastEventCalendarId` — `null` for "None" |
+
+`save(patch)` fires `update.mutate` and toasts `Preferences updated` on success or `error.message` on failure (the mutation restores the previous cache in `onError`). The section carries `id="calendar"` so `/settings#calendar` scrolls to it.
+
+**Depends on / Used by** — `sonner` (`toast`), `components/ui/checkbox`, `lib/query/preferences`, `lib/query/calendars`, `lib/services/permissions` (`canWriteCalendar`), `lib/utils` (`cn`). Rendered only by `components/settings/SettingsForm.tsx`.
+
+**Downstream of each preference** — `defaultView` is read by `components/calendar/CalendarShell.tsx` through `resolveInitialView` (`auto` → `listMonth` on narrow screens, `dayGridMonth` otherwise) and only applies when the device has no stored `nailong.lastView.<userId>`; `timeFormat` and `showWeekNumbers` are props of `CalendarView`; `shortcutsEnabled` is the first argument of `useKeyboardShortcuts`; `lastEventCalendarId` is the create-default in `CalendarShell` and is written back by `EventDialog`/`QuickCreatePopover` after a save. Visibility is not a preference: it lives in `localStorage` `nailong.visibility.<userId>` via `lib/ui/useVisibility.ts`, and an active "display only this calendar" overrides `lastEventCalendarId` for new events when that calendar is writable.
+
+**Debugging** — `toggle flips then snaps back -> the PATCH failed and the mutation rolled the cache back -> check the PATCH /api/settings/preferences response and the session`. `a calendar is missing from Default event calendar -> canWriteCalendar filtered it (view-only and not owned by this viewer; children inherit the root's flags via Math.max) -> check the calendar's ownerId/isViewOnlyForPartner, not the select`. `the select looks empty after load -> the stored lastEventCalendarId is not in the writable list (deleted or now view-only) -> compare the preference row with the rendered options`.
+
+**Tests** — `tests/e2e/preferences.spec.ts` (all five controls), `tests/e2e/view-preference.spec.ts` (default view reaches the calendar), `tests/integration/preferences-api.test.ts` (handler contract).
+
+### components/settings/SettingsForm.tsx
+
+**Purpose** — The client shell of `/settings`: a sticky section sub-nav plus the Profile, Household, Calendar and Account cards. Profile and Household save explicitly per card; Calendar saves per control through `CalendarPreferencesCard`; Account owns password change and two-factor setup.
+
+**Public API** — `export function SettingsForm({ initialName, initialHousehold, initialPreferences, currentUserId }: Props)`; `Props` takes `initialName: string`, `initialHousehold: HouseholdValues` (`{ name: string; timezone: string; weekStartsOn: number }`), `initialPreferences: UserPreferences`, `currentUserId: string`. Non-exported: `SECTIONS` (`profile`, `household`, `calendar`, `account`), `TIMEZONES` (eight fixed zones), `SectionId`, and copies of the `FIELD`/`LABEL`/`CARD`/`CARD_HEADING` recipes.
+
+**Section → request → field**
+
+| Section (anchor) | Control | Request | Data written |
+|---|---|---|---|
+| Profile (`#profile`) | Display name → Save profile | `PATCH /api/settings/profile` `{ name }` | `user.name` via `updateMemberName` |
+| Household (`#household`) | Name, timezone, week start → Save household | `PATCH /api/settings/household` `{ name, timezone, weekStartsOn }` | `household.name`, `household.timezone`, `household.weekStartsOn` (`0` Sunday, `1` Monday) |
+| Calendar (`#calendar`) | `CalendarPreferencesCard` | `PATCH /api/settings/preferences` (per control) | `userPreference` row: `defaultView`, `timeFormat`, `showWeekNumbers`, `shortcutsEnabled`, `lastEventCalendarId` |
+| Account (`#account`) — Password | Current + new password → Change password | `POST /api/auth/change-password` `{ currentPassword, newPassword, revokeOtherSessions: true }` | Better Auth credential; other sessions revoked |
+| Account (`#account`) — 2FA | Account password → Set up two-factor | `POST /api/auth/two-factor/enable` `{ password }` → `{ totpURI, backupCodes }` | Pending TOTP secret, rendered as a URI plus one-time backup codes |
+| Account (`#account`) — 2FA | Verification code → Verify and enable | `POST /api/auth/two-factor/verify-totp` `{ code }` | Turns TOTP on for the user |
+
+The three `/api/auth/*` calls are served by the Better Auth catch-all `app/api/auth/[...all]/route.ts`; the `twoFactor()` plugin is registered in `lib/auth/server.ts`.
+
+**State & side effects** — `useState` for `name`, `household`, `savingProfile`, `savingHousehold`, `currentPassword`, `newPassword`, `twoFactorPassword`, `twoFactorCode`, `totpUri`, `backupCodes`, `twoFactorEnabled`, `activeSection`. A `hashchange` listener (plus one initial sync) is the only source of `activeSection`; scrolling does not change it. `router.refresh()` runs after a successful profile or household save, so the server-rendered shell re-reads name and household; password and 2FA saves do not refresh. Toasts: `Profile updated`, `Household updated`, `Password changed`, `Add the key to your authenticator, then confirm a code.`, `Two-factor authentication is on`, and `toast.error(message)` on every failure. Client-side gating only: Change password is disabled until the current password is non-empty and the new one is at least 12 characters; Verify is disabled below 6 trimmed characters.
+
+**Depends on / Used by** — `next/navigation` (`useRouter`), `sonner`, `components/ui/button`, `components/settings/CalendarPreferencesCard`, `lib/utils` (`cn`), and the `UserPreferences` type. Used only by `app/(app)/settings/page.tsx`, which passes the session name, the household row and `getPreferences(db, session.user.id)`.
+
+**Debugging** — `a saved name or household reverts on the next navigation -> the PATCH was rejected (validation is server-side too) -> check the response body and lib/validation/settings.ts, not the input`. `fields keep the value you typed after Save even though the server changed -> router.refresh() updates props but the local useState was initialised once -> remount/reload, do not look for a second fetch`. `the highlighted section jumps to Account while you scroll -> that is by design (hash only, no scroll spy) -> check the hash, not the viewport`. `a password below 12 characters cannot be submitted at all -> the button's disabled condition, not the auth handler`.
+
+**Tests** — `tests/e2e/settings.spec.ts` (household save, hash sub-nav, 2FA panel and backup codes), `tests/integration/settings-api.test.ts` (profile/household handlers).
+
+## UI primitives
+
+### components/ui/button.tsx
+
+**Purpose** — The only button primitive: a plain `<button>` carrying the Canvas variants, sizes and focus ring. It adds no behaviour, so all click handling stays with the caller.
+
+**Public API** — `export function Button(...)`, `export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement>`. Props: `variant?: "primary" | "outline" | "ghost"` — default `"outline"`; `size?: "sm" | "md"` — default `"md"`; `type` — default `"button"`. `primary` = accent fill with a literal `#2468a2` border and `accent`/`accent-hover`/`accent-press` backgrounds; `outline` = `border-line-strong` on `bg-well`; `ghost` = transparent border. Sizes: `sm` = `h-7 px-2 text-sm`, `md` = `h-[38px] px-3 text-base`. Disabled uses `disabled:opacity-50`; focus ring is `outline-link`.
+
+**State & side effects** — None. No ref forwarding, no loading state, no analytics.
+
+**Depends on / Used by** — `@/lib/utils` (`cn`) only. Imported by `app/login/LoginForm.tsx`, `components/settings/SettingsForm.tsx`, `components/shell/AppShell.tsx`, `components/shell/BreadcrumbBar.tsx`, `components/sidebar/CalendarDialog.tsx`, `components/sidebar/CalendarTree.tsx`, `components/sidebar/PersonPills.tsx`, and `components/calendar/{CalendarShell,CalendarPicker,DatePickerPopover,EventDetails,EventDialog,MiniMonth,QuickCreatePopover,ShortcutHelpDialog,Toolbar}.tsx`.
+
+**Debugging** — `a form does not submit on click -> the default type is "button"; pass type="submit"`. `the primary border stays blue after a token change -> the border is the hard-coded hex 2468a2, not the accent token -> edit the class here`. `a button renders 30px tall where the design is 38px -> size="sm" (or a caller className) -> check the call site`.
+
+**Tests** — `tests/e2e/primitives.spec.ts` asserts the primary button is 38px tall, 4px radius and `rgb(43, 122, 188)` via `data-testid="new-event-button"`.
+
+### components/ui/checkbox.tsx
+
+**Purpose** — A thin styled Radix checkbox: a 4×4 box with a `CheckIcon` indicator. The visible label is always rendered by the caller; `label` only supplies the accessible name.
+
+**Public API** — `export function Checkbox({ label, checked, onCheckedChange, className })` with `label: string`, `checked: boolean`, `onCheckedChange: (checked: boolean) => void`, `className?: string`. No `disabled`, no `id`, no forwarded ref.
+
+**State & side effects** — None of its own. It is fully controlled: Radix's `onCheckedChange` value (`boolean | "indeterminate"`) is coerced with `value === true`, so an indeterminate state would arrive as `false`. Checked styling hangs off `data-[state=checked]`.
+
+**Depends on / Used by** — `@radix-ui/react-checkbox`, `components/ui/icons` (`CheckIcon`), `@/lib/utils` (`cn`). Used by `components/settings/CalendarPreferencesCard.tsx` and `components/sidebar/CalendarRow.tsx` (calendar visibility).
+
+**Debugging** — `the checkbox cannot be toggled by clicking the text -> only the box is clickable; the caller's label is a sibling span -> wrap or pass the real label. the box looks unchecked though state is true -> an uncontrolled defaultChecked was used instead of the checked prop -> check the call site. Playwright's .check() races on first load -> controlled Radix boxes need hydration -> wait for networkidle (see tests/e2e/preferences.spec.ts)`.
+
+**Tests** — No unit test. Exercised by `tests/e2e/preferences.spec.ts` (week numbers / keyboard shortcuts) and `tests/e2e/sidebar.spec.ts`.
+
+### components/ui/dialog.tsx
+
+**Purpose** — Radix dialog wrapper that owns the portal, scrim, positioning and accessible title. Callers supply only content; `DialogContent` must sit inside a `Dialog` root.
+
+**Public API** — Re-exports `Dialog`, `DialogTrigger`, `DialogClose` from `@radix-ui/react-dialog`; `export function DialogContent({ title, description, children, sheet = false })` with `title: string` (required, always rendered as the Radix title), `description?: string`, `children: React.ReactNode`, `sheet?: boolean` (default `false`, switches to a bottom sheet below `md`).
+
+**State & side effects** — None; open state belongs to the Radix root at the call site. The overlay carries `data-testid="dialog-overlay"`. No caller passes `sheet` today (a repo grep finds no `sheet=` at a call site), so the phone bottom-sheet variant exists but is unused.
+
+**Depends on / Used by** — `@radix-ui/react-dialog`, `@/lib/utils` (`cn`). Imported by `components/shell/BreadcrumbBar.tsx`, `components/sidebar/CalendarTree.tsx`, `components/sidebar/CalendarDialog.tsx`, `components/calendar/CalendarShell.tsx`, `components/calendar/EventDetailsPopover.tsx`, `components/calendar/QuickCreatePopover.tsx` and `components/calendar/ShortcutHelpDialog.tsx`.
+
+**Debugging** — `the dialog paints under the sidebar/toolbar -> content is z-50 and the overlay z-40 inside the portal -> check for a caller stacking context, not the Radix root. the phone layout is still a centred box -> the caller did not pass sheet. a long form is clipped at 90dvh -> max-h-[90dvh] plus overflow-y-auto here -> scroll inside the content. Escape/outside-click does nothing -> the Dialog root has no open/onOpenChange pair -> check the caller`.
+
+**Tests** — `tests/e2e/primitives.spec.ts` (4px radius, Canvas scrim); dialogs are also driven by `tests/e2e/details.spec.ts` and `tests/e2e/sidebar.spec.ts`. No unit test.
+
+### components/ui/dropdown-menu.tsx
+
+**Purpose** — Small Radix dropdown set used for the account menu and the per-calendar options menu. Content and items are pre-styled; the root and trigger are direct Radix exports.
+
+**Public API** — `DropdownMenu`, `DropdownMenuTrigger` (Radix re-exports); `DropdownMenuContent({ children })` — always portalled, `align="end"`, `sideOffset={4}`, `min-w-44`; `DropdownMenuItem({ children, onSelect, danger = false, disabled = false })` where `onSelect: (event: Event) => void` is required and receives the DOM event (call `event.preventDefault()` to keep the menu open); `DropdownMenuLabel({ children })`; `DropdownMenuSeparator()`.
+
+**State & side effects** — None; Radix owns open state and focus. Items close the menu after `onSelect` unless the handler prevents default.
+
+**Depends on / Used by** — `@radix-ui/react-dropdown-menu`, `@/lib/utils` (`cn`). Used by `components/shell/GlobalNavRail.tsx` (account menu, label + separator) and `components/sidebar/CalendarRow.tsx` (add/rename/delete/isolate, separator, `danger` delete).
+
+**Debugging** — `selecting an item closes the menu before a nested dialog opens -> expected Radix behaviour; the item's onSelect has already run -> check the handler's order. the menu opens off the left edge -> content is hard-coded align="end"; pick a different primitive for left-aligned triggers. a disabled item still looks active -> disabled is passed but styling uses data-[disabled] -> verify the prop reached the item`.
+
+**Tests** — No unit test. `tests/e2e/sidebar.spec.ts` and `tests/e2e/only-this-calendar.spec.ts` drive the items via `role="menuitem"`.
+
+### components/ui/icons.tsx
+
+**Purpose** — The project's only icon source: inline 24×24 stroke SVGs, no icon package. Every icon renders `fill="none"`, `stroke="currentColor"`, `strokeWidth={1.5}` with round caps and joins, and is decorative unless given a `title`.
+
+**Public API** — `export interface IconProps { size?: number; className?: string; title?: string }`; `size` defaults to `20`. Every icon is `(props: IconProps) => JSX.Element`; the internal `Svg` helper is not exported. `title` makes the SVG `role="img"` with a `<title>` child; without it the SVG is `aria-hidden="true"`. The file has no `"use client"`, so it renders from server components too.
+
+| Icon | Use | Icon | Use |
+|---|---|---|---|
+| `CalendarIcon` | calendar nav / empty states | `SettingsIcon` | settings nav |
+| `PlusIcon` | create / add sub-calendar | `ChevronLeftIcon` | previous period, back link |
+| `ChevronRightIcon` | next period, breadcrumb | `ChevronsLeftIcon` | jump back |
+| `ChevronsRightIcon` | jump forward | `CheckIcon` | checkbox indicator |
+| `XIcon` | close / dismiss | `MenuIcon` | mobile menu, breadcrumb |
+| `TrashIcon` | delete actions | `PencilIcon` | edit actions |
+| `MoreVerticalIcon` | row overflow menu | `UserIcon` | person chips |
+| `LockIcon` | view-only badge | `EyeIcon` | show |
+| `EyeOffIcon` | hide | `AlertTriangleIcon` | warnings |
+| `SearchIcon` | search box / bar | `ChevronDownIcon` | pickers, collapsed groups |
+
+**State & side effects** — None; pure rendering.
+
+**Depends on / Used by** — Only `import type { ReactNode } from "react"`. Imported by `app/(app)/settings/page.tsx`, `components/ui/checkbox.tsx`, `components/shell/{AppShell,GlobalNavRail,BreadcrumbBar}.tsx`, `components/sidebar/{CalendarRow,CalendarTree}.tsx`, and `components/calendar/{CalendarPicker,MiniMonth,SearchBox,Toolbar}.tsx`; also by `tests/unit/icons.test.ts`.
+
+**Debugging** — `an icon does not exist under the name you guessed -> names are PascalCase plus an "Icon" suffix and only the 20 in the table above exist -> import from here, never from a package. an icon ignores its size -> width/height come from the size prop with a 20 default -> check the caller. a screen reader stays silent on a meaningful icon -> pass title; otherwise aria-hidden is intentional`.
+
+**Tests** — `tests/unit/icons.test.ts` (stroke/fill, default 20px, `aria-hidden`, `title` handling).
+
+### components/ui/toast.tsx
+
+**Purpose** — Exports the single sonner configuration object that gives toasts the Canvas flash metrics. It is a props module, not a component: the wrapper is `<Toaster {...TOASTER_PROPS} />` mounted once in `app/providers.tsx`, and call sites import `toast` from `sonner` directly.
+
+**Public API** — `export const TOASTER_PROPS: ToasterProps` (type imported from `sonner`): `position: "top-center"`, `closeButton: true`, and `toastOptions.classNames` for `toast` (`rounded-lg! border-2! bg-surface! shadow-flash! text-ink!`), `success` (`border-success!`), `error` (`border-danger!`), `warning` (`border-warning!`) and `info` (`border-line-strong!`). No component, function or hook is exported, and there is no project-level `toast` re-export.
+
+**Undo / toast API used across the app** — `lib/ui/undo.ts` owns a module-level stack (max 20, cleared on reload): `pushUndo({ label, undo })`, `peekUndo(): string | null`, `undoLast(): Promise<boolean>` (pops first, returns `false` on empty or failure, toasts the failure) and `clearUndo()` as a test seam. Call sites push an action after a successful mutation and show `toast.success("Event deleted", { action: { label: "Undo", onClick: () => void undoLast() }, duration: 10_000 })` — `CalendarShell.undoToast`, `EventDialog`, `QuickCreatePopover`, `CalendarTree` — and `useUndoHotkey` binds `z`/`Ctrl+Z` to the same `undoLast`.
+
+**State & side effects** — None in this file. The important global side effect is sonner's own runtime `<Toaster>` in `app/providers.tsx`; toast bodies, timers and the `[data-sonner-toast]` DOM live there.
+
+**Depends on / Used by** — `import type { ToasterProps } from "sonner"`. Used only by `app/providers.tsx`. The `toast` function itself is imported from `sonner` in `components/settings/SettingsForm.tsx`, `components/settings/CalendarPreferencesCard.tsx`, `components/shell/GlobalNavRail.tsx`, `components/sidebar/CalendarTree.tsx`, `components/calendar/{CalendarShell,EventDialog,QuickCreatePopover}.tsx` and `lib/ui/undo.ts`.
+
+**Debugging** — `toasts ignore the radius/border/shadow -> sonner injects an unlayered stylesheet that outranks Tailwind utilities; the ! modifiers here are load-bearing -> do not "clean up" the classNames. no toast appears at all -> the Toaster is mounted only in app/providers.tsx -> check that call site and the top-center position where it renders. the Undo action is a no-op -> the stack is empty (a reload clears it, max 20) or undoLast already popped it and threw -> check push order around the mutation`.
+
+**Tests** — `tests/e2e/undo.spec.ts` (toast Undo button, `Ctrl+Z`/`z`, dismissal), `tests/e2e/shortcuts.spec.ts` (undo toast text). No unit test for `TOASTER_PROPS`.
+
+## Focused verification
+```bash
+npx vitest run tests/unit/icons.test.ts tests/integration/preferences-api.test.ts tests/integration/settings-api.test.ts
+npx playwright test tests/e2e/settings.spec.ts tests/e2e/preferences.spec.ts tests/e2e/primitives.spec.ts
+npm run lint && npm run typecheck
+```

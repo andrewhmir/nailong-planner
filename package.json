@@ -40,7 +40,8 @@
     "db:migrate": "tsx scripts/migrate.mts",
     "provision": "tsx scripts/provision.mts",
     "reset-password": "tsx scripts/reset-password.mts",
-    "backup": "tsx scripts/backup.mts"
+    "backup": "tsx scripts/backup.mts",
+    "docs:check": "node scripts/docs-check.mjs"
   },
   "dependencies": {
     "@fullcalendar/react": "7.1.3",

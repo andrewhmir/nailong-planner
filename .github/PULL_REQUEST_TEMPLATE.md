@@ -10,6 +10,7 @@
 
 - [ ] `npm run lint`
 - [ ] `npm run typecheck`
+- [ ] `npm run docs:check`
 - [ ] `npm test`
 - [ ] `npm run test:e2e` (if behaviour or layout changed)
 
@@ -22,4 +23,4 @@
 - [ ] Tests cover the change (bug fixes started from a failing test)
 - [ ] No secrets, `.env.local`, database files, or real household data added
 - [ ] Screenshots committed for visible UI changes (`CAPTURE_SCREENSHOTS=1 npm run test:e2e`)
-- [ ] Docs updated if behaviour or setup changed
+- [ ] Docs updated: `docs/COMPONENTS/` section added/moved/updated for every source file touched, and `npm run docs:check` passes

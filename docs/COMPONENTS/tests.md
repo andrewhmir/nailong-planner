@@ -1,0 +1,126 @@
+# Tests
+
+The suites are documented as lookup tables rather than one section per file: find the behaviour, read the command, run that one file. `tests/` is intentionally excluded from `npm run docs:check`, which does not gate this area — but a new or renamed suite still needs its row here.
+
+**How to update this doc:** add a row to the matching table, then add or amend the entry in `## Which spec covers what`.
+
+## How to run tests
+
+| What | Command | Notes |
+|---|---|---|
+| Unit + integration, once | `npm test` | `vitest run`; Node environment, in-memory SQLite, no dev server |
+| Unit + integration, watch | `npm run test:watch` | `vitest` in watch mode |
+| One unit or integration file | `npx vitest run tests/unit/view.test.ts` | Same config; run from the repository root |
+| All E2E specs | `npm run test:e2e` | `tsx scripts/seed-test-db.mts && playwright test` |
+| One E2E spec | `npx playwright test tests/e2e/undo.spec.ts` | Seed first with `npx tsx scripts/seed-test-db.mts` |
+| Refresh the committed screenshots | `CAPTURE_SCREENSHOTS=1 npm run test:e2e` | Without the flag `tests/e2e/screenshot.spec.ts` skips itself |
+
+- **Vitest never touches a file.** `vitest.config.mts` sets `DATABASE_URL=file::memory:` and `TZ=Asia/Taipei`, and `tests/helpers/db.ts` opens a fresh `new Database(":memory:")` per test with `foreign_keys = ON` and the real migrations applied. Nothing writes to `data/`.
+- **`.playwright/test.db` is the E2E database.** `scripts/seed-test-db.mts` creates it, truncates every table, seeds two users, ten calendars and four events, and writes `.playwright/fixtures.json`. `playwright.config.ts` points its dev server at the same file with `NEXT_DIST_DIR=.next-e2e`, `AUTH_RATE_LIMIT=off` and `TZ=Asia/Taipei`.
+- **The `:3100` dev-server caveat.** Playwright starts `npm run dev -- -p 3100` itself and, locally, reuses a server that is already listening there (`reuseExistingServer` is only off in CI). A leftover `:3100` server serves stale code and an old database — stop it, or re-run the seed script, before trusting a result. Your own `npm run dev` on `:3000` is a different process because the E2E server builds into `.next-e2e/`.
+- **E2E state is shared.** `workers: 1` and `fullyParallel: false` mean the specs run in file order against one database, so several specs create and delete their own probe events instead of relying on seeded rows. `tests/e2e/preferences.spec.ts`, `tests/e2e/shortcuts.spec.ts` and `tests/e2e/view-preference.spec.ts` reset the preferences they change in `afterEach`.
+
+## Unit tests
+
+| File | What it locks down | Command |
+|---|---|---|
+| `tests/unit/permissions.test.ts` | `canWriteCalendar`: shared calendars are writable by both, a view-only calendar only by its owner | `npx vitest run tests/unit/permissions.test.ts` |
+| `tests/unit/time.test.ts` | Wall-time→UTC round-trips, the 47-hour DST day, rejection of DST-gap and malformed times, inclusive all-day ranges | `npx vitest run tests/unit/time.test.ts` |
+| `tests/unit/recurrence.test.ts` | `expandOccurrences`: series anchored to its stored start, preserved duration, EXDATE skipping, monthly-31st, all-day expansion | `npx vitest run tests/unit/recurrence.test.ts` |
+| `tests/unit/format.test.ts` | 12h/24h time, inclusive multi-day all-day text, midnight-crossing ranges, occurrence-relative headings (F28) | `npx vitest run tests/unit/format.test.ts` |
+| `tests/unit/recurrence-label.test.ts` | `describeRrule` wording for Google-style rules and the empty string for unknown input | `npx vitest run tests/unit/recurrence-label.test.ts` |
+| `tests/unit/palette.test.ts` | Eight distinct shades per family, pinned parent shade and child order, hex twins for FullCalendar, 4.5:1 container contrast | `npx vitest run tests/unit/palette.test.ts` |
+| `tests/unit/toFcEvent.test.ts` | Occurrence→FullCalendar mapping, `id::startKey` ids, inclusive→exclusive all-day end, accent/container colours | `npx vitest run tests/unit/toFcEvent.test.ts` |
+| `tests/unit/event-cache.test.ts` | `applyEventPatch`/`removeEvent`/`replaceEvent` stay immutable and keep order when a temp event is swapped for the server row | `npx vitest run tests/unit/event-cache.test.ts` |
+| `tests/unit/quick-create-defaults.test.ts` | Next-half-hour default for today, 09:00 elsewhere, quarter-hour snapping, midnight rollover, drag selections | `npx vitest run tests/unit/quick-create-defaults.test.ts` |
+| `tests/unit/event-payload.test.ts` | A complex RRULE survives unrelated edits byte-identically; preset rules only on change; all-day payloads; inverted ranges; empty text→null | `npx vitest run tests/unit/event-payload.test.ts` |
+| `tests/unit/view.test.ts` | `resolveInitialView`: `auto` → list on phones, month elsewhere; explicit views pass through | `npx vitest run tests/unit/view.test.ts` |
+| `tests/unit/visibility.test.ts` | Ours/mine/partner grouping, pill × checkbox multiplication, parent hides child, "only this calendar" outranks both | `npx vitest run tests/unit/visibility.test.ts` |
+| `tests/unit/visibleCalendars.test.ts` | The id set fed to the grid: isolated sub-calendar survives a hidden parent, a hidden root prunes its branch | `npx vitest run tests/unit/visibleCalendars.test.ts` |
+| `tests/unit/calendarPicker.test.ts` | Picker rows and depth, expand/collapse, parent vs assigned shade colours, slate fallback, auto-expand for a selected child | `npx vitest run tests/unit/calendarPicker.test.ts` |
+| `tests/unit/icons.test.ts` | Icon contract: 1.5px `currentColor` stroke, no fill, 20px default, `aria-hidden` unless a `title` is given | `npx vitest run tests/unit/icons.test.ts` |
+
+## Integration tests
+
+| File | What it locks down | Command |
+|---|---|---|
+| `tests/integration/db.test.ts` | Migrations apply; a calendar delete cascades to its children and their events; foreign keys reject orphans; all-day and timed columns stay separate | `npx vitest run tests/integration/db.test.ts` |
+| `tests/integration/auth.test.ts` | Sign-up is closed by default, exactly two accounts are allowed, a session cookie round-trips, passwords are stored hashed | `npx vitest run tests/integration/auth.test.ts` |
+| `tests/integration/calendars.test.ts` | Shade assignment and reuse, the eighth-child conflict, no grandchildren, tenant isolation, hue re-derivation, view-only enforcement | `npx vitest run tests/integration/calendars.test.ts` |
+| `tests/integration/events.test.ts` | Mixed all-day/timed payloads, inverted times, UTC vs local-date storage, recurrence range filtering, EXDATE idempotency, view-only writes, invalid RRULE | `npx vitest run tests/integration/events.test.ts` |
+| `tests/integration/calendars-api.test.ts` | Handler status codes: 401 without a viewer, 201 on create, 400 with field errors, 409 eighth child, 403 view-only, 404 other household, 204 delete | `npx vitest run tests/integration/calendars-api.test.ts` |
+| `tests/integration/events-api.test.ts` | Range validation, colour tokens in the response, 403 on every verb for a view-only calendar, `scope=this` idempotency, 201 create, 404 cross-household | `npx vitest run tests/integration/events-api.test.ts` |
+| `tests/integration/settings-api.test.ts` | Household name/timezone/week-start updates and validation; member display-name update | `npx vitest run tests/integration/settings-api.test.ts` |
+| `tests/integration/preferences-api.test.ts` | Defaults without a stored row, partial PATCH persistence, rejection of unknown view/format, per-user scoping | `npx vitest run tests/integration/preferences-api.test.ts` |
+| `tests/integration/regressions.test.ts` | Review-found regressions: a view-only root protects its children, ownership claiming rules, title-only PATCH of an all-day event, refusing a view-only move target | `npx vitest run tests/integration/regressions.test.ts` |
+| `tests/integration/search-api.test.ts` | Title/location/description matching, the two-character floor, household scoping, one row per series, LIKE escaping, title-first ranking and the limit | `npx vitest run tests/integration/search-api.test.ts` |
+
+## E2E specs
+
+| File | What it locks down | Command |
+|---|---|---|
+| `tests/e2e/auth.spec.ts` | Unauthenticated redirect, login fields, a wrong password error, a successful sign-in, session survival across reload | `npx playwright test tests/e2e/auth.spec.ts` |
+| `tests/e2e/shell.spec.ts` | 54px rail, breadcrumb derived from the route, visible focus on the dark rail, 320px no-scroll, long-name truncation, real sign-out and a failed sign-out | `npx playwright test tests/e2e/shell.spec.ts` |
+| `tests/e2e/sidebar.spec.ts` | Household groups, child shade strip, visibility persistence, add sub-calendar, owned calendar creation, view-only toggle, person pill, long-name truncation, panel scrolling | `npx playwright test tests/e2e/sidebar.spec.ts` |
+| `tests/e2e/events.spec.ts` | Month grid with seeded events, create from the toolbar, edit/delete via the popover, drag to another day, weekly series in the next month, skipping one occurrence, week view | `npx playwright test tests/e2e/events.spec.ts` |
+| `tests/e2e/quick-create.spec.ts` | Click-a-day bubble, Enter saves, Escape discards, "More options" carries the draft, dirty-dialog guard, `Shift+C` | `npx playwright test tests/e2e/quick-create.spec.ts` |
+| `tests/e2e/details.spec.ts` | Details show calendar and repeat summary, a later occurrence shows its own date (F28), Escape returns focus, Duplicate then Undo restores the count, no actions for the partner | `npx playwright test tests/e2e/details.spec.ts` |
+| `tests/e2e/undo.spec.ts` | Toast Undo, `Ctrl+Z`, `z`, `z` after the toast expires, a failed drag PATCH snapping back, `z` inside a title field doing nothing | `npx playwright test tests/e2e/undo.spec.ts` |
+| `tests/e2e/shortcuts.spec.ts` | `t`/`w` navigation, `c` opens the editor, `?` opens the sheet, the toolbar button opens it too, `z` vs `Delete`, the settings toggle disabling single keys | `npx playwright test tests/e2e/shortcuts.spec.ts` |
+| `tests/e2e/search.spec.ts` | Finds an event outside the loaded month and opens it, `/` focuses search, Escape closes results, the short-query hint, LIKE wildcards end to end | `npx playwright test tests/e2e/search.spec.ts` |
+| `tests/e2e/calendar-picker.spec.ts` | Nested picker reveals children only when expanded, the 320px scroll container, Escape closing only the list, the dialog's field using the same picker | `npx playwright test tests/e2e/calendar-picker.spec.ts` |
+| `tests/e2e/only-this-calendar.spec.ts` | Isolation shows and hides the right events, new events target the isolated calendar, "Show all" restores without touching saved boxes, a re-check leaves isolation, a view-only calendar can still be isolated | `npx playwright test tests/e2e/only-this-calendar.spec.ts` |
+| `tests/e2e/viewonly.spec.ts` | A partner sees a view-only event without edit affordances, the event still renders, visibility can still be toggled | `npx playwright test tests/e2e/viewonly.spec.ts` |
+| `tests/e2e/preferences.spec.ts` | 12-hour format reaches the grid and survives reload, default view persists, the Calendar card is reachable from the sub-nav, week numbers and shortcut toggles persist | `npx playwright test tests/e2e/preferences.spec.ts` |
+| `tests/e2e/view-preference.spec.ts` | Desktop defaults to month and phone to list, the last view survives reload, a stored default beats `auto` after `localStorage` is cleared, overlapping events sit side by side | `npx playwright test tests/e2e/view-preference.spec.ts` |
+| `tests/e2e/settings.spec.ts` | Household name saves and repopulates, sub-nav marks the hash, password and 2FA panels exist, 2FA setup shows the code field and backup codes, security headers on a real response | `npx playwright test tests/e2e/settings.spec.ts` |
+| `tests/e2e/mini-month.spec.ts` | Mini-month jumps the grid, next-month navigation, the toolbar title opens a date picker, `?date=` deep link, the title stays a heading | `npx playwright test tests/e2e/mini-month.spec.ts` |
+| `tests/e2e/mobile.spec.ts` | At 375px the month grid does not overflow horizontally and the calendar tree opens as a sheet that closes | `npx playwright test tests/e2e/mobile.spec.ts` |
+| `tests/e2e/viewport-fit.spec.ts` | Eight viewports: document never scrolls, whole month fits, grid does not scroll internally, chrome cannot move; week hours and the settings page scroll inside their panels | `npx playwright test tests/e2e/viewport-fit.spec.ts` |
+| `tests/e2e/design-tokens.spec.ts` | Canvas tokens on `:root` (`--color-ink`, `--color-accent`, `--color-link`, `--color-rail`, `--color-field`, `--radius-md`) and self-hosted Lato actually loading | `npx playwright test tests/e2e/design-tokens.spec.ts` |
+| `tests/e2e/calendar-style.spec.ts` | Canvas hairlines, the blue today badge, the saturated 3px event bar over a pale fill, theme variables beating FullCalendar's defaults, the view switch as a segmented control | `npx playwright test tests/e2e/calendar-style.spec.ts` |
+| `tests/e2e/primitives.spec.ts` | Primary button is 38px with a 4px radius and no shadow; dialogs are square-cornered over the Canvas scrim | `npx playwright test tests/e2e/primitives.spec.ts` |
+| `tests/e2e/screenshot.spec.ts` | Refreshes the seven tracked screenshots under `docs/screenshots/`; skips unless `CAPTURE_SCREENSHOTS=1` | `npx playwright test tests/e2e/screenshot.spec.ts` |
+
+## Test helpers
+
+| File | What it provides | Used by |
+|---|---|---|
+| `tests/helpers/db.ts` | `makeTestDb()`: a fresh `:memory:` database with `foreign_keys = ON` and all migrations applied | Every integration test |
+| `tests/helpers/fixtures.ts` | `makeSeededDb()`: two households, two members in `h1`, one in `h2`, and the `ctxA`/`ctxB`/`ctxOther` viewer contexts | `tests/integration/calendars.test.ts`, `events.test.ts`, `calendars-api.test.ts`, `events-api.test.ts`, `settings-api.test.ts`, `preferences-api.test.ts`, `regressions.test.ts`, `search-api.test.ts` |
+| `tests/e2e/helpers.ts` | `loadFixtures()` from `.playwright/fixtures.json`, the `ANDREW`/`PARTNER` emails, and `signIn(page, email, password)` | Every spec in `tests/e2e/` |
+
+## Which spec covers what
+
+| Behaviour | Where it is locked down |
+|---|---|
+| Undo (toast, `Ctrl+Z`, `z`, expired toast, failed drag) | `tests/e2e/undo.spec.ts`; the `z` vs `Delete` path in `tests/e2e/shortcuts.spec.ts`; `tests/unit/event-cache.test.ts` for the cache primitives |
+| Viewport fit and no-scroll layout | `tests/e2e/viewport-fit.spec.ts`; 320px in `tests/e2e/shell.spec.ts`; 375px in `tests/e2e/mobile.spec.ts` |
+| Keyboard shortcuts | `tests/e2e/shortcuts.spec.ts`; `Shift+C` in `tests/e2e/quick-create.spec.ts`; `/` and `Escape` in `tests/e2e/search.spec.ts` |
+| Calendar visibility (pills, checkboxes, parent cascade, isolation) | `tests/unit/visibility.test.ts`, `tests/unit/visibleCalendars.test.ts`, `tests/e2e/sidebar.spec.ts`, `tests/e2e/only-this-calendar.spec.ts`, `tests/e2e/viewonly.spec.ts` |
+| Search | `tests/e2e/search.spec.ts`; ranking/escaping/scoping in `tests/integration/search-api.test.ts` |
+| Nested calendar picker | `tests/e2e/calendar-picker.spec.ts`; row/depth/shade rules in `tests/unit/calendarPicker.test.ts` |
+| Settings and preferences | `tests/e2e/settings.spec.ts`, `tests/e2e/preferences.spec.ts`, `tests/e2e/view-preference.spec.ts`, `tests/integration/settings-api.test.ts`, `tests/integration/preferences-api.test.ts` |
+| Quick create | `tests/e2e/quick-create.spec.ts`; default ranges in `tests/unit/quick-create-defaults.test.ts` |
+| Event details and repeat summary | `tests/e2e/details.spec.ts`; formatting in `tests/unit/format.test.ts` and `tests/unit/recurrence-label.test.ts` |
+| Mobile layout and sheets | `tests/e2e/mobile.spec.ts`; the phone default view in `tests/e2e/view-preference.spec.ts` and `tests/unit/view.test.ts` |
+| Design tokens and theme | `tests/e2e/design-tokens.spec.ts`; palette maths and contrast in `tests/unit/palette.test.ts` |
+| Auth and session | `tests/e2e/auth.spec.ts`; the two-account cap and hashing in `tests/integration/auth.test.ts` |
+| App shell, rail and breadcrumbs | `tests/e2e/shell.spec.ts` |
+| Sidebar tree and calendar management | `tests/e2e/sidebar.spec.ts`; nested-picker rendering in `tests/e2e/calendar-picker.spec.ts` |
+| FullCalendar Canvas styles | `tests/e2e/calendar-style.spec.ts`; the primitives' geometry in `tests/e2e/primitives.spec.ts` |
+| UI primitives (button, dialog, scrim) | `tests/e2e/primitives.spec.ts` |
+| Screenshots and fonts | `tests/e2e/screenshot.spec.ts` (with `CAPTURE_SCREENSHOTS=1`); the Lato assertion in `tests/e2e/design-tokens.spec.ts` |
+| Event CRUD, drag and occurrence deletion | `tests/e2e/events.spec.ts`; service-level rules in `tests/integration/events.test.ts` |
+| Recurrence expansion (RRULE, EXDATE, duration) | `tests/unit/recurrence.test.ts`; the stored-EXDATE side in `tests/integration/events.test.ts` |
+| View-only permissions | `tests/unit/permissions.test.ts`, `tests/integration/events.test.ts`, `tests/integration/regressions.test.ts`, `tests/e2e/viewonly.spec.ts` |
+| Schema, foreign keys and tenancy | `tests/integration/db.test.ts`; the cross-household 404s in `tests/integration/calendars-api.test.ts` and `events-api.test.ts` |
+| Event payload building | `tests/unit/event-payload.test.ts`; the occurrence mapping in `tests/unit/toFcEvent.test.ts` |
+| Icon contract | `tests/unit/icons.test.ts` |
+
+## Focused verification
+
+```bash
+npm run lint && npm run typecheck
+npm test
+```

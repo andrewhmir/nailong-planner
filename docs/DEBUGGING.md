@@ -1,0 +1,244 @@
+# Debugging Nailong Planner
+
+Read this before grepping the source. It is the shortest path from a symptom to
+the file that owns it: the layer map, the data contract, the traps that have
+already cost time, and a symptom lookup table with the exact command to run.
+
+If something here is wrong or missing, fix it in the same change — this file is
+part of the definition of done in [`../AGENTS.md`](../AGENTS.md).
+
+## 1. Fast commands
+
+```bash
+# Reproduce locally
+npm run dev                                   # http://localhost:3000
+npm run db:migrate && npm run provision       # empty database / no household
+
+# Smallest failing check first — never the full suite as an edit loop
+npx vitest run tests/unit/view.test.ts        # one unit file
+npx vitest run tests/integration/events.test.ts
+npx vitest run tests/unit/recurrence.test.ts -t "exdate"   # one test name
+npx playwright test tests/e2e/events.spec.ts  # one spec
+npx playwright test tests/e2e/events.spec.ts --headed --debug
+
+# Before claiming done
+npm run lint && npm run typecheck && npm run docs:check
+npm test                                      # Vitest unit + integration (in-memory SQLite)
+npm run test:e2e                              # Playwright: seeds .playwright/test.db, serves :3100
+```
+
+- Vitest uses an **in-memory SQLite** database built from the committed
+  migrations (`tests/helpers/db.ts`); nothing touches `data/planner.db`.
+- Playwright seeds `.playwright/test.db` and starts its own dev server on
+  **:3100**. Next allows one dev server per project directory — stop your own
+  `npm run dev` first if E2E reports the port is taken.
+- The dev server logs to `devserver.log` / `devserver.err.log` in the repo root
+  when it was started by a helper; an unhandled API error logs
+  `[api] unhandled error` there and returns a generic 500.
+
+## 2. Layer map — where the bug lives
+
+```
+Browser
+  components/{calendar,shell,sidebar,settings,ui}   React UI, FullCalendar adapter
+  lib/ui/*                                         client state: view, visibility, undo, shortcuts
+  lib/query/*                                      TanStack Query hooks + optimistic cache updates
+        │ fetch
+        ▼
+  app/api/**/route.ts                              thin Next route handlers (export POST/GET/…)
+        │
+  lib/api/route.ts    withViewer(): session -> member -> ViewerContext, error -> JSON envelope
+  lib/api/handlers/*  auth + Zod validation, then call a service
+        │
+  lib/services/*      business rules + all SQL (drizzle). The only layer that touches the DB.
+  lib/db/*            schema, client (better-sqlite3, WAL), migrations
+  lib/time/* lib/recurrence/* lib/color/*   pure domain helpers used by services and UI
+        │
+        ▼
+  SQLite ./data/planner.db (or /data/planner.db in Docker)
+```
+
+| Symptom area | Look here first | Documented in |
+|---|---|---|
+| Wrong value from an endpoint, status code, auth | `app/api/**/route.ts` → `lib/api/handlers/*` | `COMPONENTS/app-routes.md`, `COMPONENTS/api-layer.md` |
+| Wrong stored data, permission, calendar/event rule | `lib/services/*` | `COMPONENTS/lib-services.md` |
+| Schema, query key, stale UI after mutation, session/member | `lib/db/*`, `lib/query/*`, `lib/auth/*`, `lib/validation/*` | `COMPONENTS/lib-data.md` |
+| Date/time off by hours or days, recurrence, shades, error codes | `lib/time/*`, `lib/recurrence/*`, `lib/color/*`, `lib/errors.ts` | `COMPONENTS/lib-domain.md` |
+| View/visibility/shortcut/undo state | `lib/ui/*` | `COMPONENTS/lib-ui.md` |
+| Rendering, layout, interaction | `components/*` | `COMPONENTS/components-*.md` |
+| Script, migration, deploy, CI, env | `scripts/*`, `drizzle/*`, config files | `COMPONENTS/scripts-and-ops.md`, `OPERATIONS.md` |
+
+The request pipeline in one line:
+`route.ts` → `withViewer(handler)` in `lib/api/route.ts` (session cookie →
+`member` row → `ViewerContext`, then `apiError`) → `lib/api/handlers/*` (Zod
+`*Schema.parse` + service call) → `lib/services/*` (rules + SQL) → SQLite.
+
+## 3. The data contract — check this before debugging dates or permissions
+
+**Events** (`lib/db/schema.ts`, `lib/time/zone.ts`)
+
+- `allDay = 1`: `startDate` / `endDate` are **local calendar dates**
+  `YYYY-MM-DD`; `endDate` is **inclusive** in storage. FullCalendar wants an
+  exclusive end, so `components/calendar/toFcEvent.ts` adds one day when
+  converting. Do **not** round an all-day date through a timestamp.
+- `allDay = 0`: `startAt` / `endAt` are **UTC epoch milliseconds** (instants).
+  Wall-clock conversion goes through `localWallTimeToUtc` / `utcToLocalWallTime`
+  in `lib/time/zone.ts` with the **household** timezone, never the process TZ.
+- `localWallTimeToUtc` throws `VALIDATION` ("That time does not exist…") for a
+  daylight-saving spring-forward gap. That is correct behaviour, not a bug.
+- `addDaysToDate` shifts a date without constructing a local `Date` — use it
+  whenever you need "the next calendar day".
+
+**Recurring events** (`lib/recurrence/expand.ts`)
+
+- `rrule` is an RFC 5545 RRULE string; `DTSTART` is reconstructed from the
+  event's **own stored start**, never from "now".
+- An invalid/unparseable RRULE **silently degrades to a single event** (`safeRule`
+  returns null). If a series is not repeating, check the stored rule string first.
+- `exdates` is a JSON array. Accepted entries: `YYYY-MM-DD` (all-day),
+  `YYYY-MM-DDTHH:MM` (household wall time, converted), or any `Date.parse`-able
+  string. Malformed JSON or non-string entries are **ignored silently** — that is
+  the usual reason a deleted occurrence comes back.
+- v0.1.0 edits a recurring event **as a series**; only single-occurrence
+  **deletion** exists (append to `exdates`).
+
+**Calendars**
+
+- Root calendar (`parentId = null`) owns a hue family at shade 3 of 8.
+  Sub-calendars take the next unused shade from `[4, 2, 5, 1, 6, 0, 7]` — at most
+  7 children per root (`lib/color/palette.ts`, `lib/services/calendars.ts`).
+  Recolouring a root re-shades its family; do not "fix" a child's shade by hand.
+
+**Permissions** (`lib/services/permissions.ts`, `lib/services/calendars.ts`)
+
+- `canWriteCalendar` is the one write predicate. A calendar marked
+  `isViewOnlyForPartner` is writable only by its owner; shared ("Ours")
+  calendars are never view-only — the predicate fails closed if that state
+  appears.
+- **View-only is inherited from the root**: `getCalendarAccess` returns
+  `ownerId = root.ownerId ?? row.ownerId` and
+  `isViewOnlyForPartner = max(root, row)`. Nesting is capped at two levels;
+  `updateCalendar` rejects setting `isViewOnlyForPartner` or `hueFamily` on a
+  child, and setting `ownerId: null` also clears view-only. An ownerless
+  view-only calendar therefore has no writer at all.
+- **Household scoping happens before the permission check**, and out-of-household
+  ids surface as `NOT_FOUND` 404 — never 403. A 403 means "your account is not in
+  this household" (missing `member` row).
+- No service opens a database transaction: a multi-statement change (event upsert
+  + `exdates` append) is not atomic. Do not assume all-or-nothing writes.
+- A missing `member` row means the household was never provisioned → run
+  `npm run provision`.
+
+**Visibility** (client-only, `lib/ui/visibility.ts`)
+
+- `groups` (person pills) + `calendars` (per-calendar overrides, missing =
+  visible) + the parent's checkbox must all agree; `only` ("display only this
+  calendar") **outranks everything**. Visibility is never a security boundary.
+- View/visibility/undo client state is persisted in `localStorage` via
+  `lib/ui/view.ts`, `lib/ui/lastView.ts`, `lib/ui/visibleCalendars.ts`; the undo
+  stack (`lib/ui/undo.ts`) is **session-only** and disappears on reload.
+
+**Client cache and database** (`lib/query/*`, `lib/db/*`)
+
+- Query keys: `["calendars"]`, `["events", from, to]`,
+  `["events", "search", normalized]`, `["preferences"]`.
+- Event mutations work on the `["events"]` **prefix**, so optimistic
+  `temp-<uuid>` rows also appear in search results and search refetches after
+  every event mutation. Rollback is wholesale (`snapshotEvents` /
+  `restoreEvents`, private to `lib/query/events.ts`).
+- Preferences **never invalidate**: mutations `setQueryData` the PATCH response,
+  the query has `staleTime: Infinity` + server `initialData`, and a
+  `latestIssued` sequence guards out-of-order responses. "Setting saved but not
+  applied" is a cache/sequence issue, not a service one.
+- Two timestamp conventions: domain tables (`household`, `member`, `calendar`,
+  `event`, `user_preference`) store `integer` epoch **milliseconds** and hydrate
+  as `number`; Better Auth tables use `mode: "timestamp_ms"` and hydrate as
+  `Date`. Mixing them produces `NaN` or `[object Object]`.
+- There are **no foreign keys** from `member.user_id`, `calendar.owner_id`,
+  `event.created_by` or `user_preference.user_id` to `user.id` — the references
+  are logical and validated in services. The two-account cap is a Better Auth
+  `databaseHooks.user.create.before` check, not a DB constraint.
+- Migrations run **lazily on the first `getDb()`**, not at `next build`, and
+  `migrate()` resolves the `drizzle/` folder from `process.cwd()`. WAL allows one
+  writer: a dev server and a script writing at the same time block each other.
+
+**Layout contract** — the shell owns the viewport: `AppShell` is `h-dvh`,
+`main` owns scrolling, and the calendar fills the rest
+(`height="100%"` + `expandRows`). `tests/e2e/viewport-fit.spec.ts` asserts "no
+page scroll, whole month visible" across eight viewports; run it after touching
+any wrapper in the shell/calendar tree.
+
+## 4. Traps that have already bitten
+
+| Symptom | Likely cause | First check |
+|---|---|---|
+| Event shows one day early/late | all-day date went through a timestamp, or the exclusive/inclusive end conversion was skipped | `components/calendar/toFcEvent.ts`, `eventPayload.ts`, `lib/time/zone.ts` |
+| Event time shifted by the user's UTC offset | timed event rendered from a wall-time string instead of `startAt` UTC ms (or vice versa) | `lib/time/format.ts`, `toFcEvent.ts` |
+| 400 "That time does not exist in this timezone" | DST spring-forward gap — intended validation | `lib/time/zone.ts` `localWallTimeToUtc` |
+| Recurring series shows only once | invalid RRULE silently degraded, or `exdates` swallowed every occurrence | `lib/recurrence/expand.ts` `safeRule` / `parseExdates` |
+| Deleted occurrence reappears after reload | EXDATE string format not one of the accepted forms, or stored via a different timezone. Matching is shape-dependent: timed events only match instants, all-day events only match `YYYY-MM-DD`, and an all-day series resolves a `YYYY-MM-DDTHH:MM` EXDATE in **UTC**, not the household zone | `lib/recurrence/expand.ts` `parseExdates`; the raw `exdates` column |
+| Drag/resize/create snaps back | optimistic update rolled back: API rejected (view-only, validation, 4xx) | browser network panel, then `lib/query/eventCache.ts` + `canWriteCalendar` |
+| Undo toast does nothing | undo stack is session-only and per-view; failed mutation already rolled back | `lib/ui/undo.ts`, `lib/ui/useUndoHotkey.ts` |
+| Cannot edit a calendar/event | `isViewOnlyForPartner` and viewer is not the owner; server re-checks on write | `lib/services/permissions.ts`, `lib/services/events.ts` |
+| Calendar row/checkbox does nothing | parent checkbox or `only` mode overriding it | `lib/ui/visibility.ts` `isCalendarVisible` |
+| Sub-calendar has the wrong colour | shade assigned on create from the parent's family; palette exhausted at 7 children | `lib/color/palette.ts`, `lib/services/calendars.ts` |
+| Page scrolls / grid height wrong | shell wrapper lost `h-dvh`/`min-h-0`, or `main` got `overflow-visible` | `app/(app)/layout.tsx`, `components/shell/AppShell.tsx`, `tests/e2e/viewport-fit.spec.ts` |
+| 401 on an API call | no session cookie (signed out, cookie origin/TTL) | `lib/api/route.ts` `viewerFromRequest`, `BETTER_AUTH_URL` |
+| 403 "not part of this household" | `member` row missing — household not provisioned | `npm run provision` |
+| 500 with generic message | a non-`AppError` was thrown; the real error is only in the server log | `[api] unhandled error` in the dev server output; throw `AppError` for expected failures |
+| Zod/field errors on a valid form | request body shape vs `lib/validation/*.ts` schema (field names, `.strict()`) | the matching schema + the mutation in `lib/query/*` |
+| Shortcut fires while typing | the input is not recognized as editable by the guard | `lib/ui/useKeyboardShortcuts.ts` |
+| Settings change has no effect | preference cached by TanStack Query; check the query key and invalidation | `lib/query/preferences.ts`, `lib/services/preferences.ts` |
+| Wrong month on load / deep link | `?date=` / `?event=` parsing and remembered last view | `lib/ui/view.ts`, `lib/ui/lastView.ts`, `app/(app)/page.tsx` |
+| Mini-month dots do not match the grid | mini month derives its own event summary from the same visible-range query | `components/calendar/MiniMonth.tsx`, `components/sidebar/SidebarMiniMonth.tsx` |
+| Hydration mismatch in the calendar | `localStorage`/`matchMedia` read during render instead of in an effect | `lib/ui/useMediaQuery.ts`, `useVisibility.ts`, `view.ts` |
+| A calendar renders editable though it is view-only | `CalendarShell` calls `canWriteCalendar` with a viewer of `{ userId, householdId: "" }`; the predicate only reads `userId` today | `components/calendar/CalendarShell.tsx` (`readOnlyCalendarIds`), `lib/services/permissions.ts` |
+| "Default view" setting seems ignored | `localStorage["nailong.lastView.<userId>"]` wins over the `defaultView` preference; only a fresh session falls back to it | `lib/ui/lastView.ts`, `lib/ui/view.ts`; clear storage as `tests/e2e/view-preference.spec.ts` does |
+| `g` shortcut does nothing, or undo still fires with shortcuts disabled | `ShortcutHelpDialog` advertises `g` but `CalendarShell` never passes `onOpenDatePicker`; `useUndoHotkey()` is mounted unconditionally | `components/calendar/ShortcutHelpDialog.tsx`, `Components/calendar/CalendarShell.tsx`, `lib/ui/useUndoHotkey.ts` |
+| Escape in the calendar picker loses the quick-create draft | `CalendarPicker`'s portalled popover must `stopPropagation` Escape so it does not bubble to `QuickCreatePopover` | `components/calendar/CalendarPicker.tsx`, `QuickCreatePopover.tsx` |
+| Mini month weekday order or "today" differs from the grid | `MiniMonth` hardcodes a Sunday-first grid and uses the device clock; it ignores the household `weekStartsOn`/timezone that FullCalendar honours | `components/calendar/MiniMonth.tsx`, `DatePickerPopover.tsx`, `lib/time/zone.ts` |
+| Clicking Undo loses the action | `undoLast()` pops the entry before running it, and the stack is session-only (max 20); a failed undo is not re-queued | `lib/ui/undo.ts`, `lib/ui/useUndoHotkey.ts` |
+| Toast text/colours overridden by sonner's stylesheet | there is no project toast wrapper — call sites import `toast` from `sonner`; the `!` important modifiers in `TOASTER_PROPS` are load-bearing | `components/ui/toast.tsx` |
+| A sidebar bug reproduces in only one place | `AppShell` renders the calendar tree twice (desktop aside + phone sheet): shared query cache, separate local dialog state | `components/shell/AppShell.tsx`, `components/sidebar/CalendarTree.tsx` |
+| A new `(app)` route shows the "Calendar" breadcrumb | `AppShell.ROUTE_CRUMBS` is a hand-maintained map, not derived from the route tree | `components/shell/AppShell.tsx` |
+| "Delete this occurrence" wiped the whole series | a DELETE sent with **no JSON body** defaults to `scope: "all"` in the handler; `scope: "this"` needs a non-empty `occurrenceStart` | `lib/api/handlers/events.ts` `deleteEventHandler`, the client mutation in `lib/query/events.ts` |
+| Deleting an occurrence returns 500 | the stored `exdates` JSON is corrupt: the append path parses it strictly, while the read path tolerates it | `lib/services/events.ts` `deleteEvent`, `lib/recurrence/expand.ts` |
+| Recurring events appear outside the requested range | `listEvents` returns **every** recurring row and lets the client expand it; only non-recurring rows are range-filtered. All-day overlap is compared against the local date of the exclusive `to` bound | `lib/services/events.ts` `listEvents` |
+| Event list looks shifted when the client omits `from`/`to` | the handler defaults to the household-timezone **current month**, falling back to `Asia/Taipei` if the household row is missing | `lib/api/handlers/events.ts` |
+| `z` / `Ctrl+Z` undoes an event while editing a rich-text field | two divergent typing guards (`isTextEntryTarget`, `isEditableTarget`) and neither recognises `div[role="textbox"]` | `lib/ui/useKeyboardShortcuts.ts`, `lib/ui/useUndoHotkey.ts` |
+| Child calendar renders identical to its parent | `shadeIndex` 3 is reserved for the root; children must come from `[4,2,5,1,6,0,7]`, so a child stored as 3 collides with the parent | `lib/color/palette.ts`, `lib/services/calendars.ts` |
+| An error response's status does not match its code | `AppError.status` is an explicit constructor argument, not derived from `code` | `lib/errors.ts`; the throw site |
+| Changing `TZ` has no runtime effect | `TZ` is validated in `lib/env.ts` but nothing reads it; the household zone comes from `household.timezone` | `lib/env.ts`, `lib/time/zone.ts`, household settings |
+| Content flashes the desktop layout on a phone | `useMediaQuery`'s server snapshot is `false`, so the first paint takes the desktop branch | `lib/ui/useMediaQuery.ts`, `components/shell/AppShell.tsx` |
+| All-day events silently missing from the grid | `listEvents` converts the range with `household.timezone`; a wrong household zone filters them out | `household.timezone`, `lib/services/events.ts` |
+| A script hangs on its first write while the dev server runs | SQLite WAL allows a single writer | stop `npm run dev` (or the script) before the other |
+| Dates render as `NaN` / `[object Object]` | domain rows are epoch-ms `number`, Better Auth rows are `Date`; the two conventions were mixed | `lib/db/schema.ts` vs `lib/db/auth-schema.ts` |
+| Sign-in succeeds but the app bounces between `/login` and `/` | a session exists without a `member` row: the layout redirects to `/login` while the API returns 403 | `app/(app)/layout.tsx`, `npm run provision` |
+| `/api/auth/*` returns a differently shaped error body | that route delegates to Better Auth and bypasses the `{ error: { code, message, fields } }` envelope; `LoginForm` collapses every non-429 failure to "Incorrect email or password" | `app/api/auth/[...all]/route.ts`, `app/login/LoginForm.tsx` |
+| A valid `PATCH /api/settings/preferences` returns 400 | it is the only `.strict()` schema — an extra/renamed key is rejected, while other schemas strip unknown keys silently | `lib/validation/preferences.ts` |
+| `restore-check` cannot find a backup that `npm run backup` just made | `backup` defaults to `--out backups`, `restore-check` hardcodes `.dev/backups`; it also has no npm wrapper and no `loadEnv()` | `scripts/backup.mts`, `scripts/restore-check.mts` |
+| A committed migration never runs | migration ordering comes from `drizzle/meta/_journal.json`, never filenames — an unlisted `.sql` is silently skipped | `drizzle/meta/_journal.json`, `lib/db/migrate.ts` |
+| A script sees none of the `.env` values | each script must call `loadEnv()` **before** importing `lib/env` (hence the dynamic `await import(...)`); only the first of `.env.local`/`.env` is loaded, from `process.cwd()` | `scripts/load-env.mts`, `lib/env.ts` |
+| E2E sign-in fails though the seed ran | `scripts/seed-test-db.mts` forces a fixed secret after loading env; `playwright.config.ts` must set the same one | both files |
+| E2E passes now but fails on a later date | `tests/e2e/view-preference.spec.ts` hardcodes "October 2026" while the seed fixtures come from the current month | that spec, `scripts/seed-test-db.mts` |
+| Migration/column missing | committed SQL migrations not applied; generated migration not committed | `npm run db:migrate`, `drizzle/`, `lib/db/schema.ts` |
+| `docs:check` fails | a source file was added/moved/deleted without its `### <path>` section | output names the heading and the doc to edit |
+
+## 5. Adding a feature — the touch list
+
+| You are adding | Touch these (and their doc sections) |
+|---|---|
+| An API endpoint | `app/api/<area>/route.ts` + `lib/api/handlers/<area>.ts` + `lib/services/<area>.ts` + `lib/validation/<area>.ts` + `tests/integration/*-api.test.ts` + `COMPONENTS/app-routes.md`, `api-layer.md`, `lib-services.md`, `tests.md` |
+| A DB column/table | `lib/db/schema.ts` + `npm run db:generate` (commit SQL under `drizzle/`) + `COMPONENTS/lib-data.md` + `COMPONENTS/scripts-and-ops.md` migration row |
+| A preference | `lib/validation/preferences.ts`, `lib/services/preferences.ts`, `lib/query/preferences.ts`, settings UI + `lib/ui` consumer + docs |
+| A client-state hook | `lib/ui/<hook>.ts` + `tests/unit/<hook>.test.ts` + `COMPONENTS/lib-ui.md` |
+| A component | `components/<area>/` + `tests/e2e/<behaviour>.spec.ts` + its section in `COMPONENTS/components-*.md` |
+| A timestamp/date rule | `lib/time/*` + `tests/unit/time.test.ts` or `format.test.ts` + `COMPONENTS/lib-domain.md` |
+| A recurring-event rule | `lib/recurrence/*` + `tests/unit/recurrence*.test.ts` + `COMPONENTS/lib-domain.md` |
+| A script / CI job / env var | `scripts/`, `.github/workflows/`, `.env.example` + `COMPONENTS/scripts-and-ops.md` and `OPERATIONS.md` |
+
+## 6. When you are done
+
+Run `npm run lint && npm run typecheck && npm run docs:check`, then the owning
+tests. Commit code and docs together. The full definition of done —
+including the documentation-update rule — is in [`../AGENTS.md`](../AGENTS.md).

@@ -179,6 +179,18 @@ layer; SQL access is confined to `lib/services/*` to keep that change contained.
 
 ## Documentation
 
+Start with [`docs/README.md`](docs/README.md). The three docs that matter most
+day to day:
+
+- **Debugging:** [`docs/DEBUGGING.md`](docs/DEBUGGING.md) — layer map, known traps
+  and a symptom → file → command table. Read this before grepping.
+- **Components:** [`docs/COMPONENTS/`](docs/COMPONENTS/README.md) — one section
+  per source file (purpose, API, side effects, callers, gotchas, tests).
+- **Agent rules:** [`AGENTS.md`](AGENTS.md) — docs ship with code;
+  `npm run docs:check` fails CI when a source file is undocumented.
+
+Historical design specs and plans (never edited):
+
 - Design spec: [`docs/superpowers/specs/2026-10-19-nailong-planner-design.md`](docs/superpowers/specs/2026-10-19-nailong-planner-design.md)
 - Canvas redesign spec: [`docs/superpowers/specs/2026-10-20-canvas-ui-redesign-design.md`](docs/superpowers/specs/2026-10-20-canvas-ui-redesign-design.md)
 - UX parity design: [`docs/superpowers/specs/2026-10-21-calendar-ux-parity-design.md`](docs/superpowers/specs/2026-10-21-calendar-ux-parity-design.md)

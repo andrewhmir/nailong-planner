@@ -24,6 +24,7 @@ Run the same checks CI runs:
 ```bash
 npm run lint
 npm run typecheck
+npm run docs:check     # component docs must match the source tree
 npm test               # Vitest unit + integration (in-memory SQLite)
 npm run test:e2e       # Playwright; seeds .playwright/test.db first
 ```
@@ -43,6 +44,12 @@ running it.
 - Tests are required for behaviour changes — bug fixes start with a failing test.
   The viewport and layout guarantees live in `tests/e2e/viewport-fit.spec.ts`;
   keep them green when touching the shell or the calendar.
+- **Docs ship with code.** Every file under `app/`, `components/`, `lib/` and
+  `scripts/` has a `### <repo-relative-path>` section in `docs/COMPONENTS/`;
+  add, move, or delete it with the file, and update it when behaviour changes.
+  `npm run docs:check` (run in CI) fails on a missing or stale section. See
+  [`AGENTS.md`](AGENTS.md) for the full rule and [`docs/DEBUGGING.md`](docs/DEBUGGING.md)
+  for the debugging playbook every contributor should read first.
 
 ## Commits and branches
 
