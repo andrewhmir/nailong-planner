@@ -20,6 +20,7 @@ interface Props {
   initialHousehold: HouseholdValues;
   initialPreferences: UserPreferences;
   currentUserId: string;
+  currentUserEmail: string;
 }
 
 const TIMEZONES = [
@@ -59,6 +60,7 @@ export function SettingsForm({
   initialHousehold,
   initialPreferences,
   currentUserId,
+  currentUserEmail,
 }: Props) {
   const router = useRouter();
   const [name, setName] = useState(initialName);
@@ -317,8 +319,30 @@ export function SettingsForm({
         </section>
 
         <div id="account" className="scroll-mt-6 space-y-6">
-          <section className={CARD}>
+          {/* A real <form> with the password-manager tokens is what lets Chrome
+              (and 1Password/Bitwarden/Safari) detect this card: it offers to
+              generate a strong password in the empty new-password field, and
+              offers to update the saved credential once the submit succeeds.
+              The hidden username input tells the manager which account to update. */}
+          <form
+            className={CARD}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void changePassword();
+            }}
+            noValidate
+          >
             <h2 className={CARD_HEADING}>Password</h2>
+            <input
+              type="text"
+              name="username"
+              autoComplete="username"
+              value={currentUserEmail}
+              readOnly
+              hidden
+              aria-hidden="true"
+              tabIndex={-1}
+            />
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
               <div>
                 <label className={LABEL} htmlFor="current-password">
@@ -326,7 +350,10 @@ export function SettingsForm({
                 </label>
                 <input
                   id="current-password"
+                  name="current-password"
                   type="password"
+                  autoComplete="current-password"
+                  required
                   value={currentPassword}
                   onChange={(event) => setCurrentPassword(event.target.value)}
                   className={FIELD}
@@ -338,7 +365,11 @@ export function SettingsForm({
                 </label>
                 <input
                   id="new-password"
+                  name="new-password"
                   type="password"
+                  autoComplete="new-password"
+                  required
+                  minLength={12}
                   value={newPassword}
                   onChange={(event) => setNewPassword(event.target.value)}
                   className={FIELD}
@@ -346,11 +377,11 @@ export function SettingsForm({
               </div>
             </div>
             <div className="mt-6 flex justify-end">
-              <Button onClick={changePassword} disabled={!currentPassword || newPassword.length < 12}>
+              <Button type="submit" disabled={!currentPassword || newPassword.length < 12}>
                 Change password
               </Button>
             </div>
-          </section>
+          </form>
 
           <section className={CARD}>
             <h2 className={CARD_HEADING}>Two-factor authentication</h2>
@@ -364,7 +395,9 @@ export function SettingsForm({
                 </label>
                 <input
                   id="twofactor-password"
+                  name="account-password"
                   type="password"
+                  autoComplete="current-password"
                   value={twoFactorPassword}
                   onChange={(event) => setTwoFactorPassword(event.target.value)}
                   className={FIELD}

@@ -53,6 +53,7 @@ export default async function SettingsPage() {
         }}
         initialPreferences={getPreferences(db, session.user.id)}
         currentUserId={session.user.id}
+        currentUserEmail={session.user.email}
       />
     </div>
   );

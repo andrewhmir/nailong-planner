@@ -113,7 +113,7 @@ Radii ("Canvas is nearly square"): `--radius-sm` 3px, `--radius-md` 4px, `--radi
 
 **Public API** — Default export `SettingsPage()`, a server component. Renders a `max-w-5xl` column, a phone-only back link, an `h1` "Settings", then `SettingsForm`.
 
-**State & side effects** — Session read (`redirect("/login")` when null), membership read (`redirect("/login")` when absent), household read, `getPreferences` read. Props passed down: `initialName` (session user name), `initialHousehold` (`name` fallback `"Our Nest"`, `timezone` fallback `"Asia/Taipei"`, `weekStartsOn` fallback `0`), `initialPreferences`, `currentUserId`. All writes happen in `SettingsForm`, not here.
+**State & side effects** — Session read (`redirect("/login")` when null), membership read (`redirect("/login")` when absent), household read, `getPreferences` read. Props passed down: `initialName` (session user name), `currentUserEmail` (session user email, for the Password form's hidden username input), `initialHousehold` (`name` fallback `"Our Nest"`, `timezone` fallback `"Asia/Taipei"`, `weekStartsOn` fallback `0`), `initialPreferences`, `currentUserId`. All writes happen in `SettingsForm`, not here.
 
 **Depends on / Used by** — `@/components/settings/SettingsForm`, `ChevronLeftIcon` from `@/components/ui/icons`, `@/lib/services/preferences`, `@/lib/auth/server`, `@/lib/db`, `@/lib/db/schema`.
 

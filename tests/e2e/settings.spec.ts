@@ -49,6 +49,28 @@ test("the security panel offers password change and two-factor setup", async ({ 
   await expect(page.getByRole("button", { name: /set up two-factor/i })).toBeVisible();
 });
 
+test("the password form is recognizable to password managers", async ({ page }) => {
+  await page.goto("/settings#account");
+  const form = page.locator("form").filter({ has: page.getByLabel("New password") });
+  await expect(form).toHaveCount(1);
+
+  const current = page.getByLabel("Current password");
+  await expect(current).toHaveAttribute("autocomplete", "current-password");
+  await expect(current).toHaveAttribute("name", "current-password");
+
+  const next = page.getByLabel("New password");
+  await expect(next).toHaveAttribute("autocomplete", "new-password");
+  await expect(next).toHaveAttribute("name", "new-password");
+
+  // Chrome only offers to update the saved credential when the username travels with the submit.
+  await expect(form.locator('input[autocomplete="username"]')).toHaveValue(ANDREW);
+
+  await expect(form.getByRole("button", { name: "Change password" })).toHaveAttribute(
+    "type",
+    "submit",
+  );
+});
+
 test("two-factor setup asks for a verification code and shows backup codes", async ({ page }) => {
   await page.goto("/settings");
   await page.getByLabel("Account password").fill(fixtures.password);
