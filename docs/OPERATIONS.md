@@ -58,6 +58,8 @@ container id. Do not override it on Railway.
 | `/api/health` 503, `Invalid production environment: …` | `BETTER_AUTH_SECRET` missing/too short, or `DATABASE_URL` not set explicitly | add the variable and redeploy |
 | `/api/health` 503 but the log has **no** `[db] could not open` line | the running container predates the diagnostic and/or the corrected variables | redeploy — variable changes only reach a *new* container |
 | Login fails with "Incorrect email or password", log has `403 INVALID_ORIGIN` | `BETTER_AUTH_URL` is not the exact public origin | set it to `https://<domain>` (trailing slashes are normalised; scheme/host must match) |
+| Login fails with "Incorrect email or password", Railway log shows `WARN [Better Auth]: User not found` (or network response for `POST /api/auth/sign-in/email` is **401**) | no accounts exist yet: `SEED_USER_*` are read only by `node ops/provision.mjs`, the app never creates users at startup | set the six `SEED_USER_*` variables, redeploy, then run `node ops/provision.mjs` in the container as the `app` user; afterwards delete the variables and redeploy (see *First deploy* step 5) |
+| Login fails although provisioning ran, or the password is unknown | an existing user is left alone by provisioning (`exists:`), so a changed/typo'd password is not reset | `node ops/reset-password.mjs --email you@example.com --password '<new>'` in the container |
 | Volume was mounted after the container started | Railway mounts volumes at container start | redeploy after attaching or remounting the volume |
 
 Useful commands in the Railway **Console** (it runs as root, so test the app user explicitly):
