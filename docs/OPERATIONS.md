@@ -49,6 +49,30 @@ container id. Do not override it on Railway.
    codes; confirm with a code to finish enrolment).
 7. Set a Railway spend cap in the dashboard (expected cost ~$5–6/month).
 
+### Troubleshooting the first deploy
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Railway page: **"Application failed to respond"** (502) | the server bound the container hostname instead of all interfaces | the image sets `HOSTNAME=0.0.0.0`; the deploy log must show `Network: http://0.0.0.0:8080`. If it shows `http://<hex>:8080`, the old image is running — redeploy. Never set `HOSTNAME` as a service variable. |
+| `/api/health` 503, log `[db] could not open "/data/planner.db" (cwd=/app, uid=…)` with `SQLITE_CANTOPEN` | `DATABASE_URL` is wrong, or the volume is not mounted at `/data`, or the process cannot write it | check `DATABASE_URL` is exactly `file:/data/planner.db` (no quotes/trailing slash); Settings → Volumes mount path must be `/data`; if `uid` is not the `app` user, add `RAILWAY_RUN_UID=0` so the entrypoint can chown the volume |
+| `/api/health` 503, `Invalid production environment: …` | `BETTER_AUTH_SECRET` missing/too short, or `DATABASE_URL` not set explicitly | add the variable and redeploy |
+| `/api/health` 503 but the log has **no** `[db] could not open` line | the running container predates the diagnostic and/or the corrected variables | redeploy — variable changes only reach a *new* container |
+| Login fails with "Incorrect email or password", log has `403 INVALID_ORIGIN` | `BETTER_AUTH_URL` is not the exact public origin | set it to `https://<domain>` (trailing slashes are normalised; scheme/host must match) |
+| Volume was mounted after the container started | Railway mounts volumes at container start | redeploy after attaching or remounting the volume |
+
+Useful commands in the Railway **Console** (it runs as root, so test the app user explicitly):
+
+```sh
+id                                  # console user (root is expected)
+ls -la /data                        # is planner.db here?
+mount | grep ' /data '              # is the volume really mounted at /data?
+gosu app sh -c 'touch /data/x'      # can the app user write it?
+printenv DATABASE_URL | od -c       # hidden characters: look for \t or \r
+```
+
+A deployment's log line `✓ Ready` followed by `[db]`/`[health]` errors means the container is up but unusable; a deployment showing **Deployment successful** with those errors only means the process started, so always confirm `/api/health` returns 200 on the public URL.
+
+
 ## Deploys
 
 `git push` to the connected branch, or `railway up`. A redeploy with a volume
