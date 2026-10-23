@@ -176,8 +176,12 @@ CodeQL and Dependabot.
 - **Events** may live on a root or a sub-calendar. Timed events are stored as UTC
   instants; all-day events as local `YYYY-MM-DD` dates (inclusive end), so they
   can never drift a day.
-- **Recurring events** store an RFC 5545 RRULE. Deleting one occurrence appends
-  to `exdates`; editing a recurring event always edits the series in v0.1.0.
+- **Recurring events** store an RFC 5545 RRULE and are edited with Google-style
+  controls: interval, weekly day picker, monthly day-of-month or nth weekday, and
+  `Never` / `On <date>` / `After N occurrences` ends. A stored rule is sent back
+  byte-identical until the repeat controls are touched. Deleting one occurrence
+  appends to `exdates`; editing a recurring event always edits the series in
+  v0.1.0.
 - Every query is scoped to the household, and writes are re-checked server-side
   against the view-only rule.
 - **Layout contract**: the app shell owns the viewport (`h-dvh`), `main` owns
@@ -223,8 +227,8 @@ Historical design specs and plans (never edited):
 
 Reminders and notifications · two-way Google Calendar sync and read-only ICS
 subscriptions / export feeds · a 30-day trash bin (undo is session-only in
-v0.1.0) · custom repeat rules and per-occurrence overrides · dark mode · PWA ·
-tasks, notes and other modules · more than two users.
+v0.1.0) · per-occurrence overrides and "this and following" edits · dark mode ·
+PWA · tasks, notes and other modules · more than two users.
 
 ## Contributing
 

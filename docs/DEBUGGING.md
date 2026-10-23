@@ -102,11 +102,30 @@ The request pipeline in one line:
 - An invalid/unparseable RRULE **silently degrades to a single event** (`safeRule`
   returns null). If a series is not repeating, check the stored rule string first.
 - `exdates` is a JSON array. Accepted entries: `YYYY-MM-DD` (all-day),
-  `YYYY-MM-DDTHH:MM` (household wall time, converted), or any `Date.parse`-able
-  string. Malformed JSON or non-string entries are **ignored silently** — that is
-  the usual reason a deleted occurrence comes back.
+  `YYYY-MM-DDTHH:MM` (converted in the event's zone, `event.tzid ?? household
+  zone`), or any `Date.parse`-able string. Malformed JSON or non-string entries
+  are **ignored silently** — that is the usual reason a deleted occurrence comes
+  back.
 - v0.1.0 edits a recurring event **as a series**; only single-occurrence
   **deletion** exists (append to `exdates`).
+- The repeat controls are a structured view over `rrule`
+  (`lib/recurrence/rule.ts`): interval, weekly weekdays, monthly
+  day-of-month/nth-weekday, and `Never`/`On`/`After N` ends. The dialog sends
+  the stored rule **byte-identical** only while the controls still describe it
+  (`keepInitialRule`: no repeat edit, start date and all-day toggle unchanged).
+  Touching a repeat control intentionally rebuilds the rule, which may normalise
+  its text — that is not corruption.
+- Moving an event's start date re-anchors an uncustomised weekly/monthly pattern
+  (`anchorRepeat`), so the start date is always an occurrence. A series whose
+  first block appears days after its start date has a stored `BYDAY` that
+  disagrees with `DTSTART` (the pre-editor bug, or an imported rule).
+- The editor writes `UNTIL` as a DATE-only value for all-day series and as the
+  UTC instant of end-of-day for timed series. `floatingRule` in `expand.ts`
+  converts only the `…Z` form; an imported floating (no-`Z`) `UNTIL` is already
+  in series-local time by design.
+- `On` ends are validated by counting occurrences and `After N` is capped at 730
+  (Google's limit). `Never` is allowed: expansion is client-side and does not
+  stop at Google's 730 occurrences.
 
 **Calendars**
 
@@ -185,6 +204,9 @@ any wrapper in the shell/calendar tree.
 | 400 "That time does not exist in this timezone" | DST spring-forward gap — intended validation | `lib/time/zone.ts` `localWallTimeToUtc` |
 | Recurring series shows only once | invalid RRULE silently degraded, or `exdates` swallowed every occurrence | `lib/recurrence/expand.ts` `safeRule` / `parseExdates` |
 | Deleted occurrence reappears after reload | EXDATE string format not one of the accepted forms, or stored via a different timezone. Matching is shape-dependent: timed events only match instants, all-day events only match `YYYY-MM-DD`, and an all-day series resolves a `YYYY-MM-DDTHH:MM` EXDATE in **UTC**, not the household zone | `lib/recurrence/expand.ts` `parseExdates`; the raw `exdates` column |
+| The repeat editor says "Does not repeat" for a repeating series | `parseRepeatRule` returned `null` because `FREQ` is outside DAILY/WEEKLY/MONTHLY/YEARLY (e.g. `FREQ=HOURLY` from an import); the stored rule is preserved until Repeat changes | `lib/recurrence/rule.ts` `parseRepeatRule`, the unsupported-rule note in `EventDialog.tsx` |
+| A weekly series does not appear on its own start date | stored `BYDAY`/`BYMONTHDAY` disagrees with `DTSTART`; move the start date or re-pick the repeat days | `parseRepeatRule`/`anchorRepeat` in `lib/recurrence/rule.ts` |
+| The repeat summary hides the end date | a timed `UNTIL` was rendered without the household `timezone` context, so the summary fell back to UTC or dropped it | `describeRrule` call in `components/calendar/EventDetails.tsx` |
 | Drag/resize/create snaps back | optimistic update rolled back: API rejected (view-only, validation, 4xx) | browser network panel, then `lib/query/eventCache.ts` + `canWriteCalendar` |
 | Undo toast does nothing | undo stack is session-only and per-view; failed mutation already rolled back | `lib/ui/undo.ts`, `lib/ui/useUndoHotkey.ts` |
 | Cannot edit a calendar/event | `isViewOnlyForPartner` and viewer is not the owner; server re-checks on write | `lib/services/permissions.ts`, `lib/services/events.ts` |

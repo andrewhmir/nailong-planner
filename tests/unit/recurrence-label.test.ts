@@ -21,4 +21,34 @@ describe("describeRrule", () => {
     expect(describeRrule("")).toBe("");
     expect(describeRrule("BYDAY=TU")).toBe("");
   });
+
+  it("describes a day-of-month monthly rule", () => {
+    expect(describeRrule("FREQ=MONTHLY;BYMONTHDAY=21")).toBe("Monthly on the 21st");
+    expect(describeRrule("FREQ=MONTHLY;BYMONTHDAY=1")).toBe("Monthly on the 1st");
+    expect(describeRrule("FREQ=MONTHLY;INTERVAL=3;BYMONTHDAY=22")).toBe(
+      "Every 3 months on the 22nd",
+    );
+  });
+
+  it("describes the end of a bounded series", () => {
+    expect(describeRrule("FREQ=WEEKLY;COUNT=5")).toBe("Weekly, 5 times");
+    expect(describeRrule("FREQ=DAILY;COUNT=1")).toBe("Daily, 1 time");
+    expect(describeRrule("FREQ=WEEKLY;BYDAY=TU;UNTIL=20271231T155959Z", { timezone: "Asia/Taipei" })).toMatch(
+      /^Weekly on Tuesday, until .*31 Dec 2027$/,
+    );
+    // All-day rules carry a DATE-only UNTIL with no zone.
+    expect(describeRrule("FREQ=WEEKLY;BYDAY=TU;UNTIL=20271231", { allDay: true })).toMatch(
+      /^Weekly on Tuesday, until .*31 Dec 2027$/,
+    );
+  });
+
+  it("turns a timed UNTIL into the household's local date", () => {
+    // 23:30Z on 30 Jun is already 1 Jul in Taipei (UTC+8).
+    expect(describeRrule("FREQ=DAILY;UNTIL=20270630T233000Z", { timezone: "Asia/Taipei" })).toMatch(
+      /until .*1 Jul 2027$/,
+    );
+    expect(describeRrule("FREQ=DAILY;UNTIL=20270630T233000Z", { timezone: "UTC" })).toMatch(
+      /until .*30 Jun 2027$/,
+    );
+  });
 });

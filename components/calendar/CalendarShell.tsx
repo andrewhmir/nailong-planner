@@ -944,6 +944,7 @@ export function CalendarShell({
                 initialRule={dialog.initialRule}
                 timezone={timezone}
                 timeFormat={preferences.timeFormat}
+                weekStartsOn={weekStartsOn}
                 calendars={writableCalendars}
                 defaultCalendarId={defaultEventCalendarId}
                 onClose={finishCloseDialog}

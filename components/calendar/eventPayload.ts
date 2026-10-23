@@ -1,31 +1,18 @@
 import type { EventInputPayload } from "@/lib/query/events";
+import { formatRepeatRule, type RepeatOptions } from "@/lib/recurrence/rule";
 import { localWallTimeToUtc } from "@/lib/time/zone";
 
 /**
  * Form-to-payload conversion for the event dialog. Kept pure and outside the
  * component so the rule-preservation contract (review focus 4) is unit-tested:
- * a rule the user did not touch must reach the server byte-identical.
+ * a rule the user did not touch must reach the server byte-identical, while any
+ * edit to the repeat controls is rebuilt from the structured `RepeatOptions`.
  */
 
-export type RepeatRule = "none" | "daily" | "weekly" | "monthly" | "yearly";
+export type RepeatPreset = "none" | "daily" | "weekly" | "monthly" | "yearly";
 
-export const REPEAT_OPTIONS: Array<{ value: RepeatRule; label: string }> = [
-  { value: "none", label: "Does not repeat" },
-  { value: "daily", label: "Daily" },
-  { value: "weekly", label: "Weekly" },
-  { value: "monthly", label: "Monthly" },
-  { value: "yearly", label: "Yearly" },
-];
-
-const RRULE_BY_REPEAT: Record<Exclude<RepeatRule, "none">, string> = {
-  daily: "FREQ=DAILY",
-  weekly: "FREQ=WEEKLY",
-  monthly: "FREQ=MONTHLY",
-  yearly: "FREQ=YEARLY",
-};
-
-/** The preset that best matches a stored rule; unknown rules fall back to none. */
-export function deriveRepeat(rule: string | null | undefined): RepeatRule {
+/** The preset a stored rule most closely resembles; unknown shapes fall back to none. */
+export function deriveRepeat(rule: string | null | undefined): RepeatPreset {
   const value = rule ?? "";
   if (value.includes("FREQ=DAILY")) return "daily";
   if (value.includes("FREQ=WEEKLY")) return "weekly";
@@ -44,27 +31,35 @@ export interface EventFormValues {
   startTime: string;
   endDate: string;
   endTime: string;
-  repeat: RepeatRule;
-  initialRepeat: RepeatRule;
+  /** The repeat controls' state; null means "Does not repeat". */
+  recurrence: RepeatOptions | null;
+  /**
+   * True when the dialog's recurrence state still matches the stored rule, so
+   * the server must receive the rule byte-identical instead of a rebuilt one.
+   */
+  keepInitialRule: boolean;
   initialRule: string | null;
   timezone: string;
 }
 
 export function buildEventPayload(values: EventFormValues): EventInputPayload {
-  const repeatChanged = values.repeat !== values.initialRepeat;
+  const rrule =
+    values.keepInitialRule && values.initialRule
+      ? values.initialRule
+      : values.recurrence
+        ? formatRepeatRule(values.recurrence, values.startDate, {
+            allDay: values.allDay,
+            timezone: values.timezone,
+          })
+        : null;
+
   const payload: EventInputPayload = {
     title: values.title,
     calendarId: values.calendarId,
     description: values.description.trim() ? values.description : null,
     location: values.location.trim() ? values.location : null,
     allDay: values.allDay,
-    // Preserve the exact stored rule (BYDAY, INTERVAL, COUNT…) unless the user
-    // actually changed the Repeat control.
-    rrule: !repeatChanged && values.initialRule
-      ? values.initialRule
-      : values.repeat === "none"
-        ? null
-        : (RRULE_BY_REPEAT[values.repeat] ?? null),
+    rrule,
   };
 
   if (values.allDay) {

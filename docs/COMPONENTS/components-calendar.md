@@ -239,26 +239,38 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 
 **Tests** — `tests/e2e/details.spec.ts`.
 
-### components/calendar/EventDialog.tsx
+### components/calendar/RecurrenceFields.tsx
 
-**Purpose** — The full create/edit form: title, calendar (nested picker), all-day, start/end date and time, repeat preset, location, notes, and a save guard. On edit it saves the whole series.
+**Purpose** — Google Calendar's "Custom recurrence" panel, rendered inline under the Repeat select: interval, weekly weekday picker, monthly day/nth-weekday pattern, Never / On date / After N ends, a live human summary and inline validation.
 
-**Public API** — `export interface EventDialogInitial { event?: EventView; start: string; end: string; allDay: boolean; pendingTitle?: string }`; `export function EventDialog(props: Props)`. Props: `mode: "create" | "edit"`, `initial`, `initialRule?: string | null`, `timezone`, `timeFormat: TimeFormat`, `calendars: CalendarNode[]`, `defaultCalendarId?: string | null`, `onClose()` (success/programmatic), `onCancel?()` (runs the shell's unsaved guard), `onDirtyChange?(dirty)`. Module constants `CONTROL`, `TEXTAREA`, `LABEL`; helper `splitWall`.
+**Public API** — `export function RecurrenceFields(props: Props)`. Props: `value: RepeatOptions`, `startDate: string`, `allDay: boolean`, `timezone: string`, `weekStartsOn: number`, `today: string`, `error: string | null`, `onChange(next: RepeatOptions)`. No exported types.
 
-**State & side effects** — Field state: `title`, `calendarId`, `allDay`, `startDate`, `startTime`, `endDate`, `endTime`, `repeat`, `description`, `location`; frozen `initialRepeat` from `deriveRepeat(initialRule)`. `selectedCalendarId` falls back live to `calendars[0]?.id` while the list loads. `today` is frozen once per open with `useState(() => utcToLocalDate(Date.now(), timezone))` and passed to both `DateField`s, so their pickers' Today button uses the household's day rather than the device's. The date fields are `DateField` and the time fields are `TimeField` (not native `<input type="date">`/`<input type="time">`); `CONTROL` and `TEXTAREA` carry `transition-colors duration-150` and `hover:border-ink-soft` in addition to the accent focus ring. Every setter calls `markDirty()`. Mutations: `useCreateEvent` (pushes an undo that deletes the new row and shows a 10 s Undo toast), `useUpdateEvent` (PATCH of the whole series), `useDeleteEvent` (only for that undo), `useUpdatePreferences({ lastEventCalendarId })`. Save is disabled while `pending`, with an empty title, or with no calendar. On a recurring edit it shows a "saves every occurrence" notice. The form caps its height (`max-h-[calc(100dvh-12rem)]`) and makes the footer sticky below `md`; its scroll area pads 4px horizontally (`px-1`) because `overflow-y-auto` clips at the padding box and the focused field's 2px outline sits 2px outside its border box (a flush-left field loses its ring's left side).
+**State & side effects** — None: fully controlled by `EventDialog`, and renders only while a repeat exists. Every control emits a whole new `RepeatOptions`. The weekly row is `Button`s with `aria-pressed` in household week-start order; unticking the last checked day is refused (Google keeps at least one). The monthly radios switch between `dayOfMonth` and `weekday` modes, re-deriving the other mode's default from `startDate`. Ends: `Never` / `On` (a `DateField`, defaulting to the start date) / `After` (1–730). The summary is `describeRrule(formatRepeatRule(...))` in an `aria-live="polite"` paragraph; `error` renders as `role="alert"`. An `advanced` parsed rule shows a note that editing these controls replaces its extra parts.
 
-**Depends on / Used by** — `sonner`, `components/ui/button`, `lib/query/events`, `lib/query/preferences`, `lib/services/preferences` (`TimeFormat`), `lib/time/zone` (`utcToLocalDate`, `utcToLocalWallTime`), `lib/ui/undo`, `./eventPayload`, `./CalendarPicker`, `./DateField`, `./TimeField`. Rendered by `CalendarShell` inside its `Dialog`; the shell keeps it mounted under `hidden` while the discard prompt shows.
+**Depends on / Used by** — `components/ui/button`, `lib/recurrence/label` (`describeRrule`), `lib/recurrence/rule` (`clampInt`, `dayOfMonthOf`, `formatRepeatRule`, `monthlyAnchor`, `weekdayOfDate`, `weekdayOrder`, `RepeatOptions`), `./DateField`. Rendered by `EventDialog`.
 
 **Debugging** —
-- Saving an untouched weekly rule turns into `FREQ=WEEKLY` -> the rule-preservation branch broke -> `buildEventPayload` (`repeatChanged` must stay false).
-- Calendar resets to the first one on open -> `defaultCalendarId` was read-only so it fell back -> `initialCalendarId` in this file plus `writableCalendars`.
-- Cancel discards without asking -> `onCancel` was not passed -> the shell's `requestCloseDialog` guard.
-- Focus ring disappears on a field -> someone added `outline-none` to `CONTROL`; Tailwind v4 compiles it into `--tw-outline-style: none` and `outline-2` reads it back.
-- The focused field's ring is cut on the left -> the scroll area lost its horizontal padding (`px-1`); overflow clips at the padding box, and the title field is flush with the content edge.
-- A typed time that looks valid is rejected -> `TimeField`'s parser is format-aware; a 24-hour household rejects "8:37 PM" -> `components/calendar/timeSlots.ts` `parseTypedTime`.
-- The dialog's time control shows 12-hour text while the grid shows 24-hour -> `timeFormat` was not passed down -> this file's `timeFormat` prop, supplied by `CalendarShell`.
+- A weekday cannot be unticked -> the last checked day is intentionally locked (`toggleWeekday`).
+- The summary disagrees with the controls -> `formatRepeatRule`/`describeRrule` received a different `allDay`/`timezone` context -> check the props `EventDialog` passes.
+- Save is disabled with no visible field error -> the error paragraph is inside this panel; check `validateRepeat` through `EventDialog`'s `repeatError`.
 
-**Tests** — `tests/e2e/events.spec.ts`, `tests/e2e/quick-create.spec.ts` (dirty-discard), `tests/e2e/details.spec.ts` (duplicate), `tests/e2e/event-fields.spec.ts` (date/time fields).
+**Tests** — `tests/e2e/repeat.spec.ts`; the rule maths in `tests/unit/recurrence-rule.test.ts`.
+
+### components/calendar/EventDialog.tsx
+
+**Purpose** — The full create/edit form: title, calendar (nested picker), all-day, start/end date and time, repeat controls (preset plus the custom-recurrence panel), location, notes, and a save guard. On edit it saves the whole series.
+
+**Public API** — `export interface EventDialogInitial { event?: EventView; start: string; end: string; allDay: boolean; pendingTitle?: string }`; `export function EventDialog(props: Props)`. Props: `mode: "create" | "edit"`, `initial`, `initialRule?: string | null`, `timezone`, `timeFormat: TimeFormat`, `weekStartsOn: number`, `calendars: CalendarNode[]`, `defaultCalendarId?: string | null`, `onClose()` (success/programmatic), `onCancel?()` (runs the shell's unsaved guard), `onDirtyChange?(dirty)`. Module constants `CONTROL`, `TEXTAREA`, `LABEL`; helpers `splitWall`, `isWeekdaySelection`.
+
+**State & side effects** — Field state: `title`, `calendarId`, `allDay`, `startDate`, `startTime`, `endDate`, `endTime`, `description`, `location`, plus the repeat state: `recurrence: RepeatOptions | null` (parsed once from `initialRule` through `parseRepeatRule`, frozen as `initialParse`), `repeatTouched`, and `presetLabels`. `selectedCalendarId` falls back live to `calendars[0]?.id` while the list loads. `keepInitialRule` is computed (`initialRule` present, `!repeatTouched`, start date and all-day unchanged) and decides whether the server receives the stored rule byte-identically or a rule rebuilt by `formatRepeatRule`; `repeatError` comes from `validateRepeat` and also disables Save. Changing the Repeat preset installs defaults anchored on the start date (weekly → its weekday, monthly → the nth weekday, "Every weekday" → Mon–Fri), preserving the interval and end. Moving the start date re-anchors a still-uncustomised weekly/monthly pattern (`anchorRepeat`). `today` is frozen once per open with `useState(() => utcToLocalDate(Date.now(), timezone))` and passed to the `DateField`s, so their pickers' Today button uses the household's day rather than the device's. The date fields are `DateField` and the time fields are `TimeField` (not native `<input type="date">`/`<input type="time">`); `CONTROL` and `TEXTAREA` carry `transition-colors duration-150` and `hover:border-ink-soft` in addition to the accent focus ring. Every setter calls `markDirty()`. Mutations: `useCreateEvent` (pushes an undo that deletes the new row and shows a 10 s Undo toast), `useUpdateEvent` (PATCH of the whole series), `useDeleteEvent` (only for that undo), `useUpdatePreferences({ lastEventCalendarId })`. Save is disabled while `pending`, with an empty title, no calendar, or a repeat-control error. On a recurring edit it shows a "saves every occurrence" notice. The form caps its height (`max-h-[calc(100dvh-12rem)]`) and makes the footer sticky below `md`; its scroll area pads 4px horizontally (`px-1`) because `overflow-y-auto` clips at the padding box and the focused field's 2px outline sits 2px outside its border box (a flush-left field loses its ring's left side).
+
+**Depends on / Used by** — `sonner`, `components/ui/button`, `lib/query/events`, `lib/query/preferences`, `lib/services/preferences` (`TimeFormat`), `lib/time/zone` (`utcToLocalDate`, `utcToLocalWallTime`), `lib/recurrence/label` (`describeRrule`), `lib/recurrence/rule` (`anchorRepeat`, `formatRepeatRule`, `monthlyAnchor`, `newRepeatOptions`, `parseRepeatRule`, `validateRepeat`, `weekStartOf`, `weekdayOfDate`), `lib/ui/undo`, `./eventPayload`, `./CalendarPicker`, `./DateField`, `./RecurrenceFields`, `./TimeField`. Rendered by `CalendarShell` inside its `Dialog`; the shell keeps it mounted under `hidden` while the discard prompt shows.
+
+**Debugging** —
+- Saving an untouched weekly rule turns into `FREQ=WEEKLY` -> `keepInitialRule` is false: a repeat control was touched, or the start date / all-day toggle moved since the dialog opened -> this file's `keepInitialRule`.
+- A series' first block appears days after its start date -> the stored `BYDAY`/`BYMONTHDAY` disagrees with `DTSTART` (the pre-editor bug, or an import); moving the start date re-anchors it, and picking the days explicitly rewrites it.
+- "Does not repeat" shows for a series that does repeat -> `parseRepeatRule` returned `null` because `FREQ` is outside DAILY/WEEKLY/MONTHLY/YEARLY (e.g. `FREQ=HOURLY` from an import); the stored rule is preserved until Repeat changes and the dialog shows the unsupported-rule note.
+- The end date picker rejects an earlier date -> `validateRepeat` requires the repeat end to be on/after the start date and under Google's 730-occurrence cap.
 
 ## Search
 
@@ -359,14 +371,16 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 
 **Purpose** — Pure form-to-payload conversion for `EventDialog`, including the rule-preservation contract: a rule the user did not touch must reach the server byte-identical.
 
-**Public API** — `export type RepeatRule = "none" | "daily" | "weekly" | "monthly" | "yearly"`; `REPEAT_OPTIONS: Array<{ value: RepeatRule; label: string }>`; `deriveRepeat(rule: string | null | undefined): RepeatRule`; `export interface EventFormValues`; `buildEventPayload(values: EventFormValues): EventInputPayload`. Internal `RRULE_BY_REPEAT`.
+**Public API** — `export type RepeatPreset = "none" | "daily" | "weekly" | "monthly" | "yearly"`; `deriveRepeat(rule: string | null | undefined): RepeatPreset` (fallback label for a rule the structured editor cannot represent); `export interface EventFormValues` (includes `recurrence: RepeatOptions | null`, `keepInitialRule: boolean`, `initialRule: string | null`); `buildEventPayload(values: EventFormValues): EventInputPayload`.
 
-**State & side effects** — None; fully deterministic. `deriveRepeat` matches `FREQ=DAILY|WEEKLY|MONTHLY|YEARLY` by substring and returns `"none"` for anything unrecognised. `buildEventPayload` keeps `initialRule` when `repeat === initialRepeat`, otherwise emits `FREQ=…` or `null`; empty description/location become `null`; all-day clamps `endDate` up to `startDate` and nulls the instants; timed converts both walls with `localWallTimeToUtc` and nulls the dates.
+**State & side effects** — None; fully deterministic. `deriveRepeat` matches `FREQ=DAILY|WEEKLY|MONTHLY|YEARLY` by substring and returns `"none"` for anything unrecognised. `buildEventPayload` emits `initialRule` byte-identical when `keepInitialRule` is true, otherwise it serialises `recurrence` with `formatRepeatRule` (or `null` when there is no repeat); empty description/location become `null`; all-day clamps `endDate` up to `startDate` and nulls the instants; timed converts both walls with `localWallTimeToUtc` and nulls the dates.
 
-**Depends on / Used by** — `lib/query/events` (`EventInputPayload`), `lib/time/zone` (`localWallTimeToUtc`). Imported by `EventDialog`.
+**Depends on / Used by** — `lib/query/events` (`EventInputPayload`), `lib/recurrence/rule` (`formatRepeatRule`, `RepeatOptions`), `lib/time/zone` (`localWallTimeToUtc`). Imported by `EventDialog`.
 
 **Debugging** —
-- A `BYDAY`/`COUNT` series silently loses its details after save -> `repeatChanged` was true (the select's derived value differed) -> `deriveRepeat` for a rule whose `FREQ` is not one of the four.
+- A `BYDAY`/`COUNT` series silently loses its details after save -> `keepInitialRule` was false, so the payload rebuilt the rule from the controls; that is the intended contract once Repeat is edited -> check `repeatTouched` in `EventDialog`, not this file.
+- A rule the user never touched still changes -> `keepInitialRule` was false because the start date or all-day toggle changed (both legitimately rebuild the rule) -> `EventDialog`'s comparison against `initialStartDate`/`initialAllDay`.
+- An all-day repeat is saved with a `…Z` `UNTIL` (or a timed one with a DATE) -> `buildEventPayload` passed the wrong `allDay` into `formatRepeatRule` -> `EventDialog`'s `allDay` state.
 - Unticking "All day" leaves stale `startDate` -> the branch nulling the opposite pair was edited -> `buildEventPayload`.
 - End before start is accepted -> only all-day has a clamp; timed ranges are sent as typed -> `buildEventPayload`.
 

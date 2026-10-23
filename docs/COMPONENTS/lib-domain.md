@@ -89,7 +89,8 @@ shifts by a day, or an API error carries the wrong code or status.
 **How the window is expanded**
 - No `event.rrule` (or a rule `rrulestr` cannot parse — `safeRule` swallows the throw) returns a single `plainOccurrence`. A stored EXDATE is *not* applied on that path, and a corrupt rule renders one block instead of none.
 - The rule is built as `DTSTART:<stamp>\nRRULE:<rule>`, where `<stamp>` is `YYYYMMDDTHHMMSSZ` from `event.startAt` for timed events and `YYYYMMDDT000000Z` from `event.startDate` for all-day events. Occurrences are then filtered to `>= event.startAt` / `>= event.startDate`, so a rule whose `BY*` parts precede the series start cannot leak earlier dates.
-- **Timed**: the series zone is `event.tzid ?? timezone` (household zone). Expansion happens in **floating wall time**: the stored start becomes a floating `YYYYMMDDTHHMMSSZ` stamp, `rule.between` runs over the window's floating bounds (widened backwards by one event length so an occurrence that starts before the window but still overlaps it is returned), and every hit is converted back to a real instant in the series zone. That keeps a London 09:00 series at 09:00 after the March change instead of drifting to 10:00. Duration is `max(0, (endAt ?? startAt) - startAt)`; `between` is inclusive on both ends. An occurrence inside the spring-forward gap is shifted forward an hour (RFC 5545 §3.3.5) instead of being dropped.
+- **Timed**: the series zone is `event.tzid ?? timezone` (household zone). Expansion happens in **floating wall time**: the stored start becomes a floating `YYYYMMDDTHHMMSSZ` stamp, `rule.between` runs over the window's floating bounds (widened backwards by the event's duration **plus one day**, so an occurrence that starts before the window but still overlaps it is returned), and every hit is converted back to a real instant in the series zone. That keeps a London 09:00 series at 09:00 after the March change instead of drifting to 10:00. Duration is `max(0, (endAt ?? startAt) - startAt)`; `between` is inclusive on both ends. An occurrence inside the spring-forward gap is shifted forward an hour (RFC 5545 §3.3.5) instead of being dropped.
+- **`UNTIL` coordinates**: a timed rule's `UNTIL` is a UTC instant, while expansion compares floating stamps, so `floatingRule` converts an `…Z` `UNTIL` into the series' wall time. The regex matches **only** the `…Z` form: an imported floating (no-`Z`) `UNTIL` is already in series-local time and is compared as such, and a DATE-only `UNTIL` is used as-is. The editor writes `…Z` for timed series and DATE-only for all-day series (see `lib/recurrence/rule.ts`).
 - **All-day**: duration is `daysInclusive(startDate, endDate ?? startDate)` (end is inclusive). The window is padded by one day on each side and occurrences are bucketed by their **UTC** date (`utcDateOf`), because the all-day rule's `DTSTART` is a UTC-midnight surrogate. Each hit becomes `{ startDate, endDate: addDaysToDate(startDate, durationDays - 1) }`, so a 3-day all-day series keeps its 3-day span at every occurrence.
 - **EXDATEs** are applied after generation, never by the rrule library. `event.exdates` is JSON text; `parseExdates` returns two sets: `dates` for entries shaped `YYYY-MM-DD` and `instants` for entries shaped `YYYY-MM-DDTHH:MM` (converted with `localWallTimeToUtc(entry, event.tzid ?? timezone)`) or anything else `Date.parse` accepts. Malformed JSON, a non-array, and non-string entries are silently ignored. Timed events consult `instants` only; all-day events consult `dates` only and call `parseExdates(event, "UTC")`, so a wall-time EXDATE on an all-day series is interpreted as UTC.
 
@@ -109,22 +110,56 @@ shifts by a day, or an API error carries the wrong code or status.
 
 **Purpose** — Translates the stored Google-style repeat rule into one human line for the details card (`spec D9`). It must never throw, so anything it does not recognise yields `""` or a shortened sentence.
 
-**Public API** — `describeRrule(rrule: string): string`.
+**Public API** — `describeRrule(rrule: string, context?: DescribeRruleContext): string`; `interface DescribeRruleContext { timezone?: string; allDay?: boolean }` (used to turn a timed `UNTIL` into a local date; defaults to UTC).
 - `""` in, `""` out; a rule without `FREQ` or with a frequency outside `DAILY|WEEKLY|MONTHLY|YEARLY` also returns `""`.
 - `INTERVAL` defaults to 1; a non-integer or `< 1` returns `""`. Interval 1 gives `Daily|Weekly|Monthly|Yearly`, anything else `Every N days|weeks|months|years`.
-- `BYDAY` is only described for two frequencies. `MONTHLY` accepts ordinals via `/^(-?\d)?([A-Z]{2})$/`: `-1` renders "last", `1..5` render first..fifth, so `1MO` -> "Monthly on the first Monday". `WEEKLY` maps codes to full weekday names, so `MO,WE` -> "Weekly on Monday and Wednesday" (`joinList` formats `A, B and C`).
-- If *any* `BYDAY` value cannot be described, the weekday clause is dropped silently and the frequency sentence is still returned. `COUNT`, `UNTIL`, `BYMONTHDAY`, `WKST` and unknown keys are ignored.
+- `BYDAY` is described for two frequencies. `MONTHLY` accepts ordinals via `/^(-?\d)?([A-Z]{2})$/`: `-1` renders "last", `1..5` render first..fifth, so `1MO` -> "Monthly on the first Monday". `WEEKLY` maps codes to full weekday names, so `MO,WE` -> "Weekly on Monday and Wednesday" (`joinList` formats `A, B and C`).
+- A monthly `BYMONTHDAY=21` renders "on the 21st" (`ordinalOf`), so day-of-month series are distinguishable from nth-weekday ones.
+- `COUNT` renders `", 5 times"`; `UNTIL` renders `", until <formatWallDate>"` — an all-day rule or a missing context uses the UTC date, a timed rule converts the instant into `context.timezone` first. A bad date is dropped rather than thrown.
+- If *any* `BYDAY` value cannot be described, the weekday clause is dropped silently and the frequency sentence is still returned. `WKST` and unknown keys are ignored.
 
 **State & side effects** — None. Parsing is `split(";")` plus `indexOf("=")`; keys are uppercased, values keep their case.
 
-**Depends on / Used by** — No imports. Called by `components/calendar/EventDetails.tsx` (`repeat = event.rrule ? describeRrule(event.rrule) : ""`).
+**Depends on / Used by** — `lib/time/format` (`formatWallDate`), `lib/time/zone` (`utcToLocalDate`). Called by `components/calendar/EventDetails.tsx` (`describeRrule(event.rrule, { timezone, allDay: event.allDay === 1 })`) and by `RecurrenceFields`/`EventDialog` for the repeat summary and the contextual preset labels.
 
 **Debugging**
 - The Repeat row is blank for a rule that clearly repeats -> `FREQ` missing or misspelled; the writer validates with `assertValidRrule` in `lib/services/events.ts`, so check the stored value instead of the editor.
 - "Weekly" with no weekday named -> `BYDAY` absent, or one value is not a two-letter code -> check the stored rule text; the all-or-nothing clause is why one bad value hides the rest.
 - "Monthly on the …" missing for `BYDAY=MO` -> an unordinaled weekday is valid RFC but not described here -> `describeOrdinalWeekday` returns null.
+- The end date shown is a day off -> a timed `UNTIL` was rendered without a `timezone` context (it falls back to UTC) -> pass the household zone from `EventDetails`.
 
 **Tests** — `tests/unit/recurrence-label.test.ts`.
+
+### lib/recurrence/rule.ts
+
+**Purpose** — The structured repeat model behind the event dialog: parse a stored RRULE into the controls the editor shows, serialise those controls back into the text Google Calendar would write, re-anchor DTSTART-dependent parts when the start date moves, and validate the result (including Google's 730-occurrence cap). `event.rrule` stays the only stored form; this module is the bidirectional adapter.
+
+**Public API**
+- `interface RepeatOptions { frequency: "DAILY"|"WEEKLY"|"MONTHLY"|"YEARLY"; interval; weekdays: number[]; monthly: MonthlyPattern; end: RepeatEnd; weekStart: "MO"|"SU"; advanced: boolean }` — `weekdays` are `0=Sun…6=Sat`; `monthly` is `{ mode: "dayOfMonth"; day }` or `{ mode: "weekday"; ordinal: 1..5 | -1; weekday }`; `end` is `{ mode: "never" } | { mode: "on"; date } | { mode: "after"; count }`.
+- `parseRepeatRule(rrule, startDate, { allDay, timezone }): RepeatOptions | null` — order-insensitive; handles `FREQ`, `INTERVAL`, `BYDAY` (weekly lists, monthly ordinals, `BYDAY`+`BYSETPOS`), `BYMONTHDAY`, `UNTIL` (DATE, `…Z`, floating), `COUNT`, `WKST`. Returns `null` when `FREQ` is outside the editor's vocabulary (`FREQ=HOURLY`). Parts it does not model (`BYYEARDAY`, `BYWEEKNO`, multiple `BYMONTHDAY`, …) set `advanced: true` instead of being dropped.
+- `formatRepeatRule(options, startDate, { allDay, timezone }): string` — canonical RFC order: `FREQ`, `INTERVAL` (omitted at 1), `BYDAY`/`BYMONTHDAY`, `WKST=SU` on a weekly series whose household week starts Sunday, then `COUNT` or `UNTIL`. All-day ends use a DATE-only `UNTIL`; timed ends use the UTC instant of 23:59:59 in the series zone. `startDate` is currently unused here (the pattern carries its anchor).
+- `newRepeatOptions(frequency, startDate, weekStart): RepeatOptions` — preset defaults anchored on the start date (weekly → its weekday; monthly → its nth weekday, Google's default).
+- `anchorRepeat(options, startDate): RepeatOptions` — re-derives the weekly weekday, the monthly day-of-month, or the monthly ordinal-weekday from a moved DTSTART.
+- `validateRepeat(options, startDate, { allDay, timezone }): string | null` — interval 1–99, at least one weekday, monthly day 1–31, `After` 1–730, end date not before the start, and an `On` end that would exceed 730 occurrences rejected by counting with `rrulestr`.
+- Helpers: `weekdayOfDate`, `weekdayOrder(weekStartsOn)`, `weekStartOf(weekStartsOn)`, `monthlyAnchor`, `dayOfMonthOf`, `clampInt`.
+
+**State & side effects** — None. Pure functions; the only dependency is `rrule`'s `rrulestr` for occurrence counting and `lib/time/zone` for the timed `UNTIL` conversion.
+
+**Depends on / Used by** — `rrule` (`rrulestr`), `lib/time/zone` (`localWallTimeToUtc`, `utcToLocalDate`). Used by `components/calendar/EventDialog.tsx` (state and preset labels), `components/calendar/RecurrenceFields.tsx` (controls), `components/calendar/eventPayload.ts` (`formatRepeatRule`). `lib/recurrence/expand.ts` consumes the rule text unchanged.
+
+**Behaviour that matters**
+- **Never silently mangle a stored rule**: the dialog keeps `initialRule` byte-identical while the controls still describe it (`keepInitialRule`); a rule the editor cannot parse is preserved and flagged, not replaced with a bare `FREQ`.
+- **The start date is always an occurrence**: a weekly rule is anchored on DTSTART's weekday, and moving the start date re-anchors an uncustomised pattern (`anchorRepeat`). This is the fix for the pre-editor bug where a moved series kept a stale `BYDAY` and skipped its own start date.
+- **`UNTIL` is inclusive** and matches Google's value types: DATE for all-day, UTC instant for timed. The editor allows `Never` (our expansion has no cap) but enforces Google's 730 cap whenever the series has an explicit end.
+- **Monthly defaults to the nth weekday** (`monthlyAnchor`), matching Google's preset; a parsed plain `FREQ=MONTHLY` means day-of-month from DTSTART, and an explicit `BYMONTHDAY` is written for that mode.
+
+**Debugging**
+- A weekday disappears after saving the repeat -> the rule was re-anchored (`anchorRepeat`) because the start date moved while the pattern was untouched -> expected; pick the days explicitly to pin them.
+- A saved end date lands a day early/late in a DST zone -> the timed `UNTIL` was written from the wrong end-of-day (`endSuffix` + `localWallTimeToUtc`) -> check the series zone passed in `RepeatContext`.
+- `parseRepeatRule` returns `null` in the dialog -> the stored `FREQ` is not one the editor models (e.g. `FREQ=HOURLY`); the stored rule is preserved until the user changes Repeat.
+- A monthly rule shows the wrong mode -> `FREQ=MONTHLY` with no `BYDAY`/`BYMONTHDAY` means day-of-month; only an ordinal `BYDAY` (or `BYDAY`+`BYSETPOS`) is nth-weekday.
+
+**Tests** — `tests/unit/recurrence-rule.test.ts`; consumed by `tests/unit/event-payload.test.ts` and `tests/e2e/repeat.spec.ts`.
 
 ## Import (Google Calendar)
 
