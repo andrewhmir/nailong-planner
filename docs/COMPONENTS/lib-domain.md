@@ -223,7 +223,7 @@ shifts by a day, or an API error carries the wrong code or status.
 - `NODE_ENV`: `development | test | production`, default `development`.
 - `DATABASE_URL`: non-empty string, default `file:./data/planner.db`.
 - `BETTER_AUTH_SECRET`: optional string, minimum length 32 (required in production — see below).
-- `BETTER_AUTH_URL`: non-empty string, default `http://localhost:3000`.
+- `BETTER_AUTH_URL`: non-empty string, default `http://localhost:3000`; a trailing slash is stripped when parsed, because Better Auth compares this string as a trusted origin.
 - `AUTH_RATE_LIMIT`: `on | off`, default `on`; `off` is only for E2E runs where many sign-ins share one loopback IP.
 - `TZ`: non-empty string, default `Asia/Taipei`.
 

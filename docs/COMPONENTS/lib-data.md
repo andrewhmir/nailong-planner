@@ -126,7 +126,7 @@ Cross-table rules that are enforced in code rather than SQL:
 
 **Debugging** —
 - First request slow or a burst of migration errors right after deploy -> migrations run lazily on that request -> check the `drizzle/` folder is present in the runtime image.
-- `/api/health` returns 503 -> the singleton could not open or migrate the database, or the production environment is invalid -> read the `[health] database check failed` log; the message says which.
+- `/api/health` returns 503 -> the singleton could not open or migrate the database, or the production environment is invalid -> read the `[health] database check failed` log; the preceding `[db] could not open "<path>" (cwd=…, uid=…)` line names the resolved path, the working directory and the process user — that is what distinguishes a wrong `DATABASE_URL` from a volume-permission problem.
 - A migration error keeps repeating on every request -> that is the intended fail-fast: `cached` is never set when `migrate()` throws, so the deploy stays unhealthy instead of serving a half-built schema. Fix the migration and redeploy.
 - Two connections in one process (e.g. WAL growth, lock contention) -> a script imported `createDb` directly alongside `getDb` -> they are separate handles by design.
 

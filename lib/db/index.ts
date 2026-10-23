@@ -14,19 +14,30 @@ export function getDb(): ReturnType<typeof createDb>["db"] {
   if (!cached) {
     assertProductionEnv();
     const path = resolveDatabasePath(env.DATABASE_URL);
-    if (path !== ":memory:") {
-      mkdirSync(dirname(path), { recursive: true });
-    }
-    const opened = createDb(env.DATABASE_URL);
     try {
-      migrate(opened.db);
+      if (path !== ":memory:") {
+        mkdirSync(dirname(path), { recursive: true });
+      }
+      const opened = createDb(env.DATABASE_URL);
+      try {
+        migrate(opened.db);
+      } catch (error) {
+        // A failed migration must not be cached as usable: the next request would
+        // skip migrate(), report healthy and serve a half-built schema.
+        opened.sqlite.close();
+        throw error;
+      }
+      cached = opened;
     } catch (error) {
-      // A failed migration must not be cached as usable: the next request would
-      // skip migrate(), report healthy and serve a half-built schema.
-      opened.sqlite.close();
+      // The resolved path and the process user are the two things that decide
+      // whether a container can open its database; without them a
+      // SQLITE_CANTOPEN in the platform log is unactionable.
+      console.error(
+        `[db] could not open "${path}" (cwd=${process.cwd()}, uid=${typeof process.getuid === "function" ? process.getuid() : "n/a"})`,
+        error,
+      );
       throw error;
     }
-    cached = opened;
   }
   return cached.db;
 }

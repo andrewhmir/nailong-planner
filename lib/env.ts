@@ -5,7 +5,13 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1).default("file:./data/planner.db"),
   /** Required in production; tests may omit it. */
   BETTER_AUTH_SECRET: z.string().min(32).optional(),
-  BETTER_AUTH_URL: z.string().min(1).default("http://localhost:3000"),
+  // A trailing slash is the classic copy-paste from a dashboard URL; Better Auth
+  // compares this string as a trusted origin, so normalise it once here.
+  BETTER_AUTH_URL: z
+    .string()
+    .min(1)
+    .default("http://localhost:3000")
+    .transform((value) => value.replace(/\/+$/, "")),
   /** "off" only for E2E runs, where many sign-ins share one loopback IP. */
   AUTH_RATE_LIMIT: z.enum(["on", "off"]).default("on"),
   TZ: z.string().min(1).default("Asia/Taipei"),
