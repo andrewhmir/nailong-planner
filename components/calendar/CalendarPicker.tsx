@@ -115,7 +115,7 @@ export function CalendarPicker({ calendars, value, onChange, variant = "chip", i
               event.stopPropagation();
             }
           }}
-          className="z-50 w-[264px] rounded-md border border-line-strong bg-surface p-1 shadow-menu outline-none"
+          className="z-50 w-[264px] origin-[var(--radix-popover-content-transform-origin)] rounded-md border border-line-strong bg-surface p-1 shadow-menu outline-none data-[state=open]:animate-[popover-in_140ms_cubic-bezier(0.16,1,0.3,1)]"
           // The list is portalled out of the bubble's DOM subtree; this marker
           // keeps an enclosing dismiss-on-outside-click surface from closing
           // when the user is only picking a row.

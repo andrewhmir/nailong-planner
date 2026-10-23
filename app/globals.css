@@ -120,6 +120,29 @@
   }
 }
 
+/* Picker surfaces enter from their trigger and a committed value pulses its
+   field once: the two pieces of motion that make a pick feel acknowledged.
+   The reduced-motion block below neutralises both. */
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes field-ack {
+  0% {
+    box-shadow: 0 0 0 0 rgb(43 122 188 / 0.45);
+  }
+  100% {
+    box-shadow: 0 0 0 6px rgb(43 122 188 / 0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

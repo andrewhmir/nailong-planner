@@ -67,7 +67,7 @@ export function Toolbar({
             align="start"
             sideOffset={6}
             collisionPadding={12}
-            className="z-50 rounded-md border border-line-strong bg-surface p-3 shadow-menu outline-none"
+            className="z-50 origin-[var(--radix-popover-content-transform-origin)] rounded-md border border-line-strong bg-surface p-3 shadow-menu outline-none data-[state=open]:animate-[popover-in_140ms_cubic-bezier(0.16,1,0.3,1)]"
           >
             <DatePickerPopover
               key={anchorDate}

@@ -8,15 +8,25 @@ interface Props {
   anchorDate: string;
   selectedDate?: string;
   eventDates?: ReadonlySet<string>;
+  /** Household-local today; falls back to the device clock when not supplied. */
+  today?: string;
   onPick: (date: string) => void;
 }
 
 /** Popover body for the toolbar title: a mini-month plus a Today shortcut. */
-export function DatePickerPopover({ anchorDate, selectedDate, eventDates, onPick }: Props) {
+export function DatePickerPopover({
+  anchorDate,
+  selectedDate,
+  eventDates,
+  today: householdToday,
+  onPick,
+}: Props) {
   const [anchor, setAnchor] = useState(anchorDate);
 
   const now = new Date();
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const today =
+    householdToday ??
+    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
   return (
     <div className="w-64">
@@ -27,8 +37,8 @@ export function DatePickerPopover({ anchorDate, selectedDate, eventDates, onPick
         onAnchorChange={setAnchor}
         onSelectDate={onPick}
       />
-      <div className="mt-2 flex justify-end border-t border-line pt-2">
-        <Button size="sm" onClick={() => onPick(today)}>
+      <div className="mt-2 flex items-center justify-end border-t border-line pt-2">
+        <Button size="sm" variant="ghost" className="text-link" onClick={() => onPick(today)}>
           Today
         </Button>
       </div>

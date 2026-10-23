@@ -179,12 +179,13 @@ The three `/api/auth/*` calls are served by the Better Auth catch-all `app/api/a
 | `SearchIcon` | search box / bar | `ChevronDownIcon` | pickers, collapsed groups |
 | `TasksIcon` | Tasks rail (planned) | `TodayIcon` | Today rail (planned) |
 | `NotesIcon` | Notes rail (planned) | `FocusIcon` | Focus rail (planned) |
+| `ClockIcon` | event dialog time field | | |
 
 **State & side effects** — None; pure rendering.
 
-**Depends on / Used by** — Only `import type { ReactNode } from "react"`. Imported by `app/(app)/settings/page.tsx`, `components/ui/checkbox.tsx`, `components/shell/{AppShell,GlobalNavRail,BreadcrumbBar}.tsx`, `components/sidebar/{CalendarRow,CalendarTree}.tsx`, and `components/calendar/{CalendarPicker,MiniMonth,SearchBox,Toolbar}.tsx`; also by `tests/unit/icons.test.ts`.
+**Depends on / Used by** — Only `import type { ReactNode } from "react"`. Imported by `app/(app)/settings/page.tsx`, `components/ui/checkbox.tsx`, `components/shell/{AppShell,GlobalNavRail,BreadcrumbBar}.tsx`, `components/sidebar/{CalendarRow,CalendarTree}.tsx`, `components/calendar/{CalendarPicker,DateField,MiniMonth,SearchBox,TimeField,Toolbar}.tsx`; also by `tests/unit/icons.test.ts`.
 
-**Debugging** — `an icon does not exist under the name you guessed -> names are PascalCase plus an "Icon" suffix and only the 24 in the table above exist -> import from here, never from a package. an icon ignores its size -> width/height come from the size prop with a 20 default -> check the caller. a screen reader stays silent on a meaningful icon -> pass title; otherwise aria-hidden is intentional`.
+**Debugging** — `an icon does not exist under the name you guessed -> names are PascalCase plus an "Icon" suffix and only the 25 in the table above exist -> import from here, never from a package. an icon ignores its size -> width/height come from the size prop with a 20 default -> check the caller. a screen reader stays silent on a meaningful icon -> pass title; otherwise aria-hidden is intentional`.
 
 **Tests** — `tests/unit/icons.test.ts` (stroke/fill, default 20px, `aria-hidden`, `title` handling).
 

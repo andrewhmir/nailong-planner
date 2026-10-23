@@ -107,15 +107,19 @@ export function MiniMonth({
   const firstWeekday = weekdayIndex(year, month, 1);
   const total = daysInMonth(year, month);
 
-  const cells: Array<string | null> = [];
-  for (let index = 0; index < firstWeekday; index += 1) {
-    cells.push(null);
+  // Adjacent-month days fill the grid instead of leaving holes: a blank first
+  // week makes the month look like it starts mid-grid. They are decorative
+  // (`aria-hidden`, not gridcells), so the roving-tabindex model is unchanged.
+  const cells: Array<{ date: string; inMonth: boolean }> = [];
+  for (let index = firstWeekday; index > 0; index -= 1) {
+    cells.push({ date: addDaysToDate(iso(year, month, 1), -index), inMonth: false });
   }
   for (let day = 1; day <= total; day += 1) {
-    cells.push(iso(year, month, day));
+    cells.push({ date: iso(year, month, day), inMonth: true });
   }
-  while (cells.length % 7 !== 0) {
-    cells.push(null);
+  const trailing = (7 - (cells.length % 7)) % 7;
+  for (let index = 1; index <= trailing; index += 1) {
+    cells.push({ date: addDaysToDate(iso(year, month, total), index), inMonth: false });
   }
 
   const monthPrefix = `${year}-${pad(month)}`;
@@ -211,7 +215,7 @@ export function MiniMonth({
           <span
             key={`${initial}-${index}`}
             aria-hidden
-            className="py-1 text-center text-[11px] text-ink-soft"
+            className="py-1 text-center text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-soft"
           >
             {initial}
           </span>
@@ -220,13 +224,23 @@ export function MiniMonth({
 
       {Array.from({ length: cells.length / 7 }, (_, weekIndex) => (
         <div role="row" key={weekIndex} className="grid grid-cols-7">
-          {cells.slice(weekIndex * 7, weekIndex * 7 + 7).map((date, dayIndex) => {
-            if (!date) {
-              return <span key={`blank-${weekIndex}-${dayIndex}`} aria-hidden />;
+          {cells.slice(weekIndex * 7, weekIndex * 7 + 7).map((cell, dayIndex) => {
+            if (!cell.inMonth) {
+              return (
+                <span
+                  key={`outside-${weekIndex}-${dayIndex}`}
+                  aria-hidden
+                  className="mx-auto flex h-8 w-8 items-center justify-center text-xs text-ink-mute/45"
+                >
+                  {parts(cell.date).day}
+                </span>
+              );
             }
+            const date = cell.date;
             const { day } = parts(date);
             const hasEvents = eventDates?.has(date) ?? false;
             const selected = selectedDate === date;
+            const isToday = date === today;
             return (
               <button
                 key={date}
@@ -235,7 +249,7 @@ export function MiniMonth({
                 data-mini-date={date}
                 aria-label={`${WEEKDAY_NAMES[weekdayIndex(year, month, day)]} ${day} ${MONTH_NAMES[month - 1]}, ${hasEvents ? "has events" : "no events"}`}
                 aria-selected={selected}
-                aria-current={date === today ? "date" : undefined}
+                aria-current={isToday ? "date" : undefined}
                 tabIndex={date === focusDate ? 0 : -1}
                 onClick={() => {
                   setFocusDate(date);
@@ -243,12 +257,12 @@ export function MiniMonth({
                 }}
                 onKeyDown={(event) => onDayKeyDown(event, date)}
                 className={cn(
-                  "relative mx-auto flex h-7 w-7 items-center justify-center rounded-sm text-xs transition-colors",
+                  "relative mx-auto my-0.5 flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm text-xs transition-[color,background-color,transform,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-link active:scale-95",
                   selected
-                    ? "bg-accent text-white"
-                    : date === today
-                      ? "font-bold text-link"
-                      : "text-ink hover:bg-well",
+                    ? "bg-accent font-medium text-white shadow-sm active:bg-accent-hover"
+                    : isToday
+                      ? "font-bold text-link ring-1 ring-inset ring-link/35 hover:bg-well active:bg-line"
+                      : "text-ink hover:bg-well active:bg-line",
                 )}
               >
                 {day}
@@ -256,7 +270,7 @@ export function MiniMonth({
                   <span
                     aria-hidden
                     className={cn(
-                      "absolute bottom-0.5 h-1 w-1 rounded-full",
+                      "absolute bottom-1 h-1 w-1 rounded-full",
                       selected ? "bg-white" : "bg-ink-soft",
                     )}
                   />

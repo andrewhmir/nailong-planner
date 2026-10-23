@@ -5,9 +5,10 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { CalendarNode } from "@/lib/services/calendars";
 import type { EventView } from "@/lib/services/events";
+import type { TimeFormat } from "@/lib/services/preferences";
 import { useCreateEvent, useDeleteEvent, useUpdateEvent } from "@/lib/query/events";
 import { useUpdatePreferences } from "@/lib/query/preferences";
-import { utcToLocalWallTime } from "@/lib/time/zone";
+import { utcToLocalDate, utcToLocalWallTime } from "@/lib/time/zone";
 import { pushUndo, undoLast } from "@/lib/ui/undo";
 import {
   REPEAT_OPTIONS,
@@ -16,15 +17,17 @@ import {
   type RepeatRule,
 } from "./eventPayload";
 import { CalendarPicker } from "./CalendarPicker";
+import { DateField } from "./DateField";
+import { TimeField } from "./TimeField";
 
 // Canvas form controls (§7): 38px box, 1px field border, 4px radius, 16px text.
 // This is a copy of the settings field recipe (SettingsForm.tsx), not a shared
 // import. No `outline-none`: Tailwind v4 compiles it to `--tw-outline-style:
 // none`, which `outline-2` reads back, collapsing the focus ring.
 const CONTROL =
-  "h-[38px] w-full rounded-md border border-field bg-surface px-3 text-base text-ink focus:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+  "h-[38px] w-full rounded-md border border-field bg-surface px-3 text-base text-ink transition-colors duration-150 hover:border-ink-soft focus:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 const TEXTAREA =
-  "w-full rounded-md border border-field bg-surface px-3 py-2 text-base text-ink focus:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+  "w-full rounded-md border border-field bg-surface px-3 py-2 text-base text-ink transition-colors duration-150 hover:border-ink-soft focus:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 const LABEL = "block text-base text-ink";
 
 export interface EventDialogInitial {
@@ -44,6 +47,8 @@ interface Props {
   /** The existing series rule on edit; preserved verbatim unless the user changes Repeat. */
   initialRule?: string | null;
   timezone: string;
+  /** The household's 12/24-hour preference: the time control renders it. */
+  timeFormat: TimeFormat;
   calendars: CalendarNode[];
   /** Where a new event starts unless the user picks otherwise ("only this calendar"). */
   defaultCalendarId?: string | null;
@@ -64,6 +69,7 @@ export function EventDialog({
   initial,
   initialRule,
   timezone,
+  timeFormat,
   calendars,
   defaultCalendarId,
   onClose,
@@ -78,6 +84,9 @@ export function EventDialog({
 
   const initialStart = splitWall(initial.start);
   const initialEnd = splitWall(initial.end);
+  // Household-local "today", so both month pickers ring the same day the grid
+  // does instead of the device's day. Frozen at open, like the shell's anchors.
+  const [today] = useState(() => utcToLocalDate(Date.now(), timezone));
 
   const fallbackCalendarId = calendars[0]?.id ?? "";
   // On edit the event's own calendar wins; on create the caller's default (the
@@ -236,30 +245,30 @@ export function EventDialog({
             <label className={LABEL} htmlFor="event-start-date">
               Starts
             </label>
-            <input
+            <DateField
               id="event-start-date"
-              type="date"
+              label="Starts"
               value={startDate}
-              onChange={(event) => {
-                setStartDate(event.target.value);
+              today={today}
+              onChange={(date) => {
+                setStartDate(date);
                 markDirty();
               }}
-              className={CONTROL}
             />
           </div>
           <div className="space-y-1">
             <label className={LABEL} htmlFor="event-end-date">
               Ends
             </label>
-            <input
+            <DateField
               id="event-end-date"
-              type="date"
+              label="Ends"
               value={endDate}
-              onChange={(event) => {
-                setEndDate(event.target.value);
+              today={today}
+              onChange={(date) => {
+                setEndDate(date);
                 markDirty();
               }}
-              className={CONTROL}
             />
           </div>
         </div>
@@ -270,30 +279,32 @@ export function EventDialog({
               <label className={LABEL} htmlFor="event-start-time">
                 Start time
               </label>
-              <input
+              <TimeField
                 id="event-start-time"
-                type="time"
+                label="Start time"
                 value={startTime}
-                onChange={(event) => {
-                  setStartTime(event.target.value);
+                timeFormat={timeFormat}
+                timezone={timezone}
+                onChange={(time) => {
+                  setStartTime(time);
                   markDirty();
                 }}
-                className={CONTROL}
               />
             </div>
             <div className="space-y-1">
               <label className={LABEL} htmlFor="event-end-time">
                 End time
               </label>
-              <input
+              <TimeField
                 id="event-end-time"
-                type="time"
+                label="End time"
                 value={endTime}
-                onChange={(event) => {
-                  setEndTime(event.target.value);
+                timeFormat={timeFormat}
+                timezone={timezone}
+                onChange={(time) => {
+                  setEndTime(time);
                   markDirty();
                 }}
-                className={CONTROL}
               />
             </div>
           </div>

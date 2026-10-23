@@ -15,6 +15,9 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 | `components/calendar/EventDetails.tsx` | Presentational event facts plus Edit/Duplicate/Delete/Close |
 | `components/calendar/EventDetailsPopover.tsx` | Desktop popover / phone dialog wrapper around `EventDetails` |
 | `components/calendar/EventDialog.tsx` | Full create/edit form (title, time, repeat, calendar, notes) |
+| `components/calendar/DateField.tsx` | Dialog date control: field button plus popover month grid |
+| `components/calendar/TimeField.tsx` | Dialog time control: 15-minute quick-pick list plus typed time |
+| `components/calendar/timeSlots.ts` | Pure slot grid and format-aware typed-time parser |
 | `components/calendar/SearchBox.tsx` | Header search combobox plus `/` focus handling |
 | `components/calendar/SearchResultsOverlay.tsx` | Grouped result list with month headers and highlighting |
 | `components/calendar/MiniMonth.tsx` | Keyboard-navigable month grid with neutral event dots |
@@ -43,6 +46,7 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 - A partner's event is editable -> `readOnlyCalendarIds` folding missed the child -> inspect the `canWriteCalendar` loop (it builds `{ userId, householdId: "" }`, so only `userId` matters).
 - Escape deletes the on-screen draft instead of just closing details -> `onEscape` order in `useKeyboardShortcuts` -> check `quickDraft`/`selection` branches, then `QuickCreatePopover` stopPropagation.
 - Drag on a recurring event snaps back -> intentional: `handleEventMove` reverts any `base.rrule` event -> the toast text names the reason.
+- The dialog's time control shows 12-hour text while the grid shows 24-hour -> `preferences.timeFormat` was not passed down -> the `timeFormat={preferences.timeFormat}` prop on `<EventDialog>` in this file.
 
 **Tests** — `tests/e2e/events.spec.ts`, `tests/e2e/quick-create.spec.ts`, `tests/e2e/shortcuts.spec.ts`, `tests/e2e/undo.spec.ts`, `tests/e2e/details.spec.ts`, `tests/e2e/search.spec.ts`, `tests/e2e/mini-month.spec.ts`, `tests/e2e/view-preference.spec.ts`, `tests/e2e/only-this-calendar.spec.ts`.
 
@@ -52,7 +56,7 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 
 **Public API** — `export type PlannerView = "dayGridMonth" | "timeGridWeek" | "timeGridDay" | "listMonth"`; `export function Toolbar(props: Props)`. Props: `label`, `view`, `anchorDate`, `onJumpToDate(date)`, `onViewChange(view)`, `onPrev()`, `onToday()`, `onNext()`, `onNewEvent()`, `onShowShortcuts()`. `VIEWS` maps the four `PlannerView` values to Month/Week/Day/List.
 
-**State & side effects** — One state: `pickerOpen` for the Radix popover. No queries, no storage, no URL writes; every action is a callback into `CalendarShell`. `DatePickerPopover` is keyed by `anchorDate` so the picker's month re-seeds whenever the visible range changes.
+**State & side effects** — One state: `pickerOpen` for the Radix popover. No queries, no storage, no URL writes; every action is a callback into `CalendarShell`. `DatePickerPopover` is keyed by `anchorDate` so the picker's month re-seeds whenever the visible range changes. The portalled content carries the shared enter animation: `origin-[var(--radix-popover-content-transform-origin)]` plus `data-[state=open]:animate-[popover-in_140ms_cubic-bezier(0.16,1,0.3,1)]`.
 
 **Depends on / Used by** — `@radix-ui/react-popover`, `components/ui/button`, `components/ui/icons`, `lib/utils` (`cn`), `./DatePickerPopover`. Rendered by `CalendarShell`. `PlannerView` is imported by `lib/ui/lastView.ts`, `lib/ui/view.ts` and `lib/ui/useKeyboardShortcuts.ts`, so this file is a type dependency of the client-state layer.
 
@@ -131,7 +135,7 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 
 **Public API** — `export function CalendarPicker(props: Props)`. Props: `calendars: CalendarNode[]` (writable), `value: string`, `onChange(id: string)`, `variant?: "chip" | "field"` (default `"chip"`), `id?: string`. Constants: `FALLBACK_COLOR = "oklch(0.65 0.02 250)"`, `FOCUS`. Trigger carries `data-testid="calendar-picker-trigger"`; the list carries `data-testid="calendar-picker-list"`.
 
-**State & side effects** — `open` and `expanded: ReadonlySet<string>`; rows come from `buildPickerRows(calendars, expanded)`. On open it merges `expandedForSelection(calendars, value)` into the expanded set so the selected branch is visible. Selecting a row calls `onChange` and closes. The portalled content stops Escape propagation so closing the list cannot also cancel the draft bubble behind it, and it carries `data-dismiss-ignore` so an enclosing dismiss-on-outside-click surface (the quick-create bubble) survives a row click. No queries or storage; the trigger swatch/name come from `calendarSwatch`.
+**State & side effects** — `open` and `expanded: ReadonlySet<string>`; rows come from `buildPickerRows(calendars, expanded)`. On open it merges `expandedForSelection(calendars, value)` into the expanded set so the selected branch is visible. Selecting a row calls `onChange` and closes. The portalled content stops Escape propagation so closing the list cannot also cancel the draft bubble behind it, and it carries `data-dismiss-ignore` so an enclosing dismiss-on-outside-click surface (the quick-create bubble) survives a row click. Its content also carries the shared `popover-in` enter animation (`origin-[var(--radix-popover-content-transform-origin)]`, `data-[state=open]:animate-[popover-in_140ms_cubic-bezier(0.16,1,0.3,1)]`). No queries or storage; the trigger swatch/name come from `calendarSwatch`.
 
 **Depends on / Used by** — `@radix-ui/react-popover`, `components/ui/button`, `components/ui/icons`, `lib/services/calendars` (`CalendarNode`), `lib/ui/calendarPicker`, `lib/utils`. Rendered by `EventDialog` (`variant="field"`) and `QuickCreatePopover` (`chip`).
 
@@ -141,6 +145,63 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 - Swatch is grey for a real calendar -> `calendarSwatch` did not find the id (e.g. a read-only calendar filtered out of `calendars`) -> `FALLBACK_COLOR`.
 
 **Tests** — `tests/e2e/calendar-picker.spec.ts`; helper module covered by `tests/unit/calendarPicker.test.ts`.
+
+## Dialog date and time fields
+
+### components/calendar/DateField.tsx
+
+**Purpose** — The event dialog's date control: a field-styled button showing `formatWallDate(value)` ("Wed, 28 Oct 2026") that opens the shared `MiniMonth` grid in a Radix popover. It replaces `<input type="date">`, whose browser calendar cannot be styled or worded the way the household reads dates.
+
+**Public API** — `export function DateField(props: Props)`. Props: `id: string`, `value: string` (`YYYY-MM-DD` in the household zone), `onChange(date: string)`, `label: string` (accessible name), `today?: string` (household-local today, forwarded to the picker's Today button), `eventDates?: ReadonlySet<string>` (dates with a visible event, rendered as neutral dots). Module constants `TRIGGER` (field recipe) and `SURFACE` (enter-animation recipe). The trigger carries `data-testid="date-field-trigger"`, `aria-haspopup="dialog"`, `aria-expanded`, and an `aria-label` of `label: <formatWallDate(value)>` (for example "Starts: Wed, 28 Oct 2026"); the portalled content carries `data-testid="date-field-popover"`.
+
+**State & side effects** — State: `open` for the Radix popover plus `flash`/`flashTimer`. `pick(date)` calls `onChange`, closes the popover, and sets `data-flash="true"` on the trigger for 460 ms, which runs the global `field-ack` box-shadow animation; the timer is cleared on unmount. The body is `DatePickerPopover` keyed by `value`, with `anchorDate` and `selectedDate` both `value`, so a new value reseeds the shown month. The content stops Escape propagation so the portalled calendar closes without closing the surrounding dialog, and carries the shared `popover-in` enter animation (`origin-[var(--radix-popover-content-transform-origin)]`, `data-[state=open]:animate-[popover-in_140ms_cubic-bezier(0.16,1,0.3,1)]`). No queries, storage or URL writes.
+
+**Depends on / Used by** — `@radix-ui/react-popover`, `components/ui/button`, `components/ui/icons` (`CalendarIcon`), `lib/time/format` (`formatWallDate`), `lib/utils` (`cn`), `./DatePickerPopover`. Rendered twice by `EventDialog` (`event-start-date`, `event-end-date`).
+
+**Debugging** —
+- Escape closes the whole event dialog, not just the calendar -> the content's `onKeyDown` stopPropagation was removed -> this file's `PopoverPrimitive.Content`.
+- The calendar opens on the wrong month -> the `key={value}` remount was dropped, or `value` is not the picked date -> `DatePickerPopover`'s `anchorDate`.
+- A pick does not pulse the field -> `data-flash`, the `field-ack` keyframes in `app/globals.css`, or the `pick` timer was removed -> `TRIGGER` and `pick`.
+- The popover appears instantly instead of growing from the trigger -> `SURFACE`'s `data-[state=open]:animate-[popover-in_…]` class was dropped -> this file and `app/globals.css`.
+
+**Tests** — `tests/e2e/event-fields.spec.ts` ("the date field opens the mini calendar and picks a day").
+
+### components/calendar/TimeField.tsx
+
+**Purpose** — The event dialog's time control: a field-styled button that opens a quick-pick list of 15-minute rows grouped by part of day, plus a typed field for a minute in between. It replaces `<input type="time">`, whose browser spinner ignores the household's 12/24-hour preference.
+
+**Public API** — `export function TimeField(props: Props)`. Props: `id: string`, `value: string` (`HH:MM` in the household zone), `onChange(time: string)`, `timeFormat: TimeFormat`, `timezone: string` (used only to mark the row containing "now"), `label: string` (accessible name). Module constants: `SLOTS = timeSlots()` (96 rows), `BANDS` (Morning 00:00–11:45, Afternoon 12:00–16:45, Evening 17:00–20:45, Night 21:00–23:45), `BANDS_WITH_SLOTS`, `TRIGGER`, `SURFACE`. Test ids: `time-field-trigger`, `time-field-popover`, `time-field-selected` (on the selected row). The listbox is labelled `label` + " quick pick" (for example "Start time quick pick"); the trigger's accessible name is `label: <formatWallTime(value, timeFormat)>` (for example "Start time: 09:00").
+
+**State & side effects** — State: `open`, `activeIndex` (seeded from `nearestSlotIndex(value)`), `typed`, `error`, `flash`, `listRef`, `flashTimer`, and `nowWall`, frozen at mount in a `useState` initialiser as `utcToLocalWallTime(Date.now(), timezone).slice(11, 16)`. `handleOpenChange` clears `typed`/`error` on every open and close, reseeds `activeIndex`, and centres the current value by setting the list's `scrollTop`. Each band renders `role="group"` with a sticky, `aria-hidden` header (10px, uppercase, ink-soft); rows are `role="option"` buttons with roving tabindex (only `activeIndex` is `tabIndex={0}`). Keyboard on the list: ArrowUp/ArrowDown move ±1 row, PageUp/PageDown ±4, Home/End jump to 00:00/23:45; `focusSlot` focuses and scrolls the row. Enter/Space activate the focused button, and `pick` calls `onChange`, closes, and pulses the trigger for 460 ms (`data-flash`, `field-ack`). The selected row (`slot === value`) is accent-filled with a `CheckIcon`; otherwise the row whose index equals the frozen "now" shows a "now" label. The footer input (label "Type a time") commits on Enter through `parseTypedTime(typed, timeFormat, meridiemOf(value) ?? "am")`; when that returns null it sets a `role="alert"` hint ("Type a 24-hour time, like 08:37." for `24h`, "Type a time, like 8:37 AM." for `12h`). On blur it commits only when the text is non-empty, no error is showing, and the text parses, so unreadable text reports only via Enter. The portalled content stops Escape propagation so the list closes without closing the dialog behind it, and carries the shared `popover-in` enter animation.
+
+**Depends on / Used by** — `@radix-ui/react-popover`, `components/ui/button`, `components/ui/icons` (`CheckIcon`, `ClockIcon`), `lib/services/preferences` (`TimeFormat`), `lib/time/format` (`formatWallTime`), `lib/time/zone` (`utcToLocalWallTime`), `lib/utils` (`cn`), and `./timeSlots` (`SLOT_MINUTES`, `meridiemOf`, `minutesOfDay`, `nearestSlotIndex`, `parseTypedTime`, `timeSlots`). Rendered by `EventDialog` for the start and end times when the event is not all-day.
+
+**Debugging** —
+- A typed time that looks valid is rejected -> `parseTypedTime` is format-aware: a 24-hour household rejects "8:37 PM" instead of guessing -> `commitTyped` and `components/calendar/timeSlots.ts`.
+- The list opens at midnight for an existing off-grid value -> `nearestSlotIndex`/`handleOpenChange` did not run -> `nearestSlotIndex(value)`.
+- The "now" marker sits on the wrong row or disappears -> `timezone` is wrong, or the marker was made live instead of frozen at mount -> `utcToLocalWallTime(Date.now(), timezone)`.
+- Escape closes the event dialog as well -> the content's `onKeyDown` stopPropagation was removed -> this file's `PopoverPrimitive.Content`.
+- Typing an invalid time and leaving the field does nothing -> intended: the alert is raised by Enter; blur only commits parseable text -> `onBlur`/`commitTyped`.
+
+**Tests** — `tests/e2e/event-fields.spec.ts`; the slot grid and parser are unit-tested in `tests/unit/timeSlots.test.ts`.
+
+### components/calendar/timeSlots.ts
+
+**Purpose** — Pure rules behind the dialog's time control: the 15-minute quick-pick grid, the canonical `HH:MM` string form, and the parser for the typed-time field. Kept outside the component so the 12/24-hour matrix is unit-tested without rendering.
+
+**Public API** — `export const SLOT_MINUTES = 15`; `export type Meridiem = "am" | "pm"`; `minutesOfDay(time: string): number | null`; `formatMinutes(total: number): string`; `timeSlots(stepMinutes?: number): string[]`; `nearestSlotIndex(time: string, stepMinutes?: number): number`; `meridiemOf(time: string): Meridiem | null`; `parseTypedTime(input: string, format: TimeFormat, meridiemFallback?: Meridiem): string | null`. Internal: `MINUTES_IN_DAY`, `HHMM`, `TYPED`, `pad`, `stepOf`.
+
+**State & side effects** — None; every export is deterministic. `stepOf` falls back to `SLOT_MINUTES` for a non-finite or `< 1` step and rounds anything else. `minutesOfDay` accepts only `H:MM`/`HH:MM` with exactly two minute digits and hours ≤ 23, minutes ≤ 59; anything else is null. `formatMinutes` wraps totals outside the day into `00:00`–`23:59` rather than throwing. `timeSlots(step)` emits `00:00` up to but excluding `24:00`, so the default is 96 rows. `nearestSlotIndex` rounds the wall time to the nearest step, clamps into the available row range, and returns `0` for unparseable input. `meridiemOf` returns `"am"` before 12:00 and `"pm"` from 12:00, null when unparseable. `parseTypedTime` trims and lowercases, then accepts `H`, `H:MM` (one- or two-digit minutes) and an optional `am`/`pm`/`a.m.`/`p.m.` suffix. Minutes > 59 → null. In `24h` mode any suffix and any hour > 23 → null; otherwise it formats `hours * 60 + minutes`. In `12h` mode the hour must be 1–12; the suffix wins, a missing suffix inherits `meridiemFallback`, hour 12 becomes 0, and `pm` adds 720 minutes before formatting.
+
+**Depends on / Used by** — `lib/services/preferences` (`TimeFormat`). Imported by `TimeField` and `tests/unit/timeSlots.test.ts`.
+
+**Debugging** —
+- "8:37 PM" is rejected although it looks valid -> the household preference is `24h`, where a suffix is not a reading -> `parseTypedTime`'s `format === "24h"` branch.
+- A 12-hour value without am/pm lands in the wrong half of the day -> the caller passed no `meridiemFallback` (or a null `meridiemOf(value)` collapsed to the default) -> `TimeField.commitTyped`.
+- `timeSlots(30)` still yields 96 rows -> the explicit step argument was ignored -> `stepOf`.
+- An off-grid value focuses the wrong row -> `nearestSlotIndex` rounds rather than floors (08:37 → index 34, 08:50 → 35) -> this file.
+
+**Tests** — `tests/unit/timeSlots.test.ts`.
 
 ## Event details and editing
 
@@ -182,11 +243,11 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 
 **Purpose** — The full create/edit form: title, calendar (nested picker), all-day, start/end date and time, repeat preset, location, notes, and a save guard. On edit it saves the whole series.
 
-**Public API** — `export interface EventDialogInitial { event?: EventView; start: string; end: string; allDay: boolean; pendingTitle?: string }`; `export function EventDialog(props: Props)`. Props: `mode: "create" | "edit"`, `initial`, `initialRule?: string | null`, `timezone`, `calendars: CalendarNode[]`, `defaultCalendarId?: string | null`, `onClose()` (success/programmatic), `onCancel?()` (runs the shell's unsaved guard), `onDirtyChange?(dirty)`. Module constants `CONTROL`, `TEXTAREA`, `LABEL`; helper `splitWall`.
+**Public API** — `export interface EventDialogInitial { event?: EventView; start: string; end: string; allDay: boolean; pendingTitle?: string }`; `export function EventDialog(props: Props)`. Props: `mode: "create" | "edit"`, `initial`, `initialRule?: string | null`, `timezone`, `timeFormat: TimeFormat`, `calendars: CalendarNode[]`, `defaultCalendarId?: string | null`, `onClose()` (success/programmatic), `onCancel?()` (runs the shell's unsaved guard), `onDirtyChange?(dirty)`. Module constants `CONTROL`, `TEXTAREA`, `LABEL`; helper `splitWall`.
 
-**State & side effects** — Field state: `title`, `calendarId`, `allDay`, `startDate`, `startTime`, `endDate`, `endTime`, `repeat`, `description`, `location`; frozen `initialRepeat` from `deriveRepeat(initialRule)`. `selectedCalendarId` falls back live to `calendars[0]?.id` while the list loads. Every setter calls `markDirty()`. Mutations: `useCreateEvent` (pushes an undo that deletes the new row and shows a 10 s Undo toast), `useUpdateEvent` (PATCH of the whole series), `useDeleteEvent` (only for that undo), `useUpdatePreferences({ lastEventCalendarId })`. Save is disabled while `pending`, with an empty title, or with no calendar. On a recurring edit it shows a "saves every occurrence" notice. The form caps its height (`max-h-[calc(100dvh-12rem)]`) and makes the footer sticky below `md`; its scroll area pads 4px horizontally (`px-1`) because `overflow-y-auto` clips at the padding box and the focused field's 2px outline sits 2px outside its border box (a flush-left field loses its ring's left side).
+**State & side effects** — Field state: `title`, `calendarId`, `allDay`, `startDate`, `startTime`, `endDate`, `endTime`, `repeat`, `description`, `location`; frozen `initialRepeat` from `deriveRepeat(initialRule)`. `selectedCalendarId` falls back live to `calendars[0]?.id` while the list loads. `today` is frozen once per open with `useState(() => utcToLocalDate(Date.now(), timezone))` and passed to both `DateField`s, so their pickers' Today button uses the household's day rather than the device's. The date fields are `DateField` and the time fields are `TimeField` (not native `<input type="date">`/`<input type="time">`); `CONTROL` and `TEXTAREA` carry `transition-colors duration-150` and `hover:border-ink-soft` in addition to the accent focus ring. Every setter calls `markDirty()`. Mutations: `useCreateEvent` (pushes an undo that deletes the new row and shows a 10 s Undo toast), `useUpdateEvent` (PATCH of the whole series), `useDeleteEvent` (only for that undo), `useUpdatePreferences({ lastEventCalendarId })`. Save is disabled while `pending`, with an empty title, or with no calendar. On a recurring edit it shows a "saves every occurrence" notice. The form caps its height (`max-h-[calc(100dvh-12rem)]`) and makes the footer sticky below `md`; its scroll area pads 4px horizontally (`px-1`) because `overflow-y-auto` clips at the padding box and the focused field's 2px outline sits 2px outside its border box (a flush-left field loses its ring's left side).
 
-**Depends on / Used by** — `sonner`, `components/ui/button`, `lib/query/events`, `lib/query/preferences`, `lib/time/zone` (`utcToLocalWallTime`), `lib/ui/undo`, `./eventPayload`, `./CalendarPicker`. Rendered by `CalendarShell` inside its `Dialog`; the shell keeps it mounted under `hidden` while the discard prompt shows.
+**Depends on / Used by** — `sonner`, `components/ui/button`, `lib/query/events`, `lib/query/preferences`, `lib/services/preferences` (`TimeFormat`), `lib/time/zone` (`utcToLocalDate`, `utcToLocalWallTime`), `lib/ui/undo`, `./eventPayload`, `./CalendarPicker`, `./DateField`, `./TimeField`. Rendered by `CalendarShell` inside its `Dialog`; the shell keeps it mounted under `hidden` while the discard prompt shows.
 
 **Debugging** —
 - Saving an untouched weekly rule turns into `FREQ=WEEKLY` -> the rule-preservation branch broke -> `buildEventPayload` (`repeatChanged` must stay false).
@@ -194,8 +255,10 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 - Cancel discards without asking -> `onCancel` was not passed -> the shell's `requestCloseDialog` guard.
 - Focus ring disappears on a field -> someone added `outline-none` to `CONTROL`; Tailwind v4 compiles it into `--tw-outline-style: none` and `outline-2` reads it back.
 - The focused field's ring is cut on the left -> the scroll area lost its horizontal padding (`px-1`); overflow clips at the padding box, and the title field is flush with the content edge.
+- A typed time that looks valid is rejected -> `TimeField`'s parser is format-aware; a 24-hour household rejects "8:37 PM" -> `components/calendar/timeSlots.ts` `parseTypedTime`.
+- The dialog's time control shows 12-hour text while the grid shows 24-hour -> `timeFormat` was not passed down -> this file's `timeFormat` prop, supplied by `CalendarShell`.
 
-**Tests** — `tests/e2e/events.spec.ts`, `tests/e2e/quick-create.spec.ts` (dirty-discard), `tests/e2e/details.spec.ts` (duplicate).
+**Tests** — `tests/e2e/events.spec.ts`, `tests/e2e/quick-create.spec.ts` (dirty-discard), `tests/e2e/details.spec.ts` (duplicate), `tests/e2e/event-fields.spec.ts` (date/time fields).
 
 ## Search
 
@@ -239,11 +302,11 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 
 ### components/calendar/MiniMonth.tsx
 
-**Purpose** — A neutral month grid with roving-tabindex keyboard navigation and a dot for days that have visible events; used by the sidebar and by the toolbar's date picker.
+**Purpose** — A neutral month grid with roving-tabindex keyboard navigation and a dot for days that have visible events; used by the sidebar, the toolbar's date picker and the dialog's `DateField`. Every week row is padded with muted days from the adjacent months, so the grid has no blank holes.
 
 **Public API** — `export interface MiniMonthProps { anchorDate: string; selectedDate?: string; eventDates?: ReadonlySet<string>; onSelectDate(date); onAnchorChange(firstOfMonth); labelledBy?: string }`; `export function MiniMonth(props)`. Module data: `WEEKDAY_INITIALS`, `WEEKDAY_NAMES`, `MONTH_NAMES`, `DATE_PATTERN`; helpers `pad`, `iso`, `parts`, `weekdayIndex`, `daysInMonth`, `shiftMonth`, `shiftMonthKeepingDay`, `localToday`.
 
-**State & side effects** — `focusDate` (roving tab stop) and `containerRef`. `moveFocus` sets state then focuses `[data-mini-date=…]` inside a `requestAnimationFrame`. Arrows move ±1/±7 days, Home/End go to week bounds, PageUp/PageDown shift a month keeping the day; crossing a month boundary calls `onAnchorChange(iso(y, m, 1))`. Clicking a day calls `onSelectDate`. Cells expose `aria-label` ("Wednesday 4 March, has events"), `aria-selected`, `aria-current="date"` for today and `role="gridcell"`. Dots are always neutral (`bg-ink-soft`, white when selected).
+**State & side effects** — `focusDate` (roving tab stop) and `containerRef`. `moveFocus` sets state then focuses `[data-mini-date=…]` inside a `requestAnimationFrame`. Arrows move ±1/±7 days, Home/End go to week bounds, PageUp/PageDown shift a month keeping the day; crossing a month boundary calls `onAnchorChange(iso(y, m, 1))`. Clicking a day calls `onSelectDate`. Leading and trailing adjacent-month days are rendered as muted, `aria-hidden` `<span>`s — 32px (`h-8 w-8`), `text-ink-mute/45`, not `gridcell`s and not clickable — so the roving focus model only ever lands on in-month buttons. In-month cells are `h-8 w-8` buttons: the selected day is accent-filled with `shadow-sm`, today is bold in link colour with an inset ring (`ring-1 ring-inset ring-link/35`); unselected cells get `hover:bg-well`/`active:bg-line`, the selected cell uses `active:bg-accent-hover`, and every cell has `active:scale-95` and a `focus-visible` outline. Cells expose `aria-label` ("Wednesday 4 March, has events"), `aria-selected`, `aria-current="date"` for today and `role="gridcell"`. Dots are always neutral (`bg-ink-soft`, white when selected).
 
 **Depends on / Used by** — `components/ui/button`, `components/ui/icons`, `lib/time/zone` (`addDaysToDate`), `lib/utils` (`cn`). Rendered by `DatePickerPopover` and `SidebarMiniMonth`.
 
@@ -251,23 +314,24 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 - The mini month starts on Sunday even though the household week starts elsewhere -> expected: the grid hardcodes Sunday-first (`WEEKDAY_INITIALS`/`weekdayIndex`); only FullCalendar honours `weekStartsOn` -> this file.
 - Arrow keys do not move focus -> `focusDate` points at a date not in the current month, so no cell has `tabIndex={0}` -> `moveFocus`/`ensureMonthVisible`.
 - Event dots never appear in the sidebar -> the caller's `eventDates` set is empty -> `SidebarMiniMonth`'s range and visibility filter.
-- Mini month shows a different "today" than the grid -> `localToday` uses the device clock/zone, not the household timezone -> this file.
+- Clicking a grey leading/trailing day does nothing -> intended: those cells are decorative `aria-hidden` spans, not buttons -> the `cell.inMonth` branch.
+- Mini month rings a different "today" than the grid -> `localToday` uses the device clock/zone, not the household timezone (the picker's Today button is the caller's separate `today` prop) -> this file and `DatePickerPopover`.
 
 **Tests** — `tests/e2e/mini-month.spec.ts`.
 
 ### components/calendar/DatePickerPopover.tsx
 
-**Purpose** — Popover body for the toolbar title: a `MiniMonth` plus a right-aligned "Today" button.
+**Purpose** — Popover body for the toolbar title and the event dialog's date field: a `MiniMonth` plus a right-aligned "Today" button.
 
-**Public API** — `export function DatePickerPopover(props: Props)`. Props: `anchorDate`, `selectedDate?`, `eventDates?: ReadonlySet<string>`, `onPick(date: string)`. No exported types.
+**Public API** — `export function DatePickerPopover(props: Props)`. Props: `anchorDate`, `selectedDate?`, `eventDates?: ReadonlySet<string>`, `today?: string` (household-local today; falls back to the device clock), `onPick(date: string)`. No exported types.
 
-**State & side effects** — Local `anchor` seeded from `anchorDate`; only `onAnchorChange` updates it. `today` is formatted from `new Date()` in the device's local zone. `onPick` is called for both a day click and the Today button; closing the popover is the caller's job. No queries or storage.
+**State & side effects** — Local `anchor` seeded from `anchorDate`; only `onAnchorChange` updates it. `today` is the caller's `today` prop when supplied, else `new Date()` formatted `YYYY-MM-DD` in the device's local zone. The Today button is a ghost button in link colour (`variant="ghost"`, `className="text-link"`). `onPick` is called for both a day click and the Today button; closing the popover is the caller's job. No queries or storage.
 
-**Depends on / Used by** — `components/ui/button`, `./MiniMonth`. Rendered by `Toolbar` inside its popover; `Toolbar` keys it by `anchorDate` so it re-seeds.
+**Depends on / Used by** — `components/ui/button`, `./MiniMonth`. Rendered by `Toolbar` inside its popover (which keys it by `anchorDate` so it re-seeds) and by `DateField` inside the event dialog's popover (keyed by the field value).
 
 **Debugging** —
-- Picker opens on the wrong month -> the `key={anchorDate}` remount was removed -> `Toolbar`.
-- "Today" jumps to yesterday/tomorrow for a travelling user -> `today` is device-local, not household-zoned -> this file.
+- Picker opens on the wrong month -> the `key={anchorDate}` (toolbar) or `key={value}` (date field) remount was removed -> `Toolbar` / `DateField`.
+- "Today" jumps to yesterday/tomorrow for a travelling user -> the caller did not pass `today`, so the device-clock fallback is used; `Toolbar` omits it while `DateField` forwards `EventDialog`'s household date -> this file's `today` prop.
 
 **Tests** — `tests/e2e/mini-month.spec.ts` ("the toolbar title opens a date picker").
 
