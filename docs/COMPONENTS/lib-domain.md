@@ -219,7 +219,7 @@ shifts by a day, or an API error carries the wrong code or status.
 
 **Purpose** — Parses `process.env` once, at import time, through a Zod object and exports the typed result. Every module reads configuration from this object rather than from `process.env`.
 
-**Public API** — `env` (the parsed object) and `type Env`. Schema and defaults:
+**Public API** — `env` (the parsed object), `type Env`, `interface ProductionEnv`, and `assertProductionEnv(source?: ProductionEnv): void`. Schema and defaults:
 - `NODE_ENV`: `development | test | production`, default `development`.
 - `DATABASE_URL`: non-empty string, default `file:./data/planner.db`.
 - `BETTER_AUTH_SECRET`: optional string, minimum length 32 (required in production — see below).
@@ -227,16 +227,18 @@ shifts by a day, or an API error carries the wrong code or status.
 - `AUTH_RATE_LIMIT`: `on | off`, default `on`; `off` is only for E2E runs where many sign-ins share one loopback IP.
 - `TZ`: non-empty string, default `Asia/Taipei`.
 
-**State & side effects** — `safeParse(process.env)` runs at module load. On failure it throws `Error("Invalid environment configuration:\n<path>: <message>" ...)`, joining every issue — so a bad variable fails the build or the first request, not a later code path. Values are validated but never logged.
+**State & side effects** — `safeParse(process.env)` runs at module load. On failure it throws `Error("Invalid environment configuration:\n<path>: <message>" ...)`, joining every issue — so a bad enum fails the build or the first request, not a later code path. Values are validated but never logged. `assertProductionEnv` runs later, from `getDb()` on the first request: in `production` it throws when `DATABASE_URL` is not set explicitly or `BETTER_AUTH_SECRET` is missing/shorter than 32 characters, and warns (does not throw) when `BETTER_AUTH_URL` is not https or points at localhost. Doing this lazily rather than at import keeps `next build` free of runtime secrets while still failing the deploy's health check.
 
-**Depends on / Used by** — `zod`. Consumers: `lib/auth/server.ts` (`BETTER_AUTH_URL` for `baseURL`, `trustedOrigins` and the `secure` cookie flag; `AUTH_RATE_LIMIT !== "off"` for the limiter; `BETTER_AUTH_SECRET`, with a fixed `test-only-secret-…` fallback only when `NODE_ENV === "test"` and a thrown error otherwise) and `lib/db/index.ts` (`DATABASE_URL`).
+**Depends on / Used by** — `zod`. Consumers: `lib/auth/server.ts` (`BETTER_AUTH_URL` for `baseURL`, `trustedOrigins` and the `secure` cookie flag; `AUTH_RATE_LIMIT !== "off"` for the limiter; `BETTER_AUTH_SECRET`, with a fixed `test-only-secret-…` fallback only when `NODE_ENV === "test"` and a thrown error otherwise), `lib/db/index.ts` (`DATABASE_URL` plus the production assertion), and `lib/api/route.ts` (`BETTER_AUTH_URL` as the trusted write origin).
 
 **Debugging**
 - Startup/build fails with "Invalid environment configuration" -> one variable violated its schema, most often the 32-character minimum on `BETTER_AUTH_SECRET` -> the joined list names the path and the message; fix `.env.local` (the file is required for dev, migrations and provisioning).
 - The app boots but the first DB call creates an unexpected file -> `DATABASE_URL` default is a **relative** `file:./data/planner.db`, resolved from the process CWD -> check `resolveDatabasePath` in `lib/db/client.ts`.
-- Production throws "BETTER_AUTH_SECRET is required" -> the variable is optional in the schema so it parses, then `resolveSecret()` rejects it -> set it; note `env.TZ` is validated but has no reader in `lib/` or `components/` (the household zone comes from `household.timezone`), so changing it changes nothing at runtime.
+- `/api/health` returns 503 with "Invalid production environment" -> running with `NODE_ENV=production` and no explicit `DATABASE_URL` or no/too-short `BETTER_AUTH_SECRET` -> set both; the log line names them.
+- Production throws "BETTER_AUTH_SECRET is required" instead of 503 -> a code path reached `createAuth` before `getDb` -> set the secret; note `env.TZ` is validated but has no reader in `lib/` or `components/` (the household zone comes from `household.timezone`), so changing it changes nothing at runtime.
+- Sign-in returns 403 `INVALID_ORIGIN` -> `BETTER_AUTH_URL` is not the origin the browser sends -> set the exact public origin, including scheme and no trailing slash.
 
-**Tests** — No direct test coverage.
+**Tests** — `tests/unit/env.test.ts` covers `assertProductionEnv` (non-production no-op, complete env, missing/short secret, implicit `DATABASE_URL`, non-absolute URL, http/localhost warning).
 
 ### lib/errors.ts
 

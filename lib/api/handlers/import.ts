@@ -19,6 +19,22 @@ interface ImportRequest {
 }
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
+/** Upper bound for the whole multipart body (20 files + mapping overhead). */
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+const MAX_FILES = 20;
+
+/**
+ * Rejects an oversized upload before `formData()` buffers it. Next 16 route
+ * handlers have no body-size limit of their own, so a 5 MB-per-file cap applied
+ * after parsing still lets a caller make the server hold an arbitrary body.
+ */
+function assertUploadSize(request: Request): void {
+  const header = request.headers.get("content-length");
+  const length = header === null ? null : Number(header);
+  if (length !== null && Number.isFinite(length) && length > MAX_UPLOAD_BYTES) {
+    throw new AppError("VALIDATION", "That export is too large (25 MB max).", 413);
+  }
+}
 
 /**
  * Reads the multipart body used by both import endpoints: repeated `files`
@@ -26,6 +42,7 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024;
  * files are held in memory only and the service enforces the size limit.
  */
 async function readImportRequest(request: Request): Promise<ImportRequest> {
+  assertUploadSize(request);
   let form: FormData;
   try {
     form = await request.formData();
@@ -43,6 +60,10 @@ async function readImportRequest(request: Request): Promise<ImportRequest> {
     }
     const name = "name" in entry && typeof entry.name === "string" ? entry.name : "import.ics";
     files.push({ name, text: await entry.text() });
+  }
+
+  if (files.length > MAX_FILES) {
+    throw new AppError("VALIDATION", "Send at most 20 calendar files at a time.", 400);
   }
 
   const rawMapping = form.get("mapping");

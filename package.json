@@ -41,6 +41,8 @@
     "provision": "tsx scripts/provision.mts",
     "reset-password": "tsx scripts/reset-password.mts",
     "backup": "tsx scripts/backup.mts",
+    "restore-check": "tsx scripts/restore-check.mts",
+    "ops:bundle": "esbuild scripts/provision.mts scripts/backup.mts scripts/reset-password.mts --bundle --platform=node --format=esm --target=node22 --external:better-sqlite3 --outdir=ops --out-extension:.js=.mjs",
     "docs:check": "node scripts/docs-check.mjs"
   },
   "dependencies": {
@@ -75,6 +77,7 @@
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.2",
     "drizzle-kit": "0.31.11",
+    "esbuild": "0.28.2",
     "eslint": "9.39.5",
     "eslint-config-next": "16.4.2",
     "postcss": "8.5.31",

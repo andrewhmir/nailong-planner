@@ -21,6 +21,8 @@ const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
   output: "standalone",
   reactStrictMode: true,
+  // Do not advertise the framework on a public, single-household deployment.
+  poweredByHeader: false,
   // Next's dev badge floats over the bottom-left corner of the viewport, which
   // the 54px rail owns — it covers the account menu and swallows its clicks
   // while developing. The app shell is the full viewport, so turn it off.

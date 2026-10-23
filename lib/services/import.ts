@@ -631,6 +631,35 @@ export function rollbackImportBatch(
 
   return db.transaction((tx) => {
     const txn = tx as unknown as Database;
+
+    // Undoing an import writes events — it deletes them, or restores the previous
+    // row (possibly into a different calendar). Every affected calendar must
+    // still be writable by this viewer; without this check the partner could roll
+    // back an import into the owner's view-only calendar.
+    const affectedCalendars = new Set<string>();
+    for (const change of changes) {
+      const row = txn.select().from(event).where(eq(event.id, change.eventId)).get();
+      if (row) {
+        affectedCalendars.add(row.calendarId);
+      }
+      try {
+        const before = JSON.parse(change.beforeJson ?? "{}") as Partial<EventRow>;
+        if (before.calendarId) {
+          affectedCalendars.add(before.calendarId);
+        }
+      } catch {
+        // A corrupt snapshot is handled by the restore path below; it cannot name
+        // a calendar, so it adds nothing to the permission check.
+      }
+    }
+    for (const calendarId of affectedCalendars) {
+      const exists = txn.select().from(calendar).where(eq(calendar.id, calendarId)).get();
+      if (!exists) {
+        continue; // an earlier rollback (or a manual delete) removed it
+      }
+      assertCalendarWritable(ctx, getCalendarAccess(txn, ctx, calendarId));
+    }
+
     let deleted = 0;
     let restored = 0;
     let skipped = 0;

@@ -1,9 +1,15 @@
 node_modules
 .next
+.next-e2e
 .git
 .github
-.playwright
+.agents
+.dsh
 .superpowers
+.uat
+.dev
+ops
+.playwright
 test-results
 playwright-report
 coverage
@@ -11,6 +17,9 @@ data
 *.db
 *.db-shm
 *.db-wal
+*.db.gz
+*.log
+tsconfig.tsbuildinfo
 .env
 .env.*
 !.env.example

@@ -160,6 +160,8 @@ The database file lives at `./data/planner.db` by default and is gitignored.
 | `npm run provision` | Idempotently create the household and the two accounts |
 | `npm run reset-password -- --email x --password y` | Break-glass password reset |
 | `npm run backup` | Online SQLite backup, gzipped, keeps the 14 newest |
+| `npm run restore-check` | Verifies a backup archive (integrity check + row counts) |
+| `npm run ops:bundle` | Builds the plain-JS operator CLIs (`ops/*.mjs`) the Docker image ships |
 
 In CI the same checks run on every pull request and on pushes to `main` and
 `feat/**`: lint, typecheck, Vitest, production build, Playwright E2E, plus
@@ -186,7 +188,11 @@ CodeQL and Dependabot.
 ## Deploying
 
 The included Dockerfile builds a standalone image and is set up for a Railway
-deployment with a `/data` volume; the same image runs on any container host. See
+deployment with a `/data` volume; the same image runs on any container host. The
+runtime image contains no `tsx` and no TypeScript sources — first-run
+provisioning, backups and password recovery run the bundled CLIs instead
+(`railway ssh -- node ops/provision.mjs`), and the entrypoint makes a root-owned
+volume writable before dropping to the unprivileged `app` user. See
 [`docs/OPERATIONS.md`](docs/OPERATIONS.md) for the environment variables, backups
 and recovery. Swapping SQLite for Postgres is possible by replacing the data
 layer; SQL access is confined to `lib/services/*` to keep that change contained.

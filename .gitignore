@@ -15,6 +15,12 @@ test-results/
 playwright-report/
 blob-report/
 *.tsbuildinfo
+# operator CLIs bundled from scripts/ for the runtime image (npm run ops:bundle)
+ops/
+
+# agent/UAT working artifacts (never committed)
+.uat/
+.agents/
 
 # environment
 .env

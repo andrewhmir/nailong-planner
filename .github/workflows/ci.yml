@@ -12,6 +12,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# The app renders dates in the household timezone and several specs derive
+# "today"/"this month" in Node. Pin the runner so it matches the browser and the
+# server; without this the suite is broken for 8 hours each month-end on UTC.
+env:
+  TZ: Asia/Taipei
+
 jobs:
   verify:
     runs-on: ubuntu-latest

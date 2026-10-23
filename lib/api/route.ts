@@ -4,6 +4,7 @@ import { getAuth } from "@/lib/auth/server";
 import { getDb } from "@/lib/db";
 import type { Database } from "@/lib/db/client";
 import { member } from "@/lib/db/schema";
+import { env } from "@/lib/env";
 import { AppError } from "@/lib/errors";
 import type { ViewerContext } from "@/lib/services/permissions";
 
@@ -16,6 +17,46 @@ export interface RouteArgs {
   session: AppSession;
   db: Database;
   request: Request;
+}
+
+function originOf(value: string): string | null {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Rejects cookie-authenticated writes from a foreign origin.
+ *
+ * SameSite=Lax only separates *sites*, and Railway's default
+ * `<service>.up.railway.app` domains are not on the Public Suffix List, so a
+ * sibling Railway tenant counts as the same site and its forms would carry the
+ * session cookie. Browsers always send `Origin` (and `Sec-Fetch-Site`) on
+ * non-GET requests, so checking them closes that gap without affecting
+ * server-to-server callers or the tests, which send no Origin.
+ */
+export function assertSameOrigin(request: Request): void {
+  const method = request.method.toUpperCase();
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
+    return;
+  }
+  if (request.headers.get("sec-fetch-site") === "cross-site") {
+    throw new AppError("FORBIDDEN", "Cross-origin request rejected.", 403);
+  }
+  const origin = request.headers.get("origin");
+  if (origin === null) {
+    return;
+  }
+  const allowed = new Set(
+    [originOf(request.url), originOf(env.BETTER_AUTH_URL)].filter(
+      (value): value is string => value !== null,
+    ),
+  );
+  if (!allowed.has(origin)) {
+    throw new AppError("FORBIDDEN", "Cross-origin request rejected.", 403);
+  }
 }
 
 /** Resolves the signed-in member from a request's cookies. */
@@ -65,9 +106,9 @@ export function apiError(error: unknown): NextResponse {
 }
 
 /**
- * Wraps a route handler with session resolution, database access and error
- * mapping. Because it only needs a standard `Request`, integration tests can
- * call the wrapped handler directly instead of booting Next.
+ * Wraps a route handler with session resolution, origin checks, database access
+ * and error mapping. Because it only needs a standard `Request`, integration
+ * tests can call the wrapped handler directly instead of booting Next.
  */
 export function withViewer<Extra extends object = object>(
   handler: (args: RouteArgs & Extra) => Promise<Response> | Response,
@@ -75,6 +116,7 @@ export function withViewer<Extra extends object = object>(
   return async (request: Request, extra?: Extra): Promise<Response> => {
     try {
       const { ctx, session } = await viewerFromRequest(request);
+      assertSameOrigin(request);
       return await handler({
         ctx,
         session,

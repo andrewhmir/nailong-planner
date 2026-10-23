@@ -25,7 +25,7 @@ The storage and transport foundation of the planner: the Drizzle/SQLite schema, 
 
 ## Entity model
 
-Ten tables exist in the migrated database (three migrations: `0000_even_morg`, `0001_tiny_falcon`, `0002_user_preference`). `household` is the tenancy boundary; every domain query filters on `household_id`. Column names below are the SQLite names, with the Drizzle field in parentheses when it differs.
+Ten tables exist in the migrated database (four migrations: `0000_even_morg`, `0001_tiny_falcon`, `0002_user_preference`, `0003_salty_stranger`). `household` is the tenancy boundary; every domain query filters on `household_id`. Column names below are the SQLite names, with the Drizzle field in parentheses when it differs.
 
 | Table | Key columns | Constraints and relations |
 |---|---|---|
@@ -120,13 +120,14 @@ Cross-table rules that are enforced in code rather than SQL:
 
 **Public API** — `getDb(): Database`; `getSqlite(): better-sqlite3` instance (calls `getDb()` first if nothing is cached).
 
-**State & side effects** — Module-level `cached` holds both `db` and `sqlite` for the process lifetime, so there is exactly one connection per server process. The first call creates the data directory, calls `createDb(env.DATABASE_URL)` and then `migrate(cached.db)` — migrations run inside the first request (or the first page render) rather than at build time; the file comment states `next build` never calls this. Errors thrown by `migrate` propagate out of `getDb` and surface as route 500s.
+**State & side effects** — Module-level `cached` holds both `db` and `sqlite` for the process lifetime, so there is exactly one connection per server process. The first call validates the production environment (`assertProductionEnv`: explicit `DATABASE_URL`, a 32+ character `BETTER_AUTH_SECRET`, an absolute `BETTER_AUTH_URL`), creates the data directory, calls `createDb(env.DATABASE_URL)` and then `migrate(...)`; migrations run inside the first request (or the first page render) rather than at build time. `cached` is assigned only after `migrate()` succeeds: a failed migration closes the half-open connection, rethrows, and the next request retries instead of serving a half-built schema. Errors surface as route 500s and as a 503 from `/api/health`.
 
-**Depends on / Used by** — `@/lib/env` (`DATABASE_URL`), `./client`, `./migrate`. Called by `app/(app)/layout.tsx`, `app/(app)/page.tsx`, `app/(app)/settings/page.tsx`, `lib/api/route.ts` (`withViewer` passes `db` to every handler), `lib/auth/server.ts` (`getAuth`), and `app/api/health/route.ts` (via `getSqlite`).
+**Depends on / Used by** — `@/lib/env` (`DATABASE_URL` and `assertProductionEnv`), `./client`, `./migrate`. Called by `app/(app)/layout.tsx`, `app/(app)/page.tsx`, `app/(app)/settings/page.tsx`, `lib/api/route.ts` (`withViewer` passes `db` to every handler), `lib/auth/server.ts` (`getAuth`), and `app/api/health/route.ts` (via `getSqlite`).
 
 **Debugging** —
 - First request slow or a burst of migration errors right after deploy -> migrations run lazily on that request -> check the `drizzle/` folder is present in the runtime image.
-- `/api/health` returns 503 -> the singleton could not open or migrate the database -> read the `[health] database check failed` log.
+- `/api/health` returns 503 -> the singleton could not open or migrate the database, or the production environment is invalid -> read the `[health] database check failed` log; the message says which.
+- A migration error keeps repeating on every request -> that is the intended fail-fast: `cached` is never set when `migrate()` throws, so the deploy stays unhealthy instead of serving a half-built schema. Fix the migration and redeploy.
 - Two connections in one process (e.g. WAL growth, lock contention) -> a script imported `createDb` directly alongside `getDb` -> they are separate handles by design.
 
 **Tests** — No direct coverage; integration tests use `tests/helpers/db.ts` (`makeTestDb`) to avoid the singleton and get an isolated in-memory database.
@@ -137,7 +138,7 @@ Cross-table rules that are enforced in code rather than SQL:
 
 **Public API** — `migrate(db: Database, migrationsFolder = resolve(process.cwd(), "drizzle")): void`.
 
-**State & side effects** — Synchronous. Drizzle records applied entries in its own `__drizzle_migrations` table keyed by the `drizzle/meta/_journal.json` tags; migrations already applied are skipped. No caching, no transaction wrapper written here (the migrator handles ordering). Current journal: `0000_even_morg` (domain tables + indexes), `0001_tiny_falcon` (Better Auth tables), `0002_user_preference`.
+**State & side effects** — Synchronous. Drizzle records applied entries in its own `__drizzle_migrations` table keyed by the `drizzle/meta/_journal.json` tags; migrations already applied are skipped. No caching, no transaction wrapper written here (the migrator handles ordering). Current journal: `0000_even_morg` (domain tables + indexes), `0001_tiny_falcon` (Better Auth tables), `0002_user_preference`, `0003_salty_stranger` (import ledger + external event columns).
 
 **Depends on / Used by** — `drizzle-orm/better-sqlite3/migrator` and `./client` (type only). Called by `lib/db/index.ts`, `tests/helpers/db.ts`, and the scripts `migrate.mts`, `provision.mts`, `backup.mts`, `reset-password.mts`, `seed-test-db.mts`.
 
@@ -391,7 +392,7 @@ All four modules export plain Zod schemas (no I/O). Handlers parse the JSON body
 
 - **Two timestamp conventions.** Domain tables (`household`, `member`, `calendar`, `event`, `user_preference`) store `integer` epoch ms filled by `$defaultFn(() => Date.now())` and hydrate as `number`. Better Auth tables use `mode: "timestamp_ms"` and hydrate as `Date`. Any comparison or arithmetic across the two families must convert.
 - **`event.end_date` is inclusive.** All-day rows carry local `YYYY-MM-DD` in `start_date`/`end_date`; `CalendarShell` subtracts one day when a drag produces FullCalendar's exclusive end. Timed rows carry UTC ms in `start_at`/`end_at` and leave both date columns null.
-- **WAL + one writer.** `createDb` sets `journal_mode = WAL` and `foreign_keys = ON`; there is one connection per server process (`getDb`) but each script opens its own, so a running dev server and a script both writing will block each other. `data/planner.db-wal`/`-shm` are expected files; a stale `-wal` after an abrupt kill is not corruption.
+- **WAL + one writer.** `createDb` sets `journal_mode = WAL`, `foreign_keys = ON` and `busy_timeout = 15000`; there is one connection per server process (`getDb`) but each script opens its own, so a running dev server and a script both writing will block each other (up to 15 s before `database is locked`). `data/planner.db-wal`/`-shm` are expected files; a stale `-wal` after an abrupt kill is not corruption.
 - **Migrations run on the first request, not at build.** `getDb()` creates the directory, opens the database and calls `migrate()` lazily, and the default migrations folder is `resolve(process.cwd(), "drizzle")` — cwd-sensitive for scripts.
 - **Query keys are three families plus a prefix trick.** `["calendars"]`, `["events", from, to]`, `["events", "search", normalized]`, `["preferences"]`. Event mutations use `setQueriesData`/`invalidateQueries` with the `["events"]` prefix, so they also write optimistic temp rows into and refetch search results. Calendar delete invalidates both families; preferences mutations never invalidate (they `setQueryData` the PATCH response, guarded by a `latestIssued` sequence ref).
 - **Optimistic writes are global, rollback is wholesale.** Every cached `["events"]` range is patched, and rollback restores the full snapshot taken in `onMutate` — undo is a separate mechanism (`lib/ui/undo.ts`) that replays the opposite mutation, so an undone create produces a new event id.

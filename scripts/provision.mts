@@ -45,6 +45,25 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Validate everything before touching the database: a weak password used to
+  // fail at sign-up time, after the household and the first account existed,
+  // leaving a half-provisioned instance behind.
+  const problems: string[] = [];
+  for (const [index, seed] of seeds.entries()) {
+    const label = `SEED_USER_${index + 1}`;
+    if (!seed.email.includes("@")) {
+      problems.push(`${label}_EMAIL is not an email address: ${seed.email}`);
+    }
+    if (seed.password.length < 12) {
+      problems.push(`${label}_PASSWORD must be at least 12 characters (Better Auth's minimum).`);
+    }
+  }
+  if (problems.length > 0) {
+    console.error(`Refusing to provision:\n- ${problems.join("\n- ")}`);
+    process.exitCode = 1;
+    return;
+  }
+
   const { db, sqlite } = createDb(env.DATABASE_URL);
   migrate(db);
 

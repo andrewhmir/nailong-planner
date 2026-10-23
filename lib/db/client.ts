@@ -17,6 +17,11 @@ export function createDb(databaseUrl: string) {
   const sqlite = new Database(path);
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("foreign_keys = ON");
+  // A large import commits one transaction per batch (~4.8 s for 2000 events with
+  // the 50 000-event cap above that); better-sqlite3's implicit 5 s busy timeout
+  // would make a concurrent writer fail with "database is locked" just before it
+  // succeeded. 15 s covers the realistic worst case without hiding a deadlock.
+  sqlite.pragma("busy_timeout = 15000");
   const db = drizzle(sqlite, { schema });
   return { db, sqlite };
 }

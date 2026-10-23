@@ -31,6 +31,38 @@ export function loadFixtures(): Fixtures {
 export const ANDREW = "andrew@example.test";
 export const PARTNER = "partner@example.test";
 
+/**
+ * "October 2026" for the month the app is showing. The grid renders the
+ * household's current month, so specs must not hardcode a month literal —
+ * literals were why this suite was green only during October 2026.
+ */
+export function currentMonthLabel(timeZone = "Asia/Taipei"): string {
+  return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone }).format(
+    new Date(),
+  );
+}
+
+/** "22 Oct" in the current month, for the details dialog's occurrence heading. */
+export function dayMonthLabel(day: number): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    timeZone: "Asia/Taipei",
+  }).formatToParts(new Date());
+  const year = Number(parts.find((part) => part.type === "year")!.value);
+  const month = Number(parts.find((part) => part.type === "month")!.value);
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(
+    new Date(year, month - 1, day, 12),
+  );
+}
+
+/** "Oct" — the short month name the details dialog prints. */
+export function monthShortLabel(): string {
+  return new Intl.DateTimeFormat("en-GB", { month: "short", timeZone: "Asia/Taipei" }).format(
+    new Date(),
+  );
+}
+
 export async function signIn(page: Page, email: string, password: string): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);

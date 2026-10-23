@@ -208,6 +208,25 @@ export function updateEvent(
 }
 
 /**
+ * Reads the stored `exdates` JSON defensively. The read path already ignores a
+ * corrupt column; the write path used to `JSON.parse` it strictly, so a single
+ * corrupt row turned "delete this occurrence" into a 500 with no repair path.
+ */
+function parseStoredExdates(raw: string | null): string[] {
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Deletes a whole event, or for a recurring series appends one occurrence to
  * `exdates` when `scope` is "this" (idempotent).
  */
@@ -231,7 +250,7 @@ export function deleteEvent(
     });
   }
 
-  const existing: string[] = row.exdates ? (JSON.parse(row.exdates) as string[]) : [];
+  const existing = parseStoredExdates(row.exdates);
   if (!existing.includes(occurrenceStart)) {
     existing.push(occurrenceStart);
   }

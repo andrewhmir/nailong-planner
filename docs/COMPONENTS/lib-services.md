@@ -179,7 +179,7 @@ Truth table: not view-only -> `true` for any viewer; view-only and `ownerId === 
 - Commit resolves targets: `{ mode: "new" }` reuses an existing child of an import root by name (still passing the same `getCalendarAccess`/`assertCalendarWritable` check as an explicit mapping), otherwise creates the root (`From Google`, then `From Google 2`… with the next unused hue family) and the child; `{ mode: "existing" }` goes through the same permission pair, so a view-only target is refused with 403 and nothing is written.
 - Idempotency is `(household_id, external_key)`: an unknown key inserts; a matching `externalContentHash` **and the same target calendar** counts `unchanged` and writes nothing; a different hash **or a different mapped calendar** updates the imported fields (including `calendarId`) and records an `update` change whose `before_json` is the previous row.
 - Ledger: one `import_batch` (`status: committed`, JSON `mapping`/`report` include `createdCalendarIds` for the undo) plus one `import_change` per inserted/updated event.
-- Rollback deletes `create` rows and restores `update` rows from `before_json` (including the row's previous `updatedAt`, so restoring an earlier batch does not look like a user edit), **skipping any event whose `updatedAt` is newer than the batch** (the user edited it after the import) and reporting it as `skipped`; then deletes the empty calendars it created, children before the root. A second rollback is a 409.
+- Rollback deletes `create` rows and restores `update` rows from `before_json` (including the row's previous `updatedAt`, so restoring an earlier batch does not look like a user edit), **skipping any event whose `updatedAt` is newer than the batch** (the user edited it after the import) and reporting it as `skipped`; then deletes the empty calendars it created, children before the root. Before mutating anything it re-checks `assertCalendarWritable` for every calendar the rollback would touch (the current row's calendar and the `before_json` calendar), so the partner cannot undo an import that targeted the owner's view-only calendar — a refusal rolls the whole transaction back and leaves the batch `committed`. A second rollback is a 409.
 
 **Depends on / Used by** — `lib/import/ics.ts` (`parseIcs`), `calendar`/`event`/`household`/`importBatch`/`importChange`, `lib/color/palette` (`HUE_FAMILIES`, `MAX_CHILDREN`, `HueFamily`), `./calendars` (`createCalendar`, `getCalendarAccess`, `assertCalendarWritable`). Will be used by `lib/api/handlers/import.ts` and the `/settings/import` wizard.
 
@@ -190,7 +190,7 @@ Truth table: not view-only -> `true` for any viewer; view-only and `ownerId === 
 - Undo left an event behind -> it was edited after the import (`skipped`) or it was imported by an earlier batch -> check `import_change.batch_id` and the event's `updated_at`.
 - Undo left `From Google` behind -> it still holds events from another batch -> `calendarsCreated` cleanup only removes empty calendars.
 
-**Tests** — `tests/integration/import-service.test.ts` (preview counts, commit, idempotent re-import, update isolation, view-only refusal, unknown timezone, size limit, rollback and skip rule, batch history).
+**Tests** — `tests/integration/import-service.test.ts` (preview counts, commit, idempotent re-import, update isolation, view-only refusal, unknown timezone, size limit, rollback and skip rule, rollback permission check, batch history).
 
 ## Focused verification
 

@@ -1,9 +1,24 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { ANDREW, loadFixtures, signIn } from "./helpers";
 
 const fixtures = loadFixtures();
 const sample = path.resolve("tests/fixtures/ics/google-sample.ics");
+
+/**
+ * The fixture is a static Google export, so its events sit in a fixed month.
+ * The calendar shows the current month, so navigate to the imported events'
+ * month instead of assuming the fixture is "now" (it was October 2026, which
+ * made this spec fail in every other month).
+ */
+function fixtureMonthDay(): string {
+  const match = readFileSync(sample, "utf8").match(/DTSTART[^:\r\n]*:(\d{4})(\d{2})(\d{2})/);
+  if (!match) {
+    throw new Error("google-sample.ics has no DTSTART to derive a month from");
+  }
+  return `${match[1]}-${match[2]}-${match[3]}`;
+}
 
 // The first hit compiles the route on a cold `.next-e2e`; leave room for that.
 test.setTimeout(120_000);
@@ -29,6 +44,7 @@ test("imports a Google export, shows it on the calendar, and undoes it", async (
 
   await page.getByRole("link", { name: "Go to calendar" }).click();
   await page.waitForURL("/");
+  await page.goto(`/?date=${fixtureMonthDay()}`);
   await expect(page.getByText("Dentist appointment")).toBeVisible();
 
   // The report step is gone after navigating, so undo from the history table.
@@ -39,6 +55,6 @@ test("imports a Google export, shows it on the calendar, and undoes it", async (
   await expect(page.getByText("Import undone")).toBeVisible();
   await expect(page.getByRole("cell", { name: "Undone" })).toBeVisible();
 
-  await page.goto("/");
+  await page.goto(`/?date=${fixtureMonthDay()}`);
   await expect(page.getByText("Dentist appointment")).toHaveCount(0);
 });

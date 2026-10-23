@@ -28,7 +28,7 @@ app/api/events/route.ts        GET/POST = withViewer(({ db, ctx, request }) => h
 
 1. Next calls the exported `GET`/`POST`/`PATCH`/`DELETE` in `app/api/**/route.ts`. Each file sets `export const dynamic = "force-dynamic"` and delegates in a single expression. Routes with a dynamic segment await `context.params` (a `Promise` in Next 16) and pass `{ id }` as `withViewer`'s second argument, which becomes part of the handler args.
 2. `withViewer` calls `viewerFromRequest`: `getAuth().api.getSession({ headers: request.headers })`, then reads the `member` row for `session.user.id`. No session throws `UNAUTHENTICATED` 401; no membership throws `FORBIDDEN` 403. The resulting `ctx` is `{ userId, householdId }` — `householdId` always comes from the `member` table, never from the URL, query or body.
-3. `withViewer` opens the singleton `getDb()` and calls the handler with `{ ctx, session, db, request, ...extra }`, catching anything thrown and returning `apiError(error)`.
+3. `withViewer` runs `assertSameOrigin(request)` and opens the singleton `getDb()`, then calls the handler with `{ ctx, session, db, request, ...extra }`, catching anything thrown and returning `apiError(error)`. `assertSameOrigin` rejects a non-GET request whose `Origin` is neither the request's own origin nor `BETTER_AUTH_URL`, and any request carrying `Sec-Fetch-Site: cross-site`, with 403 `FORBIDDEN`; requests without an `Origin` header (scripts, integration tests) pass. This is the CSRF guard: `SameSite=Lax` does not separate sibling hosts on Railway's default `*.up.railway.app` domain, which is not on the Public Suffix List.
 4. The handler itself is wrapped in `guarded` (same mapping). That duplication is deliberate: integration tests call handlers directly with a `db` and `ctx` and still get real `Response` objects. Handlers never authenticate; they only validate and delegate.
 5. Handler order: read `new URL(request.url).searchParams` or `readJson(request)`; `schema.safeParse`; on failure `throw fieldErrors(parsed.error)`; call one service function; wrap the result in `NextResponse.json`.
 6. `apiError` serialises `{ error: { code, message, fields? } }` with `error.status`. Any non-`AppError` logs `[api] unhandled error` and becomes `{ error: { code: "INTERNAL", message: "Something went wrong." } }` with 500.
@@ -47,23 +47,25 @@ app/api/events/route.ts        GET/POST = withViewer(({ db, ctx, request }) => h
 
 **Purpose** — Turns a standard `Request` into an authenticated `RouteArgs` (`ctx`, `session`, `db`, `request`) and turns any thrown `AppError` back into the API's JSON error envelope.
 
-**Public API** — `AppSession` = the non-null session type from `getAuth().api.getSession`; `RouteArgs` interface; `viewerFromRequest(request: Request): Promise<{ ctx: ViewerContext; session: AppSession }>`; `apiError(error: unknown): NextResponse`; `withViewer<Extra extends object = object>(handler: (args: RouteArgs & Extra) => Promise<Response> | Response): (request: Request, extra?: Extra) => Promise<Response>`.
+**Public API** — `AppSession` = the non-null session type from `getAuth().api.getSession`; `RouteArgs` interface; `viewerFromRequest(request: Request): Promise<{ ctx: ViewerContext; session: AppSession }>`; `apiError(error: unknown): NextResponse`; `assertSameOrigin(request: Request): void` (exported so `tests/unit/route-origin.test.ts` can exercise it); `withViewer<Extra extends object = object>(handler: (args: RouteArgs & Extra) => Promise<Response> | Response): (request: Request, extra?: Extra) => Promise<Response>`.
 
 - `viewerFromRequest` throws `AppError("UNAUTHENTICATED", "Sign in to continue.", 401)` or `AppError("FORBIDDEN", "Your account is not part of this household.", 403)`.
+- `assertSameOrigin` throws `AppError("FORBIDDEN", "Cross-origin request rejected.", 403)`; it reads `Origin` and `Sec-Fetch-Site`, and needs no database.
 - `apiError` never throws; it returns the envelope and preserves `fields` only when present.
 - `withViewer` catches handler errors as well as resolution errors, so a route never needs its own `try/catch`.
 
 **State & side effects** — Reads the session cookie through Better Auth and the `member` table (read-only); opens the shared DB via `getDb()`; logs unhandled errors to the server console with the `[api]` prefix. No writes, no transactions, no caching.
 
-**Depends on / Used by** — `next/server` `NextResponse`, `getAuth` from `lib/auth/server.ts`, `getDb` from `lib/db/index.ts`, `member` from `lib/db/schema.ts`, `AppError` from `lib/errors.ts`, `ViewerContext` from `lib/services/permissions.ts`. Used by every `app/api/**/route.ts` (`calendars`, `calendars/[id]`, `events`, `events/[id]`, `events/search`, `settings/*`, `session`); `lib/api/handlers/support.ts` imports `apiError` from here; `tests/integration/calendars-api.test.ts` uses `withViewer` to assert the 401 envelope.
+**Depends on / Used by** — `next/server` `NextResponse`, `getAuth` from `lib/auth/server.ts`, `getDb` from `lib/db/index.ts`, `member` from `lib/db/schema.ts`, `env` from `lib/env.ts` (the trusted origin), `AppError` from `lib/errors.ts`, `ViewerContext` from `lib/services/permissions.ts`. Used by every `app/api/**/route.ts` (`calendars`, `calendars/[id]`, `events`, `events/[id]`, `events/search`, `settings/*`, `session`); `lib/api/handlers/support.ts` imports `apiError` from here; `tests/integration/calendars-api.test.ts` uses `withViewer` to assert the 401 envelope.
 
 **Debugging**
 - Every route 401s locally -> no valid Better Auth cookie, or the auth handler and the route resolve different `getAuth()` settings -> start at `viewerFromRequest` (`getAuth().api.getSession`).
 - A freshly signed-up user gets 403 "not part of this household" -> no `member` row; provisioning (`scripts/provision.mts` -> `addMember`) never ran -> query the `member` table by `user_id`.
+- A browser write returns 403 "Cross-origin request rejected" while curl works -> the page's origin differs from both the request host and `BETTER_AUTH_URL` (wrong scheme, `www.`, a proxy that rewrites `Host`) -> fix `BETTER_AUTH_URL`, or check a reverse proxy is forwarding the original host.
 - A route returns 500 with `[api] unhandled error` in the log -> a non-`AppError` escaped a service (`TypeError`, SQL constraint, `JSON.parse`) -> read the logged stack, then the service named there.
 - A client fails to parse the response on a delete -> 204 routes return `new Response(null, { status: 204 })`, which has no JSON body.
 
-**Tests** — `tests/integration/calendars-api.test.ts` (unauthenticated 401 envelope, directly through `withViewer`); every handler integration test exercises `withViewer`'s error mapping indirectly.
+**Tests** — `tests/integration/calendars-api.test.ts` (unauthenticated 401 envelope, directly through `withViewer`); `tests/unit/route-origin.test.ts` (same-origin, no-Origin, foreign-Origin, `Sec-Fetch-Site`, read bypass); every handler integration test exercises `withViewer`'s error mapping indirectly.
 
 ### lib/api/handlers/calendars.ts
 
@@ -160,6 +162,8 @@ Private helpers: `pad2`, `currentMonthRange` (household timezone -> first of thi
 **State & side effects** — Reads the uploaded text into memory (the service enforces the 5 MB / 20-file / 50 000-event caps); the handlers themselves write nothing. A missing or malformed `mapping` field is `400 VALIDATION` before the service runs; a non-object mapping is rejected with `fields.mapping`. Every other status (403/404/409) comes from the service and travels through `guarded` -> `apiError` unchanged.
 
 **Depends on / Used by** — `guarded` from `./support`, `AppError`, `Database`, `ViewerContext`, and the four service functions. Used by `app/api/import/preview/route.ts`, `app/api/import/commit/route.ts`, `app/api/import/batches/route.ts` and `app/api/import/batches/[id]/rollback/route.ts`; those routes only add `withViewer` plus `dynamic = "force-dynamic"`.
+
+**Limits** — a body over 25 MB is rejected from `content-length` before `formData()` buffers it (413), then per-file 5 MB and at most 20 files (400). The service still enforces its own 5 MB/50 000-event caps.
 
 **Debugging**
 - 400 "Send the export as multipart/form-data." -> the client posted JSON or an empty body -> check the `FormData` construction in `components/import/ImportWizard.tsx`.

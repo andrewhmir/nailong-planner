@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ANDREW, loadFixtures, PARTNER, signIn } from "./helpers";
+import { ANDREW, dayMonthLabel, loadFixtures, monthShortLabel, PARTNER, signIn } from "./helpers";
 
 const fixtures = loadFixtures();
 
@@ -22,8 +22,13 @@ test.describe("details as the owner", () => {
     await occurrences.nth(1).click();
 
     const dialog = page.getByRole("dialog");
-    await expect(dialog).toContainText(/2[0-9] Oct/);
-    await expect(dialog).not.toContainText(/15 Oct/);
+    // The seed anchors "Weekly class" on the 15th of the current month with
+    // BYDAY=TU, so the rendered occurrences are the Tuesdays after it (the 20th
+    // and 27th in a month like October 2026) — the series start itself is not one
+    // of them. Assert the dialog shows a day in this month that is not the 15th,
+    // rather than a hardcoded month or a fixed occurrence number.
+    await expect(dialog).toContainText(new RegExp(`\\d{1,2} ${monthShortLabel()}`));
+    await expect(dialog).not.toContainText(new RegExp(dayMonthLabel(15)));
   });
 
   test("Escape closes the details and returns focus to the event", async ({ page }) => {

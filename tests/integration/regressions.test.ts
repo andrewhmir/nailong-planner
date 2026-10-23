@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { AppError } from "@/lib/errors";
 import { createCalendar, updateCalendar } from "@/lib/services/calendars";
@@ -132,6 +133,55 @@ describe("event patch regressions", () => {
       ).toBeGreaterThan(0);
     } finally {
       close();
+    }
+  });
+});
+
+describe("production-readiness UAT regressions", () => {
+  it("deletes one occurrence of a series whose stored exdates JSON is corrupt", async () => {
+    const { db, close, ctxA } = await makeSeededDb();
+    try {
+      const { event: eventTable } = await import("@/lib/db/schema");
+      const { deleteEvent } = await import("@/lib/services/events");
+      const school = createCalendar(db, ctxA, {
+        name: "School",
+        hueFamily: "indigo",
+        ownerId: "user-a",
+      });
+      const series = createEvent(db, ctxA, {
+        calendarId: school.id,
+        title: "Weekly",
+        allDay: false,
+        startAt: at("2026-10-20T09:00"),
+        endAt: at("2026-10-20T10:00"),
+        rrule: "FREQ=WEEKLY;BYDAY=TU",
+      });
+      // Corrupt the column the way an older build could leave it.
+      db.update(eventTable).set({ exdates: "not-json" }).where(eq(eventTable.id, series.id)).run();
+
+      expect(() =>
+        deleteEvent(db, ctxA, series.id, {
+          scope: "this",
+          occurrenceStart: "2026-10-27T09:00",
+        }),
+      ).not.toThrow();
+      const row = db.select().from(eventTable).where(eq(eventTable.id, series.id)).get();
+      expect(JSON.parse(row!.exdates!)).toEqual(["2026-10-27T09:00"]);
+    } finally {
+      close();
+    }
+  });
+
+  it("waits out a long import transaction before failing as locked", async () => {
+    const { createDb } = await import("@/lib/db/client");
+    const { sqlite } = createDb(":memory:");
+    try {
+      // A 2000-event commit takes ~4.8 s; better-sqlite3's implicit 5 s timeout
+      // was too close to that.
+      expect(sqlite.pragma("busy_timeout", { simple: true })).toBe(15000);
+      expect(sqlite.pragma("foreign_keys", { simple: true })).toBe(1);
+    } finally {
+      sqlite.close();
     }
   });
 });

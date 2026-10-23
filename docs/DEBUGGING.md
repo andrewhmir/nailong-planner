@@ -130,8 +130,10 @@ The request pipeline in one line:
 - **Household scoping happens before the permission check**, and out-of-household
   ids surface as `NOT_FOUND` 404 — never 403. A 403 means "your account is not in
   this household" (missing `member` row).
-- No service opens a database transaction: a multi-statement change (event upsert
-  + `exdates` append) is not atomic. Do not assume all-or-nothing writes.
+- Import commit and rollback are the two places that open a `db.transaction`; ordinary
+  calendar/event writes are single statements. A multi-statement non-import change
+  (event upsert + `exdates` append) is still not atomic — do not assume all-or-nothing
+  writes outside the importer.
 - A missing `member` row means the household was never provisioned → run
   `npm run provision`.
 
@@ -245,6 +247,16 @@ any wrapper in the shell/calendar tree.
 | Header search field widens when clicked/focused | the results panel's `w-[26rem]` sat on an in-flow wrapper inside the shrink-to-fit header block, so the `w-full` field grew with it | `components/calendar/SearchBox.tsx`, `components/calendar/SearchResultsOverlay.tsx`; `tests/e2e/search.spec.ts` "does not resize the search field" |
 | A focused field's ring is clipped on one side inside a dialog | an `overflow-y-auto` scroll area clips at its padding box; the 2px outline sits 2px outside the field, so a field flush with that edge loses 4px of ring. Give the scroll area horizontal padding, never just the side the scrollbar sits on | the scroll area's `px-*` in `components/calendar/EventDialog.tsx`; `tests/e2e/events.spec.ts` "keeps the focused field's ring clear of its scroll edges" |
 | `docs:check` fails | a source file was added/moved/deleted without its `### <path>` section | output names the heading and the doc to edit |
+| Deploy never turns healthy, `/api/health` 503, log says `SQLITE_CANTOPEN` or "database check failed" | the mounted volume is not writable by the `app` user, or `DATABASE_URL` points somewhere unmountable | `docker-entrypoint.sh` chowns `$DATA_DIR` at start; check the Railway volume is at `/data` and `DATA_DIR` matches it |
+| Container exits with `getaddrinfo ENOTFOUND`, or health checks fail while the server logs "Ready" | `HOSTNAME` was overridden: the standalone `server.js` binds `process.env.HOSTNAME` verbatim and Docker sets it to the container id | keep `ENV HOSTNAME=0.0.0.0` from the Dockerfile; never set `HOSTNAME` as a service variable |
+| Sign-in fails with "Incorrect email or password" but the log shows `403 INVALID_ORIGIN` / `MISSING_OR_NULL_ORIGIN` | `BETTER_AUTH_URL` is not the exact origin the browser sends (scheme, host, trailing slash) — `LoginForm` collapses every non-429 failure into the password message | set `BETTER_AUTH_URL` to the public origin; a `curl` with `-H "Origin: <origin>"` against `/api/auth/sign-in/email` reproduces it |
+| A browser write returns 403 `Cross-origin request rejected` while curl/tests work | `assertSameOrigin` rejected a foreign `Origin` (or `Sec-Fetch-Site: cross-site`); a proxy may be rewriting `Host` | `lib/api/route.ts` `assertSameOrigin`, then fix `BETTER_AUTH_URL` / proxy host forwarding |
+| A migration error repeats on every request and the deploy keeps restarting | intended fail-fast: `getDb()` no longer caches a connection whose `migrate()` threw, so health stays 503 | fix the migration; `/api/health` recovers only after it applies |
+| "Undo this import" returns 403 for the partner | the import targeted a calendar that is view-only for them; rollback re-checks `canWriteCalendar` for every affected calendar | `lib/services/import.ts` `rollbackImportBatch`; try it as the calendar owner |
+| Backup writes into the container filesystem and vanishes on redeploy | default `--out` is `backups/` relative to the image workdir | set `BACKUP_DIR=/data/backups` or pass `--out /data/backups`; `node ops/backup.mjs` in the container |
+| `npm run backup` prints success but the archive is tiny/empty | `DATABASE_URL` was wrong, so the script created a new empty database | the empty-database guard now exits 1; check `DATABASE_URL`, or pass `--allow-empty` deliberately |
+| E2E fails only in some months | a spec hardcoded a month/day instead of deriving it (the October 2026 literals were removed) | use `currentMonthLabel()`/`dayMonthLabel()` from `tests/e2e/helpers.ts`; CI pins `TZ=Asia/Taipei` for the runner |
+| A large import makes a concurrent write fail with `database is locked` | one transaction longer than `busy_timeout` blocks the next writer; 2000 events take ~4.8 s | `lib/db/client.ts` sets 15 s; keep single-batch imports under the 50 000-event cap and avoid parallel writers |
 
 ## 5. Adding a feature — the touch list
 

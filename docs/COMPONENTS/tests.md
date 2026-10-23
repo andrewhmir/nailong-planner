@@ -42,6 +42,8 @@ The suites are documented as lookup tables rather than one section per file: fin
 | `tests/unit/calendarPicker.test.ts` | Picker rows and depth, expand/collapse, parent vs assigned shade colours, slate fallback, auto-expand for a selected child | `npx vitest run tests/unit/calendarPicker.test.ts` |
 | `tests/unit/icons.test.ts` | Icon contract: 1.5px `currentColor` stroke, no fill, 20px default, `aria-hidden` unless a `title` is given | `npx vitest run tests/unit/icons.test.ts` |
 | `tests/unit/roadmap.test.ts` | `APP_VERSION` matches `package.json`; unique roadmap ids and hrefs; exactly one promised version; `gateLabel` wording; the live set is Calendar + Settings | `npx vitest run tests/unit/roadmap.test.ts` |
+| `tests/unit/env.test.ts` | `assertProductionEnv`: no-op outside production, complete env, missing/short `BETTER_AUTH_SECRET`, implicit `DATABASE_URL`, non-absolute `BETTER_AUTH_URL`, http/localhost warning | `npx vitest run tests/unit/env.test.ts` |
+| `tests/unit/route-origin.test.ts` | `assertSameOrigin`: same-origin write allowed, no-Origin callers allowed, foreign `Origin` rejected, `Sec-Fetch-Site: cross-site` rejected, reads unrestricted | `npx vitest run tests/unit/route-origin.test.ts` |
 
 ## Integration tests
 
@@ -55,10 +57,10 @@ The suites are documented as lookup tables rather than one section per file: fin
 | `tests/integration/events-api.test.ts` | Range validation, colour tokens in the response, 403 on every verb for a view-only calendar, `scope=this` idempotency, 201 create, 404 cross-household | `npx vitest run tests/integration/events-api.test.ts` |
 | `tests/integration/settings-api.test.ts` | Household name/timezone/week-start updates and validation; member display-name update | `npx vitest run tests/integration/settings-api.test.ts` |
 | `tests/integration/preferences-api.test.ts` | Defaults without a stored row, partial PATCH persistence, rejection of unknown view/format, per-user scoping | `npx vitest run tests/integration/preferences-api.test.ts` |
-| `tests/integration/regressions.test.ts` | Review-found regressions: a view-only root protects its children, ownership claiming rules, title-only PATCH of an all-day event, refusing a view-only move target | `npx vitest run tests/integration/regressions.test.ts` |
+| `tests/integration/regressions.test.ts` | Review- and UAT-found regressions: a view-only root protects its children, ownership claiming rules, title-only PATCH of an all-day event, refusing a view-only move target, deleting one occurrence of a series with corrupt `exdates`, the 15 s busy timeout | `npx vitest run tests/integration/regressions.test.ts` |
 | `tests/integration/search-api.test.ts` | Title/location/description matching, the two-character floor, household scoping, one row per series, LIKE escaping, title-first ranking and the limit | `npx vitest run tests/integration/search-api.test.ts` |
 | `tests/integration/import-schema.test.ts` | External-key uniqueness per household, many NULL keys, `tzid`/external columns round-trip, `import_change` cascades with its batch | `npx vitest run tests/integration/import-schema.test.ts` |
-| `tests/integration/import-service.test.ts` | Preview without writes, transactional commit and calendar creation, idempotent re-import, in-place update with `before_json`, view-only refusal, unknown-TZID warning, size cap, rollback and the edited-after-import skip rule, batch history | `npx vitest run tests/integration/import-service.test.ts` |
+| `tests/integration/import-service.test.ts` | Preview without writes, transactional commit and calendar creation, idempotent re-import, in-place update with `before_json`, view-only refusal, unknown-TZID warning, size cap, rollback and the edited-after-import skip rule, rollback permission check, batch history | `npx vitest run tests/integration/import-service.test.ts` |
 | `tests/integration/import-api.test.ts` | Multipart preview/commit through the handlers, missing/malformed mapping 400s, list + rollback status codes (409/404), `withViewer` wiring | `npx vitest run tests/integration/import-api.test.ts` |
 
 ## E2E specs
@@ -127,6 +129,9 @@ The suites are documented as lookup tables rather than one section per file: fin
 | Schema, foreign keys and tenancy | `tests/integration/db.test.ts`; the cross-household 404s in `tests/integration/calendars-api.test.ts` and `events-api.test.ts` |
 | Event payload building | `tests/unit/event-payload.test.ts`; the occurrence mapping in `tests/unit/toFcEvent.test.ts` |
 | Icon contract | `tests/unit/icons.test.ts` |
+| Production environment validation | `tests/unit/env.test.ts`; the 503 in `app/api/health/route.ts` |
+| CSRF / same-origin writes | `tests/unit/route-origin.test.ts`; the foreign-Origin refusal documented in `COMPONENTS/api-layer.md` |
+| Month-relative E2E dates | `currentMonthLabel()`/`dayMonthLabel()` in `tests/e2e/helpers.ts`; `tests/e2e/view-preference.spec.ts`, `tests/e2e/details.spec.ts`, `tests/e2e/import.spec.ts` derive the month instead of hardcoding it. CI pins `TZ=Asia/Taipei` for the Node runner too (`.github/workflows/ci.yml`). |
 
 ## Focused verification
 

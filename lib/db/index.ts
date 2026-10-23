@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { env } from "@/lib/env";
+import { assertProductionEnv, env } from "@/lib/env";
 import { createDb, resolveDatabasePath } from "./client";
 import { migrate } from "./migrate";
 
@@ -12,12 +12,21 @@ let cached: ReturnType<typeof createDb> | undefined;
  */
 export function getDb(): ReturnType<typeof createDb>["db"] {
   if (!cached) {
+    assertProductionEnv();
     const path = resolveDatabasePath(env.DATABASE_URL);
     if (path !== ":memory:") {
       mkdirSync(dirname(path), { recursive: true });
     }
-    cached = createDb(env.DATABASE_URL);
-    migrate(cached.db);
+    const opened = createDb(env.DATABASE_URL);
+    try {
+      migrate(opened.db);
+    } catch (error) {
+      // A failed migration must not be cached as usable: the next request would
+      // skip migrate(), report healthy and serve a half-built schema.
+      opened.sqlite.close();
+      throw error;
+    }
+    cached = opened;
   }
   return cached.db;
 }

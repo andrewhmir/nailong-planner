@@ -11,7 +11,7 @@ This area covers everything that is not a click path: the `.mts` scripts under `
 | `scripts/provision.mts` | Creates the two household accounts from `SEED_USER_*` env vars |
 | `scripts/reset-password.mts` | Sets a new password for one account and revokes its sessions |
 | `scripts/backup.mts` | Online SQLite backup, gzipped, with 14-file retention |
-| `scripts/restore-check.mts` | Opens a backup and prints row counts; non-zero exit if it looks empty |
+| `scripts/restore-check.mts` | Opens a backup, runs `PRAGMA integrity_check` and prints row counts; non-zero exit if it looks empty or corrupt |
 | `scripts/seed-test-db.mts` | Truncates and reseeds `.playwright/test.db` plus `.playwright/fixtures.json` for E2E |
 | `drizzle/0000_even_morg.sql` | Domain schema: `household`, `member`, `calendar`, `event` |
 | `drizzle/0001_tiny_falcon.sql` | Better Auth core tables: `user`, `session`, `account`, `verification`, `two_factor` |
@@ -82,18 +82,33 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 
 **Tests / verified by** — `tests/integration/preferences-api.test.ts`; `tests/e2e/preferences.spec.ts` and `tests/e2e/view-preference.spec.ts` exercise the same fields through the UI.
 
+### drizzle/0003_salty_stranger.sql
+
+**Purpose** — Adds the Google Calendar import identity and its undo ledger: the two `import_*` tables plus the external-id columns on `event`.
+
+**Invocation / wiring** — Same migrator path as the earlier files. `lib/services/import.ts` is the only reader/writer of the new tables.
+
+**Behaviour & side effects** — Creates `import_batch` (`household_id` cascade, `created_by`, `source_name`, `status` default `committed`, JSON `mapping`/`report`, `created_at`, `rolled_back_at`; index `import_batch_household_idx`) and `import_change` (`batch_id` cascade, `event_id` with no foreign key, `action`, `before_json`, `created_at`; index `import_change_batch_idx`). Adds `tzid`, `external_source`, `external_uid`, `external_recurrence_id`, `external_key`, `external_content_hash` to `event`, then a unique index `event_household_external_key_idx` on `(household_id, external_key)` — the idempotency key for re-imports.
+
+**Gotchas** —
+- The unique index allows many NULL keys (SQLite treats NULLs as distinct), so hand-created events are unaffected; `external_key` must stay null unless the importer sets it.
+- `import_change.event_id` has no foreign key on purpose: the ledger has to survive the event being deleted, which is exactly what an undo does.
+- Re-import matches on `(household_id, external_key)`, so changing how a key is computed makes existing rows look new and duplicates them.
+
+**Tests / verified by** — `tests/integration/import-schema.test.ts` (uniqueness, NULL keys, tzid/external round-trip, cascade), `tests/integration/import-service.test.ts` (the ledger behaviour).
+
 ### drizzle/meta/_journal.json
 
 **Purpose** — The migrator's ordered index: `version`/`dialect` plus one entry per migration with `idx`, `tag`, `when` and `breakpoints`.
 
 **Invocation / wiring** — Read by `drizzle-orm`'s migrator at runtime and by `drizzle-kit` when generating. No application code imports it.
 
-**Behaviour & side effects** — Lists `0000_even_morg`, `0001_tiny_falcon` and `0002_user_preference` with increasing `when` timestamps. The `tag` must equal the SQL filename without `.sql`. Applied migrations are recorded in the database's own `__drizzle_migrations` table, so re-running is a no-op.
+**Behaviour & side effects** — Lists `0000_even_morg`, `0001_tiny_falcon`, `0002_user_preference` and `0003_salty_stranger` with increasing `when` timestamps. The `tag` must equal the SQL filename without `.sql`. Applied migrations are recorded in the database's own `__drizzle_migrations` table, so re-running is a no-op.
 
 **Gotchas** —
 - A `.sql` file that is not listed here is never applied, even though it sits in `drizzle/`.
 - Renaming a tag makes an already-migrated database try to apply the renamed file again.
-- `0002` is hand-named (the first two carry drizzle-kit's generated names), so a future `db:generate` will not follow the same pattern; keep the journal entry in sync manually.
+- `0002` and `0003` are hand-named (the first two carry drizzle-kit's generated names), so a future `db:generate` will not follow the same pattern; keep the journal entry in sync manually.
 
 **Tests / verified by** — Indirect only: every integration test migrates through this journal.
 
@@ -149,13 +164,13 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 
 **Purpose** — Takes a consistent snapshot of the live SQLite database using better-sqlite3's online backup API and stores it gzipped.
 
-**Invocation / wiring** — `npm run backup`, optionally `npm run backup -- --out .dev/backups`. One flag: `--out <dir>`, default `backups`. No npm script wraps it in CI; `docs/OPERATIONS.md` schedules it nightly.
+**Invocation / wiring** — `npm run backup`, optionally `npm run backup -- --out .dev/backups`. Flags: `--out <dir>` (default `$BACKUP_DIR` or `backups`), `--allow-empty`. In the container, `railway ssh -- node ops/backup.mjs --out /data/backups`; set `BACKUP_DIR=/data/backups` to make that the default.
 
-**Behaviour & side effects** — Loads env, opens the database, applies pending migrations (so the archive always has the current schema), writes `planner-<ISO timestamp>.db` via `sqlite.backup`, gzips it to `.db.gz`, deletes the uncompressed copy, closes the handle, then deletes all but the 14 newest `planner-*.db.gz`. Prints `Backup written: <path>.gz (N kept)`.
+**Behaviour & side effects** — Loads env, opens the database, applies pending migrations (so the archive always has the current schema), refuses an empty database unless `--allow-empty` (a typo'd `DATABASE_URL` used to produce a "successful" empty backup), writes `planner-<ISO timestamp>.db` via `sqlite.backup`, gzips it to `.db.gz`, deletes the uncompressed copy, closes the handle, then deletes all but the 14 newest `planner-*.db.gz`. Prints `Backup written: <path>.gz (N kept in <dir>)`.
 
 **Gotchas** —
-- The default output directory is `backups/`, but `scripts/restore-check.mts` reads `.dev/backups/`; pass `--out .dev/backups` to make the restore drill work, as `docs/OPERATIONS.md` does.
-- Running `migrate` first means a mistyped `DATABASE_URL` produces a valid-looking but empty backup instead of an error, because `createDb` creates the file and its directories.
+- The default output directory is `backups/` — inside a container that is the image filesystem, so it disappears on redeploy. Point `BACKUP_DIR` at the volume, or pass `--out /data/backups`.
+- Running `migrate` first means a mistyped `DATABASE_URL` creates a valid-looking empty database; the empty-database guard is what stops that from turning into a backup.
 - Retention is lexicographic over ISO-stamped names; keep the `planner-` prefix and the timestamp format or pruning stops matching.
 
 **Tests / verified by** — Manual only. `docs/OPERATIONS.md` documents the backup-plus-`restore-check` drill.
@@ -164,14 +179,14 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 
 **Purpose** — Proves a backup is readable and non-empty by decompressing it into a temporary directory, opening it with better-sqlite3, and printing row counts.
 
-**Invocation / wiring** — Run directly: `npx tsx scripts/restore-check.mts --backup .dev/backups/<file>.db.gz`. There is no `package.json` script for it. It does not call `loadEnv()`.
+**Invocation / wiring** — `npm run restore-check` (`tsx scripts/restore-check.mts`). Flags: `--backup <file.db.gz>` or `--dir <directory>` (default `.dev/backups`, newest archive wins). It does not call `loadEnv()`.
 
-**Behaviour & side effects** — Lists `.db.gz` files in `.dev/backups` (newest first) unless `--backup <path>` names one, gunzips into `mkdtempSync(tmpdir())`, counts rows in `household`, `calendar`, `event` and `user`, deletes the scratch directory, then logs the counts. Exits non-zero when `household` or `user` is zero, or when no usable archive is found. A missing table is reported as `-1`.
+**Behaviour & side effects** — Resolves the archive from `--backup` or the newest `.db.gz` in `--dir`, gunzips into `mkdtempSync(tmpdir())`, opens it read-only, runs `PRAGMA integrity_check`, counts rows in `household`, `calendar`, `event` and `user`, deletes the scratch directory, then logs the integrity result and counts. Exits non-zero when the archive is missing, unreadable, fails the integrity check, or has no household/user rows. A missing table is reported as `-1`, and an empty or missing directory prints a "pass --backup/--dir" hint instead of throwing.
 
 **Gotchas** —
-- The default directory is hardcoded to `.dev/backups`, which is not where `npm run backup` writes unless you pass `--out`.
-- A missing `.dev/backups` directory throws from `readdirSync` before the friendly "No backup found" message, so create the directory or pass an explicit `--backup` path.
-- A backup taken before `0001` has no `user` table, so it reports `-1` and fails the health check even though the domain tables are fine.
+- A backup taken before `0001` has no `user` table, so it reports `-1` and fails the health rule even though the domain tables are fine.
+- The container has no `tsx`; use `railway ssh -- node ops/backup.mjs` to make archives on the volume and run `restore-check` locally on the downloaded file.
+- It decompresses into the OS temp directory, which is a second copy of the database on that machine.
 
 **Tests / verified by** — Manual only; it is the restore drill in `docs/OPERATIONS.md`.
 
@@ -179,15 +194,16 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 
 **Purpose** — Creates the household and exactly two accounts from environment variables, once, on a fresh deployment.
 
-**Invocation / wiring** — `npm run provision` (`tsx scripts/provision.mts`). Requires `SEED_USER_1_NAME/EMAIL/PASSWORD` and `SEED_USER_2_NAME/EMAIL/PASSWORD`; no flags. `docs/OPERATIONS.md` runs it with `railway run npm run provision`, and `.env.example` says to delete the variables afterwards.
+**Invocation / wiring** — `npm run provision` (`tsx scripts/provision.mts`). Requires `SEED_USER_1_NAME/EMAIL/PASSWORD` and `SEED_USER_2_NAME/EMAIL/PASSWORD`; no flags. On Railway, `railway run` executes locally against the service's variables, so it would write a database on your machine: set the six variables on the service and run `railway ssh -- node ops/provision.mjs` instead. `.env.example` says to delete the variables afterwards.
 
-**Behaviour & side effects** — Validates that two complete users exist and that the emails differ (case-insensitively), exits `1` otherwise. Opens and migrates the database, builds an auth instance with `allowSignUp: true`, ensures the household row, then for each seed: an existing email gets a membership row and prints `exists:`; otherwise it refuses once `countUsers` reaches `MAX_USERS` (2) and prints `created:` on success. Ends by printing the household id and a reminder to change both passwords.
+**Behaviour & side effects** — Validates that two complete users exist, that the emails differ (case-insensitively), and — before touching the database — that both emails look like addresses and both passwords are at least 12 characters, so a bad seed cannot leave a half-provisioned instance. Opens and migrates the database, builds an auth instance with `allowSignUp: true`, ensures the household row, then for each seed: an existing email gets a membership row and prints `exists:`; otherwise it refuses once `countUsers` reaches `MAX_USERS` (2) and prints `created:` on success. Ends by printing the household id and a reminder to change both passwords.
 
 **Gotchas** —
-- Better Auth enforces `minPasswordLength: 12`; a shorter `SEED_USER_*_PASSWORD` throws at sign-up rather than printing a friendly error.
+- Better Auth enforces `minPasswordLength: 12`; the preflight catches a shorter `SEED_USER_*_PASSWORD` before any row is written.
 - Re-running is safe for the same emails but adds membership rows only; it never updates an existing password.
 - The credentials pass through the environment, so remove the variables after provisioning and rotate both passwords in Settings.
 - The `MAX_USERS` check runs after the existing-user check, so provisioning into a database that already holds two different accounts stops at the third.
+- Inside the container the runtime image has no `tsx`; the image ships a bundled `ops/provision.mjs` built by `npm run ops:bundle`.
 
 **Tests / verified by** — `tests/integration/auth.test.ts` covers the same `createAuth` sign-up path and the two-account cap; the script itself has no test.
 
@@ -195,7 +211,7 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 
 **Purpose** — The only password-recovery path: it rewrites one account's credential hash and revokes that user's sessions.
 
-**Invocation / wiring** — `npm run reset-password -- --email you@example.com --password 'new-password'`. Both flags are required; documented in `docs/OPERATIONS.md` for host-side recovery.
+**Invocation / wiring** — `npm run reset-password -- --email you@example.com --password 'new-password'`. Both flags are required; documented in `docs/OPERATIONS.md` for host-side recovery. In the container: `railway ssh -- node ops/reset-password.mjs --email … --password …`.
 
 **Behaviour & side effects** — Trims and lowercases the email, rejects a password under 12 characters, opens and migrates the database, finds the user, hashes with Better Auth's `hashPassword`, updates the `account` row where `provider_id = "credential"`, and deletes every `session` row for that user. Prints `Password updated for <email>. Existing sessions were revoked.` Sets `process.exitCode = 1` for a missing flag, short password, unknown email, or an account with no credential row.
 
@@ -216,7 +232,7 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 **Behaviour & side effects** — Creates `.playwright/`, opens and migrates the database, deletes every row from `user_preference`, `event`, `calendar`, `member`, `two_factor`, `session`, `account`, `verification`, `household` and `user` in that order (truncate rather than delete the file, because a dev server may still hold the handle), signs up `andrew@example.test` and `partner@example.test` with password `test-password-1234`, creates the `Our Nest` household, builds the calendar tree (Household/Chores/Trips, School/Math/Biology, Work/On-call with Work view-only, Health/Gym), and creates `Math quiz`, `Kyoto trip`, `Weekly class` (weekly on Tuesday) and `On-call shift` on the 15th and 20th of the current month. Writes `.playwright/fixtures.json` and prints the counts.
 
 **Gotchas** —
-- The fixtures are relative to "now", so a spec that hardcodes a month (`tests/e2e/view-preference.spec.ts` expects `October 2026`) only passes while the machine clock agrees.
+- The fixtures are relative to "now" (four events on the 15th/20th of the current month). Specs must derive the month/day from the clock — `currentMonthLabel()` and `dayMonthLabel()` in `tests/e2e/helpers.ts` — instead of hardcoding a month literal.
 - The deletion order is load-bearing: foreign keys are on, so truncating `user` before `session`/`account` fails.
 - The secret here must equal the one in `playwright.config.ts`, or `signIn` sets a cookie the server rejects.
 - Every spec shares this one file with `workers: 1`; a spec that mutates seeded rows (renames, deletes, drags) can break a later one, which is why several specs create and delete their own probe events.
@@ -248,13 +264,15 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 | `provision` | `tsx scripts/provision.mts` | Creates the two accounts from `SEED_USER_*` |
 | `reset-password` | `tsx scripts/reset-password.mts` | Resets one password and revokes sessions |
 | `backup` | `tsx scripts/backup.mts` | Writes a gzipped online backup |
+| `restore-check` | `tsx scripts/restore-check.mts` | Verifies a backup archive and prints its row counts |
+| `ops:bundle` | `esbuild scripts/*.mts --bundle … --outdir=ops` | Builds the plain-JS operator CLIs the runtime image ships |
 | `docs:check` | `node scripts/docs-check.mjs` | Fails when a gated source file lacks its `### <path>` section |
 
 Pinned choices that must not drift casually: `@fullcalendar/react` and `@fullcalendar/rrule` at exactly `7.1.3` (the CSS overrides and the `datesSet`/`eventDrop` wiring are version-specific), `next` `16.4.2` with `react`/`react-dom` `19.3.1` (App Router, `output: "standalone"`, `devIndicators: false`), `tailwindcss` and `@tailwindcss/postcss` at `4.3.3` (CSS-first config, no `tailwind.config.js`), `better-sqlite3` `13.0.3` (native module, rebuilt in the Docker deps stage), `better-auth` `1.7.11`, `drizzle-orm` `0.45.4` with `drizzle-kit` `0.31.11`, `ical.js` `2.2.1` (Google Calendar import parsing — the only dependency that exists solely for the importer), and `typescript` `6.0.3`. Every dependency is exact-pinned, so even a patch bump is a deliberate edit.
 
 **Gotchas** —
 - `test:e2e` reseeds with `&&`, so Playwright never runs against a half-seeded database.
-- There is no `restore-check` script; run that file with `npx tsx`.
+- `ops:bundle` needs `esbuild` (a devDependency); the Docker build runs it before the runtime stage so the image can execute `ops/*.mjs` with `railway ssh`.
 - Adding a script here does not wire it into CI; `ci.yml` names each step explicitly.
 
 **Tests / verified by** — `npm run docs:check` and CI; the script block itself is not unit-tested.
@@ -330,7 +348,7 @@ Pinned choices that must not drift casually: `@fullcalendar/react` and `@fullcal
 
 **Invocation / wiring** — Read automatically by `next dev`, `next build` and `next start`; no imports elsewhere.
 
-**Behaviour & side effects** — `distDir: process.env.NEXT_DIST_DIR ?? ".next"`, `output: "standalone"`, `reactStrictMode: true`, `devIndicators: false`, and a `headers()` rule applying seven headers to `/:path*`: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`, a restrictive `Permissions-Policy`, `X-Robots-Tag: noindex, nofollow`, HSTS for one year with subdomains, and a `Content-Security-Policy-Report-Only`.
+**Behaviour & side effects** — `distDir: process.env.NEXT_DIST_DIR ?? ".next"`, `output: "standalone"`, `reactStrictMode: true`, `poweredByHeader: false`, `devIndicators: false`, and a `headers()` rule applying seven headers to `/:path*`: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`, a restrictive `Permissions-Policy`, `X-Robots-Tag: noindex, nofollow`, HSTS for one year with subdomains, and a `Content-Security-Policy-Report-Only`.
 
 **Gotchas** —
 - The CSP is report-only, so it never blocks anything; it is a signal, not a control.
@@ -346,13 +364,16 @@ Pinned choices that must not drift casually: `@fullcalendar/react` and `@fullcal
 
 **Invocation / wiring** — Built by Railway through `railway.json`, or manually with `docker build`. The runtime command is `node server.js` on port 3000.
 
-**Behaviour & side effects** — `deps` stage installs `python3 make g++` (needed to compile `better-sqlite3`) then `npm ci`; `build` stage copies `node_modules` and the source and runs `npm run build`; `runner` stage sets `NODE_ENV=production`, `NEXT_TELEMETRY_DISABLED=1`, `PORT=3000`, `TZ=Asia/Taipei`, creates an `app` user, copies `.next/standalone`, `.next/static` and `drizzle/`, creates `/data` owned by `app`, and drops to `USER app`.
+**Behaviour & side effects** — `deps` stage installs `python3 make g++` (needed to compile `better-sqlite3`) then `npm ci`; `build` stage copies `node_modules` and the source, runs `npm run build`, then `npm run ops:bundle`; `runner` stage installs `gosu`, sets `NODE_ENV=production`, `NEXT_TELEMETRY_DISABLED=1`, `PORT=3000`, `HOSTNAME=0.0.0.0`, `TZ=Asia/Taipei`, creates an `app` user, copies `.next/standalone`, `.next/static`, `drizzle/` and `ops/`, and installs `docker-entrypoint.sh`. It runs as `root` only so the entrypoint can re-own the mounted volume, then `exec gosu app` starts `node server.js`.
 
 **Gotchas** —
+- `HOSTNAME=0.0.0.0` is load-bearing: the generated `server.js` binds `process.env.HOSTNAME || "0.0.0.0"`, and Docker sets `HOSTNAME` to the container id. With the container id it binds a non-wildcard address or dies with `getaddrinfo ENOTFOUND`.
+- Railway mounts volumes owned by `root`; a build-time `chown /data` does not survive the mount. The entrypoint chowns `$DATA_DIR` (default `/data`) at start and drops to `app`. Running with `--user` skips the chown, so the volume must already be writable by that uid.
 - `drizzle/` is copied into the runtime image because `lib/db/migrate.ts` resolves the migrations folder from `process.cwd()`; without it the first request fails.
 - `.next/static` is not inside `.next/standalone`, so it must be copied separately.
-- `/data` must be a mounted volume, and only the `app` user may write it; otherwise every write after the first restart fails.
-- The image does not run migrations at build time; they run on the first request.
+- `/data` must be a mounted volume; `railway.json`'s `requiredMountPath` makes a mountless deploy fail instead of writing an ephemeral database.
+- The image does not run migrations at build time; they run on the first request, and `/api/health` is 503 until that succeeds.
+- The runtime image deliberately has no `tsx` and no TypeScript sources; operator commands come from the `ops/` bundle.
 
 **Tests / verified by** — No automated test. `railway.json`'s `/api/health` health check is the deploy-time verification.
 
@@ -362,7 +383,7 @@ Pinned choices that must not drift casually: `@fullcalendar/react` and `@fullcal
 
 **Invocation / wiring** — Applied by Docker/railway builds before the context is sent; not read by any code.
 
-**Behaviour & side effects** — Excludes `node_modules`, `.next`, `.git`, `.github`, `.playwright`, `.superpowers`, `test-results`, `playwright-report`, `coverage`, `data`, `*.db`, `*.db-shm`, `*.db-wal`, `.env`, `.env.*` (with `!.env.example` re-included), `README.md`, `docs` and `tests`.
+**Behaviour & side effects** — Excludes `node_modules`, `.next`, `.next-e2e`, `.git`, `.github`, `.agents`, `.dsh`, `.uat`, `.dev`, `ops`, `.playwright`, `.superpowers`, `test-results`, `playwright-report`, `coverage`, `data`, `*.db`, `*.db-shm`, `*.db-wal`, `*.db.gz`, `*.log`, `tsconfig.tsbuildinfo`, `.env`, `.env.*` (with `!.env.example` re-included), `README.md`, `docs` and `tests`.
 
 **Gotchas** —
 - `.env.local` is excluded, but `.env.example` is deliberately re-included; keep that negation last if you add patterns.
@@ -377,14 +398,29 @@ Pinned choices that must not drift casually: `@fullcalendar/react` and `@fullcal
 
 **Invocation / wiring** — Read by Railway on deploy; no local command reads it.
 
-**Behaviour & side effects** — `build.builder: DOCKERFILE`, `build.dockerfilePath: Dockerfile`, `deploy.healthcheckPath: /api/health`, `healthcheckTimeout: 120`, `restartPolicyType: ON_FAILURE`, `restartPolicyMaxAttempts: 10`.
+**Behaviour & side effects** — `build.builder: DOCKERFILE`, `build.dockerfilePath: Dockerfile`, `deploy.healthcheckPath: /api/health`, `healthcheckTimeout: 120`, `restartPolicyType: ON_FAILURE`, `restartPolicyMaxRetries: 10`, `numReplicas: 1`, `requiredMountPath: /data`.
 
 **Gotchas** —
+- The field is `restartPolicyMaxRetries`, not `restartPolicyMaxAttempts`; Railway's schema (`https://backboard.railway.app/railway.schema.json`) rejects or ignores an unknown key, so a typo silently drops the policy.
 - The health check path is `app/api/health/route.ts`; moving that route requires editing this file in the same change.
-- SQLite on a volume means one replica only; scaling horizontally corrupts the database.
-- `restartPolicyMaxAttempts` means a crash loop stops after ten restarts, so a migration failure looks like a stopped service rather than a loop.
+- SQLite on a volume means one replica only; scaling horizontally corrupts the database. `numReplicas: 1` states that in config.
+- `requiredMountPath: /data` turns a missing volume into a failed deploy instead of a healthy service writing into the image filesystem.
+- `restartPolicyMaxRetries: 10` means a crash loop stops after ten restarts, so a migration failure looks like a stopped service rather than a loop.
+- Combine `ON_FAILURE` with the `/api/health` 503 (not just a crash) so a broken database/migration is what triggers those restarts.
 
 **Tests / verified by** — Manual: `docs/OPERATIONS.md` first-deploy steps.
+
+### docker-entrypoint.sh
+
+**Purpose** — Gives the container a writable data volume on hosts (Railway) that mount volumes owned by `root`, while the app itself still runs as the unprivileged `app` user.
+
+**Invocation / wiring** — `ENTRYPOINT` of the runtime image; receives the container command (`node server.js`) as its arguments. No local command reads it.
+
+**Behaviour & side effects** — If the process is uid 0 it `mkdir -p`s `$DATA_DIR` (default `/data`), `chown -R app:app` on it, then `exec gosu app "$@"`. If it is already non-root it `exec "$@"` unchanged, so `docker run --user` keeps its meaning.
+
+**Debugging** — The container exits with `data directory ...: Permission denied` or the health check stays 503 with `SQLITE_CANTOPEN` -> the volume is not writable by `app` -> check `gosu` is present, `/data` is the mounted path, and `DATA_DIR` matches it. Crash right after `chown` on a huge volume -> the recursive chown is proportional to the archive count; keep backup archives in a subdirectory and prune them.
+
+**Tests / verified by** — No automated test (it runs only inside the image); `sh -n docker-entrypoint.sh` checks syntax and `/api/health` after a deploy is the real verification.
 
 ### .env.example
 

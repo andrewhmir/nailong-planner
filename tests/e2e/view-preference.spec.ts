@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ANDREW, loadFixtures, signIn } from "./helpers";
+import { ANDREW, currentMonthLabel, loadFixtures, signIn } from "./helpers";
 
 const fixtures = loadFixtures();
 
@@ -28,7 +28,7 @@ test("desktop defaults to month, phone defaults to list", async ({ browser }) =>
     "aria-pressed",
     "true",
   );
-  await expect(phone.getByRole("heading", { name: /October 2026/ })).toBeVisible();
+  await expect(phone.getByRole("heading", { name: new RegExp(currentMonthLabel()) })).toBeVisible();
   await phone.close();
 });
 

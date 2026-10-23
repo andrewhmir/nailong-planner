@@ -387,13 +387,13 @@ Three one-handler routes over `lib/api/handlers/settings.ts` and `lib/api/handle
 
 **API** — `GET`, no authentication, no body or query. Success is `200 { ok: true, app: "Nailong Planner" }`; any thrown database error is `503 { ok: false }` and is logged with `console.error("[health] database check failed", ...)`. There is no other status: the route never returns 401/403 and does not expose table counts or versions.
 
-**State & side effects** — Runs `getSqlite().prepare("SELECT 1").get()` against the shared better-sqlite3 connection (WAL, `foreign_keys = ON`). Read-only; no session, no cookie, no write.
+**State & side effects** — Calls `getSqlite()`, which opens the database, applies pending migrations and validates the production environment, then runs `SELECT 1` and `SELECT COUNT(*) FROM household`. Read-only; no session, no cookie, no write. The schema probe is deliberate: `SELECT 1` alone answered 200 on an empty or half-migrated database, which let Railway mark an unusable deploy healthy.
 
-**Depends on / Used by** — `getSqlite` from `@/lib/db`. Used as `healthcheckPath` in `railway.json`, so a `503` restarts the container; referenced by `docs/OPERATIONS.md`.
+**Depends on / Used by** — `getSqlite` from `@/lib/db` and, through it, `assertProductionEnv` from `@/lib/env` (a missing `BETTER_AUTH_SECRET` or explicit `DATABASE_URL` makes this route 503). Used as `healthcheckPath` in `railway.json`, so a `503` restarts the container; referenced by `docs/OPERATIONS.md`.
 
-**Debugging** — The container restarts in a loop while the app responds -> `/api/health` returns `503` -> check the `[health]` log line and that the mounted `data/` volume is writable. Health passes but every API call fails -> the probe only proves `SELECT 1`; check migrations via `npm run db:migrate` (a missing table does not fail this route). A reverse proxy reports the upstream unhealthy -> the probe is being served without the SQLite file (`DATABASE_URL` path wrong) -> check `lib/env` and `lib/db/client.ts`.
+**Debugging** — The container restarts in a loop while the app responds -> `/api/health` returns `503` -> check the `[health]` log line and that the mounted `data/` volume is writable. `503` with "Invalid production environment" in the log -> a required variable is missing or too short -> fix the service variables. Health passes but every API call fails -> the probe covers the database and config, not every feature; check migrations via `npm run db:migrate` and the auth logs. A reverse proxy reports the upstream unhealthy -> the probe is being served without the SQLite file (`DATABASE_URL` path wrong) -> check `lib/env` and `lib/db/client.ts`.
 
-**Tests** — No direct test coverage.
+**Tests** — No direct test coverage; `docs/OPERATIONS.md` treats it as the deploy gate.
 
 ## Focused verification
 

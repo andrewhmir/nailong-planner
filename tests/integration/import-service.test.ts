@@ -8,7 +8,7 @@ import {
   rollbackImportBatch,
   type ImportFile,
 } from "@/lib/services/import";
-import { createCalendar } from "@/lib/services/calendars";
+import { createCalendar, updateCalendar } from "@/lib/services/calendars";
 import { localWallTimeToUtc } from "@/lib/time/zone";
 import { makeSeededDb } from "../helpers/fixtures";
 
@@ -409,6 +409,32 @@ describe("import service", () => {
       ]);
       const preview = previewImport(db, ctxA, [file]);
       expect(preview.nonHouseholdTimezones).toEqual(["Europe/London"]);
+    } finally {
+      close();
+    }
+  });
+
+  it("refuses to roll back a batch into a calendar the viewer cannot write", async () => {
+    const { db, close, ctxA, ctxB } = await setup();
+    try {
+      // A imports into their own view-only calendar; B must not be able to undo
+      // it, and the failed attempt must leave the batch committed.
+      const private_ = createCalendar(db, ctxA, {
+        name: "Private",
+        hueFamily: "amber",
+        ownerId: "user-a",
+      });
+      updateCalendar(db, ctxA, private_.id, { isViewOnlyForPartner: true });
+      const report = commitImport(db, ctxA, {
+        files: [threeEvents()],
+        mapping: { Family: { mode: "existing", calendarId: private_.id } },
+      });
+
+      expect(() => rollbackImportBatch(db, ctxB, report.batchId)).toThrow(/view-only/i);
+      expect(listImportBatches(db, ctxA)[0]?.status).toBe("committed");
+
+      // The owner can still undo their own import afterwards.
+      expect(rollbackImportBatch(db, ctxA, report.batchId).deleted).toBe(3);
     } finally {
       close();
     }
