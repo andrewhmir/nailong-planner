@@ -238,6 +238,14 @@ export function updateCalendar(
     patch.hueFamily = input.hueFamily;
   }
   if (input.ownerId !== undefined) {
+    if (existing.parentId !== null) {
+      throw new AppError(
+        "VALIDATION",
+        "A sub-calendar inherits its parent's owner; change the top-level calendar instead.",
+        400,
+        { ownerId: "Change the parent calendar's owner instead." },
+      );
+    }
     if (existing.ownerId !== null && existing.ownerId !== ctx.userId) {
       throw new AppError("FORBIDDEN", "Only the owner can change who owns this calendar.", 403);
     }
@@ -273,10 +281,25 @@ export function updateCalendar(
     return existing;
   }
 
-  db.update(calendar)
-    .set({ ...patch, updatedAt: Date.now() })
-    .where(eq(calendar.id, id))
-    .run();
+  const now = Date.now();
+  db.transaction((tx) => {
+    const txn = tx as unknown as Database;
+    txn
+      .update(calendar)
+      .set({ ...patch, updatedAt: now })
+      .where(eq(calendar.id, id))
+      .run();
+    // A sub-calendar inherits its root's owner. Carrying an owner move down keeps
+    // the sidebar group, grid visibility and getCalendarAccess in agreement, so a
+    // re-owned parent can never leave its children behind in "Ours".
+    if (existing.parentId === null && patch.ownerId !== undefined) {
+      txn
+        .update(calendar)
+        .set({ ownerId: patch.ownerId, updatedAt: now })
+        .where(eq(calendar.parentId, id))
+        .run();
+    }
+  });
 
   return getCalendar(db, ctx, id);
 }

@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { eq } from "drizzle-orm";
 import { makeTestDb } from "../helpers/db";
 import { calendar, event, household } from "@/lib/db/schema";
@@ -88,6 +90,39 @@ describe("database schema", () => {
       expect(row?.allDay).toBe(1);
       expect(row?.startDate).toBe("2026-10-20");
       expect(row?.startAt).toBeNull();
+    } finally {
+      close();
+    }
+  });
+
+  it("backfills sub-calendar owners from their root (0004)", async () => {
+    const { db, sqlite, close } = await makeTestDb();
+    try {
+      db.insert(household).values({ id: "h1" }).run();
+      db.insert(calendar)
+        .values({ id: "root-owned", householdId: "h1", name: "From Google", hueFamily: "teal", ownerId: "user-a" })
+        .run();
+      db.insert(calendar)
+        .values({ id: "child-stale", householdId: "h1", parentId: "root-owned", name: "Family", shadeIndex: 4 })
+        .run();
+      db.insert(calendar)
+        .values({ id: "root-shared", householdId: "h1", name: "Household", hueFamily: "slate" })
+        .run();
+      db.insert(calendar)
+        .values({ id: "child-stray", householdId: "h1", parentId: "root-shared", name: "Chores", shadeIndex: 4, ownerId: "user-b" })
+        .run();
+
+      const migration = readFileSync(
+        resolve("drizzle/0004_normalise_subcalendar_owners.sql"),
+        "utf8",
+      );
+      sqlite.exec(migration);
+
+      const byId = new Map(db.select().from(calendar).all().map((row) => [row.id, row]));
+      expect(byId.get("child-stale")?.ownerId).toBe("user-a");
+      expect(byId.get("child-stray")?.ownerId).toBeNull();
+      expect(byId.get("root-owned")?.ownerId).toBe("user-a");
+      expect(byId.get("root-shared")?.ownerId).toBeNull();
     } finally {
       close();
     }

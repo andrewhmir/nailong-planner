@@ -16,6 +16,8 @@ This area covers everything that is not a click path: the `.mts` scripts under `
 | `drizzle/0000_even_morg.sql` | Domain schema: `household`, `member`, `calendar`, `event` |
 | `drizzle/0001_tiny_falcon.sql` | Better Auth core tables: `user`, `session`, `account`, `verification`, `two_factor` |
 | `drizzle/0002_user_preference.sql` | Per-user preference table |
+| `drizzle/0003_salty_stranger.sql` | Google import ledger (`import_batch`, `import_change`) plus the event external-id columns |
+| `drizzle/0004_normalise_subcalendar_owners.sql` | Backfills each sub-calendar's `owner_id` from its root |
 | `drizzle/meta/_journal.json` | Ordered list of migrations the migrator replays |
 | `drizzle.config.ts` | drizzle-kit config used by `npm run db:generate` |
 | `package.json` | Every npm script, the Node engine floor, and the exact dependency pins |
@@ -97,18 +99,32 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 
 **Tests / verified by** — `tests/integration/import-schema.test.ts` (uniqueness, NULL keys, tzid/external round-trip, cascade), `tests/integration/import-service.test.ts` (the ledger behaviour).
 
+### drizzle/0004_normalise_subcalendar_owners.sql
+
+**Purpose** — Repairs owner values written by the old non-cascading owner move: a sub-calendar could keep `owner_id` NULL (or its own stale owner) after its root was reassigned.
+
+**Invocation / wiring** — Applied by the same migrator on the first `getDb()`; generated with `drizzle-kit generate --custom` so the journal entry was created for it. `lib/services/calendars.ts` (`updateCalendar`) now carries owner changes down at write time, so this file only normalises rows written before that fix.
+
+**Behaviour & side effects** — One `UPDATE calendar` that sets every non-root row's `owner_id` to its parent's `owner_id` via a correlated subquery (`WHERE parent_id IS NOT NULL`). Idempotent, no schema change, roots untouched.
+
+**Gotchas** —
+- It trusts the two-level model: a grandchild (which the service never creates) would be normalised to its direct parent, not the top root.
+- It also clears a deliberately-set child owner; children are not supposed to have one — `updateCalendar` rejects `ownerId` on a child with `VALIDATION` 400.
+
+**Tests / verified by** — `tests/integration/db.test.ts` ("backfills sub-calendar owners from their root (0004)"); the visibility fold is covered by `tests/unit/visibility.test.ts` and `tests/unit/visibleCalendars.test.ts`.
+
 ### drizzle/meta/_journal.json
 
 **Purpose** — The migrator's ordered index: `version`/`dialect` plus one entry per migration with `idx`, `tag`, `when` and `breakpoints`.
 
 **Invocation / wiring** — Read by `drizzle-orm`'s migrator at runtime and by `drizzle-kit` when generating. No application code imports it.
 
-**Behaviour & side effects** — Lists `0000_even_morg`, `0001_tiny_falcon`, `0002_user_preference` and `0003_salty_stranger` with increasing `when` timestamps. The `tag` must equal the SQL filename without `.sql`. Applied migrations are recorded in the database's own `__drizzle_migrations` table, so re-running is a no-op.
+**Behaviour & side effects** — Lists `0000_even_morg`, `0001_tiny_falcon`, `0002_user_preference`, `0003_salty_stranger` and `0004_normalise_subcalendar_owners` with increasing `when` timestamps. The `tag` must equal the SQL filename without `.sql`. Applied migrations are recorded in the database's own `__drizzle_migrations` table, so re-running is a no-op.
 
 **Gotchas** —
 - A `.sql` file that is not listed here is never applied, even though it sits in `drizzle/`.
 - Renaming a tag makes an already-migrated database try to apply the renamed file again.
-- `0002` and `0003` are hand-named (the first two carry drizzle-kit's generated names), so a future `db:generate` will not follow the same pattern; keep the journal entry in sync manually.
+- `0002`, `0003` and `0004` are hand-named (the first two carry drizzle-kit's generated names), so a future `db:generate` will not follow the same pattern; keep the journal entry in sync manually.
 
 **Tests / verified by** — Indirect only: every integration test migrates through this journal.
 

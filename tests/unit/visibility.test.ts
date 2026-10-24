@@ -53,6 +53,41 @@ describe("calendar visibility", () => {
     expect(isCalendarVisible(parentHidden, parent, viewer)).toBe(false);
     expect(isCalendarVisible(parentHidden, child, viewer, parent)).toBe(false);
   });
+
+  it("groups a sub-calendar by its parent's owner, not its stale row", () => {
+    // A shared child under a person-owned root was the pre-backfill state.
+    const staleChild = calendar({ id: "child-id", parentId: "root-id", ownerId: null });
+    const myRoot = calendar({ id: "root-id", ownerId: "user-a" });
+    const partnerRoot = calendar({ id: "root-id", ownerId: "user-b" });
+
+    expect(groupOf(staleChild, viewer, myRoot)).toBe("me");
+    expect(groupOf(staleChild, viewer, partnerRoot)).toBe("partner");
+    expect(groupOf(staleChild, viewer, calendar({ id: "root-id", ownerId: null }))).toBe("ours");
+    // A stray child owner cannot outrank the parent either.
+    const strayOwned = calendar({ id: "child-id", parentId: "root-id", ownerId: "user-b" });
+    expect(groupOf(strayOwned, viewer, myRoot)).toBe("me");
+  });
+
+  it("shows a shared sub-calendar under a person-owned parent when Ours is hidden", () => {
+    const oursHidden: VisibilityState = {
+      ...DEFAULT_VISIBILITY,
+      groups: { ours: false, me: true, partner: true },
+    };
+    const myRoot = calendar({ id: "root-id", ownerId: "user-a" });
+    const staleChild = calendar({ id: "child-id", parentId: "root-id", ownerId: null });
+
+    expect(isCalendarVisible(oursHidden, myRoot, viewer)).toBe(true);
+    expect(isCalendarVisible(oursHidden, staleChild, viewer, myRoot)).toBe(true);
+
+    // The partner's pill still hides a child of their parent.
+    const partnerHidden: VisibilityState = {
+      ...DEFAULT_VISIBILITY,
+      groups: { ours: true, me: true, partner: false },
+    };
+    expect(
+      isCalendarVisible(partnerHidden, staleChild, viewer, calendar({ id: "root-id", ownerId: "user-b" })),
+    ).toBe(false);
+  });
 });
 
 describe("display only this calendar", () => {

@@ -3,6 +3,7 @@ import { AppError } from "@/lib/errors";
 import {
   createCalendar,
   deleteCalendar,
+  getCalendarAccess,
   listCalendarTree,
   resolveShade,
   updateCalendar,
@@ -144,6 +145,48 @@ describe("calendar service", () => {
         403,
       );
       expect(updateCalendar(db, ctxA, work.id, { name: "Work 2026" }).name).toBe("Work 2026");
+    } finally {
+      close();
+    }
+  });
+
+  it("carries an owner move down to the sub-calendars", async () => {
+    const { db, close, ctxA } = await makeSeededDb();
+    try {
+      // The pre-fix import tree: root and children all shared.
+      const root = createCalendar(db, ctxA, { name: "From Google", hueFamily: "teal" });
+      const child = createCalendar(db, ctxA, { name: "Family", parentId: root.id });
+      createCalendar(db, ctxA, { name: "Work", parentId: root.id });
+
+      const updated = updateCalendar(db, ctxA, root.id, { ownerId: "user-a" });
+      expect(updated.ownerId).toBe("user-a");
+
+      const node = listCalendarTree(db, ctxA).find((row) => row.id === root.id)!;
+      expect(node.children).toHaveLength(2);
+      expect(node.children.every((row) => row.ownerId === "user-a")).toBe(true);
+      expect(getCalendarAccess(db, ctxA, child.id).effective.ownerId).toBe("user-a");
+
+      // Giving it back to the household carries the return down as well.
+      updateCalendar(db, ctxA, root.id, { ownerId: null });
+      const sharedNode = listCalendarTree(db, ctxA).find((row) => row.id === root.id)!;
+      expect(sharedNode.children.every((row) => row.ownerId === null)).toBe(true);
+    } finally {
+      close();
+    }
+  });
+
+  it("refuses to change a sub-calendar's owner directly", async () => {
+    const { db, close, ctxA } = await makeSeededDb();
+    try {
+      const root = createCalendar(db, ctxA, { name: "Household", hueFamily: "teal" });
+      const child = createCalendar(db, ctxA, { name: "Chores", parentId: root.id });
+
+      expectAppError(
+        () => updateCalendar(db, ctxA, child.id, { ownerId: "user-a" }),
+        "VALIDATION",
+        400,
+      );
+      expect(getCalendarAccess(db, ctxA, child.id).effective.ownerId).toBeNull();
     } finally {
       close();
     }

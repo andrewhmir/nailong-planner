@@ -188,6 +188,7 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 - The phone sheet's disclosure buttons expand a list in the hidden desktop sidebar -> the `useId()` instance prefix was dropped from the ids -> this file's `instanceId`.
 - A newly added sub-calendar is invisible -> the create success handler stopped calling `fold.expandCalendar(parentId)` -> this file's `submit`.
 - A new or re-owned root calendar is invisible -> its success handler stopped calling `fold.expandGroup(groupOf(result.calendar, currentUserId))` -> this file's `submit`.
+- A sub-calendar sits under a person's group but disappears with the "Ours" pill -> the checkbox `isCalendarVisible` call omitted the `root` argument, so the child's stale `ownerId` chose the group -> the child rows around `checked={isCalendarVisible(visibility.state, child, currentUserId, root)}` in this file.
 
 **Tests** — `tests/e2e/sidebar.spec.ts`, `tests/e2e/only-this-calendar.spec.ts`, `tests/e2e/mobile.spec.ts`, `tests/e2e/viewonly.spec.ts`.
 

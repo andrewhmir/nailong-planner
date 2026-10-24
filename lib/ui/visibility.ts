@@ -23,11 +23,28 @@ export const DEFAULT_VISIBILITY: VisibilityState = {
   only: null,
 };
 
-export function groupOf(calendar: Pick<CalendarRow, "ownerId">, viewerId: string): GroupKey {
-  if (calendar.ownerId === null) {
+/**
+ * The owner that actually applies to a calendar. A sub-calendar inherits its
+ * root's owner — the server folds the same way in `getCalendarAccess` — so a
+ * stale per-row `ownerId` on a child must not decide its group.
+ */
+export function effectiveOwnerOf(
+  calendar: Pick<CalendarRow, "ownerId">,
+  parent?: Pick<CalendarRow, "ownerId"> | null,
+): string | null {
+  return parent ? (parent.ownerId ?? calendar.ownerId) : calendar.ownerId;
+}
+
+export function groupOf(
+  calendar: Pick<CalendarRow, "ownerId">,
+  viewerId: string,
+  parent?: Pick<CalendarRow, "ownerId"> | null,
+): GroupKey {
+  const ownerId = effectiveOwnerOf(calendar, parent);
+  if (ownerId === null) {
     return "ours";
   }
-  return calendar.ownerId === viewerId ? "me" : "partner";
+  return ownerId === viewerId ? "me" : "partner";
 }
 
 /**
@@ -43,12 +60,12 @@ export function isCalendarVisible(
   state: VisibilityState,
   calendar: Pick<CalendarRow, "id" | "ownerId">,
   viewerId: string,
-  parent?: Pick<CalendarRow, "id"> | null,
+  parent?: Pick<CalendarRow, "id" | "ownerId"> | null,
 ): boolean {
   if (state.only !== null) {
     return calendar.id === state.only;
   }
-  if (!(state.groups[groupOf(calendar, viewerId)] ?? true)) {
+  if (!(state.groups[groupOf(calendar, viewerId, parent)] ?? true)) {
     return false;
   }
   if (parent && (state.calendars[parent.id] ?? true) === false) {

@@ -138,6 +138,11 @@ The request pipeline in one line:
   before that rule has `owner_id` NULL and stays shared until re-imported (the rows
   move idempotently) or re-owned in the calendar dialog (`lib/services/import.ts`
   `ownedImportRoots`).
+- **A sub-calendar belongs to its root**: `owner_id` is copied at creation, an
+  owner move on a root is cascaded to every child in one transaction, and setting
+  `ownerId` on a child is rejected (`VALIDATION` 400). Migration `0004` backfilled
+  legacy rows. Visibility folds the same way (`effectiveOwnerOf`/`groupOf(parent)`),
+  so a stale child row can no longer hide behind "Ours" — see the trap below.
 
 **Permissions** (`lib/services/permissions.ts`, `lib/services/calendars.ts`)
 
@@ -154,10 +159,11 @@ The request pipeline in one line:
 - **Household scoping happens before the permission check**, and out-of-household
   ids surface as `NOT_FOUND` 404 — never 403. A 403 means "your account is not in
   this household" (missing `member` row).
-- Import commit and rollback are the two places that open a `db.transaction`; ordinary
-  calendar/event writes are single statements. A multi-statement non-import change
-  (event upsert + `exdates` append) is still not atomic — do not assume all-or-nothing
-  writes outside the importer.
+- Import commit/rollback and the root-owner cascade in `updateCalendar` are the
+  `db.transaction` users; ordinary calendar/event writes are single statements. A
+  multi-statement non-import change (event upsert + `exdates` append) is still not
+  atomic — do not assume all-or-nothing writes outside the importer and the owner
+  cascade.
 - A missing `member` row means the household was never provisioned → run
   `npm run provision`.
 
@@ -216,6 +222,7 @@ any wrapper in the shell/calendar tree.
 | Undo toast does nothing | undo stack is session-only and per-view; failed mutation already rolled back | `lib/ui/undo.ts`, `lib/ui/useUndoHotkey.ts` |
 | Cannot edit a calendar/event | `isViewOnlyForPartner` and viewer is not the owner; server re-checks on write | `lib/services/permissions.ts`, `lib/services/events.ts` |
 | Calendar row/checkbox does nothing | parent checkbox or `only` mode overriding it | `lib/ui/visibility.ts` `isCalendarVisible` |
+| A sub-calendar renders under a person's heading but its events still vanish with the "Ours" pill | the child row's `owner_id` is NULL (or otherwise disagrees with its root) — an owner move from before the cascade fix; visibility must fold the root | that row's `owner_id` vs its root's; `effectiveOwnerOf`/`groupOf(parent)` in `lib/ui/visibility.ts`, migration `0004`, `updateCalendar`'s owner cascade |
 | Sub-calendar has the wrong colour | shade assigned on create from the parent's family; palette exhausted at 7 children | `lib/color/palette.ts`, `lib/services/calendars.ts` |
 | Person 2's imported events sit under "Ours" and vanish when the Ours pill is hidden | the import-created calendar's `owner_id` is NULL — a tree imported before imports became personal per importer | that calendar row's `owner_id`; re-import (creates the importer's own tree and moves the rows) or change the calendar's owner; `lib/services/import.ts` `ownedImportRoots` |
 | Page scrolls / grid height wrong | shell wrapper lost `h-dvh`/`min-h-0`, or `main` got `overflow-visible` | `app/(app)/layout.tsx`, `components/shell/AppShell.tsx`, `tests/e2e/viewport-fit.spec.ts` |
