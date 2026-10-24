@@ -115,22 +115,24 @@ calendar still draws, or an undo action does nothing.
 - `type GroupKey = "ours" | "me" | "partner"`; `GROUP_ORDER: readonly GroupKey[] = ["ours", "me", "partner"]`.
 - `interface VisibilityState { groups: Record<GroupKey, boolean>; calendars: Record<string, boolean>; only: string | null }` — a missing `calendars` entry means visible.
 - `DEFAULT_VISIBILITY: VisibilityState` — all three groups true, empty `calendars`, `only: null`.
-- `groupOf(calendar: Pick<CalendarRow, "ownerId">, viewerId: string): GroupKey` — `ownerId === null` -> `"ours"` (a shared calendar), `ownerId === viewerId` -> `"me"`, anything else -> `"partner"`.
-- `isCalendarVisible(state, calendar: Pick<CalendarRow, "id" | "ownerId">, viewerId, parent?: Pick<CalendarRow, "id"> | null): boolean`.
+- `effectiveOwnerOf(calendar: Pick<CalendarRow, "ownerId">, parent?: Pick<CalendarRow, "ownerId"> | null): string | null` — the owner that actually applies: a child inherits its parent's owner (`parent.ownerId ?? calendar.ownerId`), matching the server's `getCalendarAccess` fold.
+- `groupOf(calendar: Pick<CalendarRow, "ownerId">, viewerId: string, parent?: Pick<CalendarRow, "ownerId"> | null): GroupKey` — effective owner `null` -> `"ours"` (a shared calendar), equals `viewerId` -> `"me"`, anything else -> `"partner"`.
+- `isCalendarVisible(state, calendar: Pick<CalendarRow, "id" | "ownerId">, viewerId, parent?: Pick<CalendarRow, "id" | "ownerId"> | null): boolean`. Passing the parent makes the child's pill follow the root, so a stale per-row `ownerId` on a sub-calendar cannot put it in the wrong group.
 
 **Derivation rules, in evaluation order**
 1. `state.only !== null` -> exactly `calendar.id === state.only`. This outranks everything, so an isolated sub-calendar draws even when its pill and its parent's checkbox are off.
-2. The calendar's person pill (`groupOf`) is false -> hidden (a missing key counts as visible).
+2. The calendar's person pill (`groupOf`, folded through `parent` when one is supplied) is false -> hidden (a missing key counts as visible).
 3. A `parent` is supplied and `state.calendars[parent.id] === false` -> hidden. Only checked when the caller passes the parent, which is why a child's visibility is a caller responsibility outside the tree.
 4. Otherwise the calendar's own checkbox, defaulting to visible.
 
 **State & side effects** — None. No storage here — `useVisibility` owns persistence.
 
-**Depends on / Used by** — `CalendarRow` from `lib/db/schema`. Used by `lib/ui/visibleCalendars.ts` and `components/sidebar/CalendarTree.tsx` (lines 100, 215 and 235 compute the checkbox states, including the "currently visible" check used when toggling a parent for its children). `GROUP_ORDER` and `groupOf` group the tree into the three sections.
+**Depends on / Used by** — `CalendarRow` from `lib/db/schema`. Used by `lib/ui/visibleCalendars.ts` and `components/sidebar/CalendarTree.tsx` (checkbox states and the "currently visible" check used when toggling a parent for its children). `GROUP_ORDER` and `groupOf` group the tree's roots into the three sections; child checks pass the root so they group with it.
 
 **Debugging**
 - Unchecking a parent leaves children drawn -> the caller omitted the `parent` argument -> check the `isCalendarVisible(state, child, currentUserId, root)` call sites in `CalendarTree.tsx`.
 - A shared calendar hides with the "me" pill -> `ownerId` is null for shared calendars, so it belongs to `ours` -> check the row's `owner_id`.
+- A sub-calendar vanishes with the "Ours" pill although it renders under a person's heading -> the caller passed no `parent`, or the row's stale `owner_id` is NULL from a pre-`0004` owner move -> pass the root; migration `0004` backfills the row.
 - Isolated view swallows every pill -> expected precedence for `only`; the exit path is any mutator in `useVisibility`, which sets `only: null`.
 
 **Tests** — `tests/unit/visibility.test.ts`.
@@ -141,7 +143,7 @@ calendar still draws, or an undo action does nothing.
 
 **Public API** — `visibleCalendarIds(roots: CalendarNode[], state: VisibilityState, userId: string): Set<string>`.
 
-**Derivation rules** — When `state.only !== null` it returns `new Set([state.only])` immediately: exact, and deliberately bypassing the branch pruning below so a sub-calendar can be isolated while its parent is filtered out. Otherwise it walks roots in order: a root that fails `isCalendarVisible(state, root, userId)` is skipped **together with all of its children** (the loop `continue`s), and each child is then tested with `isCalendarVisible(state, child, userId, root)`. The result is a `Set` of ids only — never calendar rows — and it is rebuilt on every call.
+**Derivation rules** — When `state.only !== null` it returns `new Set([state.only])` immediately: exact, and deliberately bypassing the branch pruning below so a sub-calendar can be isolated while its parent is filtered out. Otherwise it walks roots in order: a root that fails `isCalendarVisible(state, root, userId)` is skipped **together with all of its children** (the loop `continue`s), and each child is then tested with `isCalendarVisible(state, child, userId, root)` — the root is passed so the child's pill follows the root's owner rather than a stale child row. The result is a `Set` of ids only — never calendar rows — and it is rebuilt on every call.
 
 **State & side effects** — None. Pure over its arguments.
 

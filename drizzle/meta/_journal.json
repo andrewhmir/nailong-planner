@@ -29,6 +29,13 @@
       "when": 1792578017580,
       "tag": "0003_salty_stranger",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792860744322,
+      "tag": "0004_normalise_subcalendar_owners",
+      "breakpoints": true
     }
   ]
 }

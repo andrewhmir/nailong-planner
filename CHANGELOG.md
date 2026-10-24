@@ -15,6 +15,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   calendar still gives a shared import. A `From Google` tree imported before
   this change stays shared until it is re-imported (events move idempotently) or
   its owner is changed in the calendar dialog.
+- **Sub-calendars follow their parent's owner** — re-owning a top-level calendar
+  now writes the new owner to its sub-calendars in the same transaction, and
+  setting a sub-calendar's owner directly is rejected. Visibility folds the root
+  owner, so a sub-calendar under a person's calendar no longer hides with the
+  "Ours" pill. Migration `0004` backfills rows left behind by the old
+  non-cascading owner move.
 
 ## [0.1.0] - 2026-10-22
 

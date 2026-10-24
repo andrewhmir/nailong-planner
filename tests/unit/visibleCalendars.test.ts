@@ -62,4 +62,19 @@ describe("visibleCalendarIds", () => {
     // Clearing the root hides the root itself and everything beneath it.
     expect([...visibleCalendarIds(roots, parentHidden, viewer)]).toEqual(["household"]);
   });
+
+  it("draws a stale shared sub-calendar under a person-owned root when Ours is off", () => {
+    // Legacy rows: the child kept owner_id NULL after its parent was re-owned.
+    const staleMath = calendar({ id: "stale-math", name: "Algebra", parentId: "school" });
+    const legacyRoots: CalendarNode[] = [{ ...school, children: [staleMath] }];
+    const oursHidden: VisibilityState = {
+      ...DEFAULT_VISIBILITY,
+      groups: { ours: false, me: true, partner: true },
+    };
+
+    expect([...visibleCalendarIds(legacyRoots, oursHidden, viewer)].sort()).toEqual([
+      "school",
+      "stale-math",
+    ]);
+  });
 });
