@@ -318,8 +318,8 @@ export function ImportWizard({ currentUserId }: { currentUserId: string }) {
         <section className={CARD}>
           <h2 className={CARD_HEADING}>Map calendars</h2>
           <p className="mt-6 text-sm text-ink-soft">
-            Each Google calendar becomes a sub-calendar of “From Google” unless you choose an
-            existing calendar.
+            Each Google calendar becomes a sub-calendar of a new “From Google” calendar you own,
+            unless you choose an existing calendar.
           </p>
           <div className="mt-3 space-y-3">
             {preview.calendars.map((calendar) => {
@@ -347,7 +347,7 @@ export function ImportWizard({ currentUserId }: { currentUserId: string }) {
                       }));
                     }}
                   >
-                    <option value="new">Create a new calendar under “From Google”</option>
+                    <option value="new">Create a new calendar under “From Google” (yours)</option>
                     {writableCalendars.map((target) => (
                       <option key={target.id} value={`existing:${target.id}`}>
                         {target.name}

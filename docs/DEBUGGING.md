@@ -133,6 +133,11 @@ The request pipeline in one line:
   Sub-calendars take the next unused shade from `[4, 2, 5, 1, 6, 0, 7]` — at most
   7 children per root (`lib/color/palette.ts`, `lib/services/calendars.ts`).
   Recolouring a root re-shades its family; do not "fix" a child's shade by hand.
+- New `From Google` import trees are **owned by the importer** and reused only by
+  them, so imported events sit in that person's group, not "Ours". A tree imported
+  before that rule has `owner_id` NULL and stays shared until re-imported (the rows
+  move idempotently) or re-owned in the calendar dialog (`lib/services/import.ts`
+  `ownedImportRoots`).
 
 **Permissions** (`lib/services/permissions.ts`, `lib/services/calendars.ts`)
 
@@ -212,6 +217,7 @@ any wrapper in the shell/calendar tree.
 | Cannot edit a calendar/event | `isViewOnlyForPartner` and viewer is not the owner; server re-checks on write | `lib/services/permissions.ts`, `lib/services/events.ts` |
 | Calendar row/checkbox does nothing | parent checkbox or `only` mode overriding it | `lib/ui/visibility.ts` `isCalendarVisible` |
 | Sub-calendar has the wrong colour | shade assigned on create from the parent's family; palette exhausted at 7 children | `lib/color/palette.ts`, `lib/services/calendars.ts` |
+| Person 2's imported events sit under "Ours" and vanish when the Ours pill is hidden | the import-created calendar's `owner_id` is NULL — a tree imported before imports became personal per importer | that calendar row's `owner_id`; re-import (creates the importer's own tree and moves the rows) or change the calendar's owner; `lib/services/import.ts` `ownedImportRoots` |
 | Page scrolls / grid height wrong | shell wrapper lost `h-dvh`/`min-h-0`, or `main` got `overflow-visible` | `app/(app)/layout.tsx`, `components/shell/AppShell.tsx`, `tests/e2e/viewport-fit.spec.ts` |
 | 401 on an API call | no session cookie (signed out, cookie origin/TTL) | `lib/api/route.ts` `viewerFromRequest`, `BETTER_AUTH_URL` |
 | 403 "not part of this household" | `member` row missing — household not provisioned | `npm run provision` |

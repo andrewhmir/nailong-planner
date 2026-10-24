@@ -75,7 +75,7 @@ The three `/api/auth/*` calls are served by the Better Auth catch-all `app/api/a
 
 ### components/import/ImportWizard.tsx
 
-**Purpose** — The four-step Google Calendar import wizard on `/settings/import`: choose exported `.ics` files, preview the counts, map each source calendar to a new `From Google` sub-calendar or an existing writable one, commit, then show the report with an Undo action.
+**Purpose** — The four-step Google Calendar import wizard on `/settings/import`: choose exported `.ics` files, preview the counts, map each source calendar to a new `From Google` sub-calendar owned by the current user or an existing writable one, commit, then show the report with an Undo action.
 
 **Public API** — `export function ImportWizard({ currentUserId }: { currentUserId: string })`. Local `type Step = "upload" | "preview" | "mapping" | "report"`; the Canvas `FIELD`/`LABEL`/`CARD`/`CARD_HEADING` recipes are copied from `SettingsForm.tsx`.
 
@@ -83,7 +83,7 @@ The three `/api/auth/*` calls are served by the Better Auth catch-all `app/api/a
 
 **Depends on / Used by** — `next/link`, `@tanstack/react-query` (`useQueryClient`), `sonner`, `components/ui/button`, `components/import/ImportBatchesCard`, `lib/query/calendars` (`useCalendars`), `lib/services/permissions` (`canWriteCalendar`), and the `ImportPreview`/`ImportReport`/`ImportCalendarMode` types. Rendered by `app/(app)/settings/import/page.tsx`.
 
-**Debugging** — Selecting files shows no preview -> the preview request failed (size, not an `.ics`, no users) -> the toast carries the server message. The Import button is missing -> the mapping step never rendered because `preview` is null -> re-select the files. A committed import does not appear on the calendar -> the `["events"]` invalidation did not run, or the events landed under a collapsed `From Google` calendar -> check the tree. Undo leaves events -> the service skipped them because they were edited after the import (`skipped` in the rollback payload).
+**Debugging** — Selecting files shows no preview -> the preview request failed (size, not an `.ics`, no users) -> the toast carries the server message. The Import button is missing -> the mapping step never rendered because `preview` is null -> re-select the files. A committed import does not appear on the calendar -> the `["events"]` invalidation did not run, or the events landed under a collapsed `From Google` calendar -> check the tree. Undo leaves events -> the service skipped them because they were edited after the import (`skipped` in the rollback payload). Imported events hide when the Shared ("Ours") pill is hidden -> the target calendar was imported by an older version and still has `owner_id` NULL -> re-import (the new tree is personal) or change the calendar's owner in the calendar dialog.
 
 **Tests** — `tests/e2e/import.spec.ts`; handler contracts in `tests/integration/import-api.test.ts`.
 

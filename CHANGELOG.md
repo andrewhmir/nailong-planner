@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Imported calendars are separated by person** — a new Google import creates
+  its `From Google` tree under the person who ran it instead of the shared
+  ("Ours") group, and never reuses the partner's import tree. Hiding "Ours" no
+  longer hides person 2's imported events; mapping to an existing shared
+  calendar still gives a shared import. A `From Google` tree imported before
+  this change stays shared until it is re-imported (events move idempotently) or
+  its owner is changed in the calendar dialog.
+
 ## [0.1.0] - 2026-10-22
 
 ### Added — roadmap rail

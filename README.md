@@ -110,10 +110,11 @@ rather not have edited.
   EXDATEs.
 - **Google Calendar import** — Settings → *Import from Google Calendar*: upload
   the `.ics` files from a Google export, preview every calendar's counts and
-  warnings, map each one under a new **From Google** calendar or an existing
-  one, then commit in one transaction. Re-importing the same export updates in
-  place (no duplicates) and every import can be undone. No OAuth, no Google
-  Cloud project.
+  warnings, map each one under a new **From Google** calendar of your own or an
+  existing one, then commit in one transaction. New import calendars belong to
+  the person who imports, so hiding Shared ("Ours") does not hide them.
+  Re-importing the same export updates in place (no duplicates) and every import
+  can be undone. No OAuth, no Google Cloud project.
 - **Two-person permissions** — a per-calendar view-only flag, enforced
   server-side on every write, with sub-calendars inheriting the protection.
 - **Private by design** — sign-up disabled, exactly two accounts provisioned,
