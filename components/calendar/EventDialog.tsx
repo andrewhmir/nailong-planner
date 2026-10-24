@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { CalendarNode } from "@/lib/services/calendars";
@@ -10,14 +10,26 @@ import { useCreateEvent, useDeleteEvent, useUpdateEvent } from "@/lib/query/even
 import { useUpdatePreferences } from "@/lib/query/preferences";
 import { utcToLocalDate, utcToLocalWallTime } from "@/lib/time/zone";
 import { pushUndo, undoLast } from "@/lib/ui/undo";
+import { describeRrule } from "@/lib/recurrence/label";
 import {
-  REPEAT_OPTIONS,
+  anchorRepeat,
+  formatRepeatRule,
+  monthlyAnchor,
+  newRepeatOptions,
+  parseRepeatRule,
+  validateRepeat,
+  weekStartOf,
+  weekdayOfDate,
+  type Frequency,
+  type RepeatOptions,
+} from "@/lib/recurrence/rule";
+import {
   buildEventPayload,
   deriveRepeat,
-  type RepeatRule,
 } from "./eventPayload";
 import { CalendarPicker } from "./CalendarPicker";
 import { DateField } from "./DateField";
+import { RecurrenceFields } from "./RecurrenceFields";
 import { TimeField } from "./TimeField";
 
 // Canvas form controls (§7): 38px box, 1px field border, 4px radius, 16px text.
@@ -49,6 +61,8 @@ interface Props {
   timezone: string;
   /** The household's 12/24-hour preference: the time control renders it. */
   timeFormat: TimeFormat;
+  /** Household week start (0 = Sunday), so the weekday picker matches the grid. */
+  weekStartsOn: number;
   calendars: CalendarNode[];
   /** Where a new event starts unless the user picks otherwise ("only this calendar"). */
   defaultCalendarId?: string | null;
@@ -64,12 +78,18 @@ function splitWall(wall: string): { date: string; time: string } {
   return { date, time };
 }
 
+/** True when a weekly rule selects exactly Monday–Friday. */
+function isWeekdaySelection(weekdays: number[]): boolean {
+  return weekdays.length === 5 && [1, 2, 3, 4, 5].every((day) => weekdays.includes(day));
+}
+
 export function EventDialog({
   mode,
   initial,
   initialRule,
   timezone,
   timeFormat,
+  weekStartsOn,
   calendars,
   defaultCalendarId,
   onClose,
@@ -106,10 +126,10 @@ export function EventDialog({
   // Calendars can finish loading after the dialog opens; fall back live instead
   // of freezing an empty selection into the form.
   const selectedCalendarId = calendarId || fallbackCalendarId;
-  const [allDay, setAllDay] = useState(initial.event ? initial.event.allDay === 1 : initial.allDay);
-  const [startDate, setStartDate] = useState(
-    initial.event?.startDate ?? initialStart.date,
-  );
+  const initialAllDay = initial.event ? initial.event.allDay === 1 : initial.allDay;
+  const initialStartDate = initial.event?.startDate ?? initialStart.date;
+  const [allDay, setAllDay] = useState(initialAllDay);
+  const [startDate, setStartDate] = useState(initialStartDate);
   const [startTime, setStartTime] = useState(
     initial.event?.startAt ? utcToLocalWallTime(initial.event.startAt, timezone).split("T")[1]! : initialStart.time,
   );
@@ -117,10 +137,84 @@ export function EventDialog({
   const [endTime, setEndTime] = useState(
     initial.event?.endAt ? utcToLocalWallTime(initial.event.endAt, timezone).split("T")[1]! : initialEnd.time,
   );
-  const [initialRepeat] = useState<RepeatRule>(() => deriveRepeat(initialRule));
-  const [repeat, setRepeat] = useState<RepeatRule>(initialRepeat);
+  // The stored rule parsed into the structured editor. Null when the editor
+  // cannot represent it — its text is then kept verbatim until Repeat changes.
+  const [initialParse] = useState(() =>
+    initialRule
+      ? parseRepeatRule(initialRule, initialStartDate, { allDay: initialAllDay, timezone })
+      : null,
+  );
+  const [recurrence, setRecurrence] = useState<RepeatOptions | null>(initialParse ?? null);
+  const [repeatTouched, setRepeatTouched] = useState(false);
   const [description, setDescription] = useState(initial.event?.description ?? "");
   const [location, setLocation] = useState(initial.event?.location ?? "");
+
+  const weekStart = weekStartOf(weekStartsOn);
+  // The stored rule reaches the server byte-identical only while the controls
+  // still describe it; any repeat edit (or a moved DTSTART / all-day switch)
+  // rebuilds it from the structured state.
+  const keepInitialRule =
+    Boolean(initialRule) && !repeatTouched && startDate === initialStartDate && allDay === initialAllDay;
+  const repeatError = recurrence
+    ? validateRepeat(recurrence, startDate, { allDay, timezone })
+    : null;
+
+  const presetLabels = useMemo(() => {
+    const context = { allDay, timezone };
+    const label = (candidate: RepeatOptions) =>
+      describeRrule(
+        formatRepeatRule({ ...candidate, end: { mode: "never" } }, startDate, context),
+        context,
+      );
+    const base = (frequency: Frequency) =>
+      recurrence?.frequency === frequency
+        ? recurrence
+        : newRepeatOptions(frequency, startDate, weekStart);
+    return {
+      daily: label(base("DAILY")),
+      weekly: label(base("WEEKLY")),
+      monthly: label(base("MONTHLY")),
+      yearly: label(base("YEARLY")),
+    };
+  }, [recurrence, startDate, allDay, timezone, weekStart]);
+
+  function changeRepeatPreset(next: string): void {
+    setRepeatTouched(true);
+    markDirty();
+    if (next === "none") {
+      setRecurrence(null);
+      return;
+    }
+    const base = recurrence ?? newRepeatOptions("WEEKLY", startDate, weekStart);
+    if (next === "weekdays") {
+      setRecurrence({ ...base, frequency: "WEEKLY", weekdays: [1, 2, 3, 4, 5] });
+      return;
+    }
+    const frequency = next.toUpperCase() as Frequency;
+    setRecurrence({
+      ...base,
+      frequency,
+      weekdays: base.weekdays.length > 0 ? base.weekdays : [weekdayOfDate(startDate)],
+      monthly:
+        frequency === "MONTHLY" && recurrence?.frequency !== "MONTHLY"
+          ? monthlyAnchor(startDate)
+          : base.monthly,
+    });
+  }
+
+  function changeRecurrence(next: RepeatOptions): void {
+    setRepeatTouched(true);
+    markDirty();
+    setRecurrence(next);
+  }
+
+  const repeatValue = recurrence
+    ? recurrence.frequency === "WEEKLY" && isWeekdaySelection(recurrence.weekdays)
+      ? "weekdays"
+      : recurrence.frequency.toLowerCase()
+    : initialRule
+      ? deriveRepeat(initialRule)
+      : "none";
 
   // Any field edit arms the unsaved-changes guard; a successful save disarms it.
   function markDirty(): void {
@@ -138,8 +232,8 @@ export function EventDialog({
       startTime,
       endDate,
       endTime,
-      repeat,
-      initialRepeat,
+      recurrence,
+      keepInitialRule,
       initialRule: initialRule ?? null,
       timezone,
     });
@@ -253,6 +347,11 @@ export function EventDialog({
               onChange={(date) => {
                 setStartDate(date);
                 markDirty();
+                // Moving DTSTART re-anchors an uncustomised weekly/monthly
+                // pattern, so the saved start date is always an occurrence.
+                if (recurrence && !repeatTouched) {
+                  setRecurrence(anchorRepeat(recurrence, date));
+                }
               }}
             />
           </div>
@@ -316,20 +415,36 @@ export function EventDialog({
           </label>
           <select
             id="event-repeat"
-            value={repeat}
-            onChange={(event) => {
-              setRepeat(event.target.value as RepeatRule);
-              markDirty();
-            }}
+            value={repeatValue}
+            onChange={(event) => changeRepeatPreset(event.target.value)}
             className={CONTROL}
           >
-            {REPEAT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
+            <option value="none">Does not repeat</option>
+            <option value="daily">{presetLabels.daily}</option>
+            <option value="weekdays">Every weekday (Monday to Friday)</option>
+            <option value="weekly">{presetLabels.weekly}</option>
+            <option value="monthly">{presetLabels.monthly}</option>
+            <option value="yearly">{presetLabels.yearly}</option>
           </select>
         </div>
+
+        {recurrence ? (
+          <RecurrenceFields
+            value={recurrence}
+            startDate={startDate}
+            allDay={allDay}
+            timezone={timezone}
+            weekStartsOn={weekStartsOn}
+            today={today}
+            error={repeatError}
+            onChange={changeRecurrence}
+          />
+        ) : initialRule && !initialParse ? (
+          <p className="rounded-lg bg-info-soft px-3 py-2 text-sm text-info-ink">
+            This series uses a repeat rule the editor can’t display. Its stored rule is kept
+            unless you change Repeat.
+          </p>
+        ) : null}
 
         <div className="space-y-1">
           <label className={LABEL} htmlFor="event-location">
@@ -380,7 +495,7 @@ export function EventDialog({
         <Button
           variant="primary"
           type="submit"
-          disabled={pending || title.trim().length === 0 || !selectedCalendarId}
+          disabled={pending || title.trim().length === 0 || !selectedCalendarId || Boolean(repeatError)}
         >
           {pending ? "Saving…" : "Save"}
         </Button>

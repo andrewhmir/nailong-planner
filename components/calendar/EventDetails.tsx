@@ -46,7 +46,9 @@ export function EventDetails({
 
   const heading = formatOccurrenceHeading(event, occurrenceStart, timezone);
   const when = formatOccurrenceWhen(event, occurrenceStart, timezone, timeFormat);
-  const repeat = event.rrule ? describeRrule(event.rrule) : "";
+  const repeat = event.rrule
+    ? describeRrule(event.rrule, { timezone, allDay: event.allDay === 1 })
+    : "";
   const location = event.location?.trim() ?? "";
   const description = event.description?.trim() ?? "";
 

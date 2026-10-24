@@ -198,6 +198,24 @@ calendar still draws, or an undo action does nothing.
 
 ## Keyboard, media queries and debouncing
 
+### lib/ui/wheelNav.ts
+
+**Purpose** — Pure gesture maths for Google Calendar's scroll-to-navigate: turn wheel events over the calendar grid into "previous period / next period / nothing", with trackpad accumulation and a per-gesture cooldown. `CalendarShell` owns the actual listener and calls FullCalendar's `next()`/`prev()`.
+
+**Public API** — `stepWheel(accumulator: number, gesture: WheelGesture): WheelStep` where `WheelGesture = { deltaX; deltaY; ctrlKey?; metaKey? }` and `WheelStep = { accumulator; direction: -1 | 0 | 1 }`; `wheelNavAllowed(lastNavigatedAt: number, now: number): boolean`; constants `WHEEL_NAV_THRESHOLD` (40) and `WHEEL_NAV_COOLDOWN_MS` (500).
+
+**State & side effects** — None (pure). `stepWheel` adds `deltaY` to the accumulator, returns direction 1 (down/forward) or -1 (up/backward) once `|accumulator| >= 40` and resets it; a horizontal-dominant or ctrl/meta (pinch-zoom) gesture resets the accumulator and yields 0. `wheelNavAllowed` is a plain elapsed-time check.
+
+**Depends on / Used by** — No imports. Called by `components/calendar/CalendarShell.tsx`'s wheel effect: it also skips the gesture when the target sits in a vertically scrollable `.fc-scroller` (week/day hours, list view), when a `role="dialog"` is open, or while an event is being dragged/resized.
+
+**Debugging**
+- The wheel does nothing over the month grid -> the listener did not attach (grid ref missing) or a dialog is open -> the effect in `CalendarShell.tsx` and its `[role="dialog"]` guard.
+- One flick jumps several months -> the cooldown branch was dropped, so every accumulated wheel event navigates -> `wheelNavAllowed` and `lastWheelNavAt`.
+- The trackpad needs many swipes before it moves -> the threshold was raised above 40 -> `WHEEL_NAV_THRESHOLD`.
+- Week/day view stopped scrolling its hours -> the scrollable-`.fc-scroller` escape hatch was removed from the wheel handler -> `CalendarShell.tsx`.
+
+**Tests** — `tests/unit/wheelNav.test.ts`; end-to-end in `tests/e2e/mini-month.spec.ts` ("a wheel gesture over the grid moves to the next month").
+
 ### lib/ui/useDebouncedValue.ts
 
 **Purpose** — Returns the previous value until `delayMs` has passed without a change; used so typing in the search box issues one query, not one per keystroke.

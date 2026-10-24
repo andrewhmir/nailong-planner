@@ -45,6 +45,7 @@ import { pushUndo, undoLast } from "@/lib/ui/undo";
 import { useKeyboardShortcuts } from "@/lib/ui/useKeyboardShortcuts";
 import { useMediaQuery } from "@/lib/ui/useMediaQuery";
 import { useUndoHotkey } from "@/lib/ui/useUndoHotkey";
+import { stepWheel, wheelNavAllowed } from "@/lib/ui/wheelNav";
 import { resolveInitialView } from "@/lib/ui/view";
 import { visibleCalendarIds } from "@/lib/ui/visibleCalendars";
 import { CalendarView, type RenderableOccurrence } from "./CalendarView";
@@ -189,6 +190,11 @@ export function CalendarShell({
   } | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
   const gridRef = useRef<HTMLElement | null>(null);
+  // Wheel navigation: carry sub-threshold trackpad deltas across events, and
+  // stamp the last navigation so one flick advances exactly one period.
+  const wheelAccumulatorRef = useRef(0);
+  const lastWheelNavAt = useRef(0);
+  const wheelAnimationRef = useRef<Animation | null>(null);
   // Bumped by every surface that replaces the details popover. The search deep
   // link lands asynchronously (it polls for the event block), so the poll needs
   // to know whether the user opened something *after* picking the result: the
@@ -205,6 +211,110 @@ export function CalendarShell({
       }),
     [],
   );
+
+  /**
+   * Google-Calendar-style period change for a wheel gesture: the current grid
+   * slides sideways out and fades, the next period slides in from the other
+   * side. Users who ask for less motion get the instant change instead.
+   */
+  function animateWheelNavigation(direction: 1 | -1): void {
+    const api = calendarRef.current?.getApi();
+    if (!api) {
+      return;
+    }
+    const panel = gridRef.current?.querySelector<HTMLElement>(".fc");
+    if (!panel || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      if (direction > 0) {
+        api.next();
+      } else {
+        api.prev();
+      }
+      return;
+    }
+
+    wheelAnimationRef.current?.cancel();
+    const exit = panel.animate(
+      [
+        { transform: "translateX(0)", opacity: 1 },
+        { transform: `translateX(${-direction * 20}px)`, opacity: 0.35 },
+      ],
+      { duration: 100, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" },
+    );
+    wheelAnimationRef.current = exit;
+
+    exit.finished
+      .then(() => {
+        if (direction > 0) {
+          api.next();
+        } else {
+          api.prev();
+        }
+        // Hold the exit transform for two frames while the new period mounts,
+        // then slide it in, so the change never flashes at its final position.
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const enter = panel.animate(
+              [
+                { transform: `translateX(${direction * 28}px)`, opacity: 0.35 },
+                { transform: "translateX(0)", opacity: 1 },
+              ],
+              { duration: 220, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "forwards" },
+            );
+            wheelAnimationRef.current = enter;
+            exit.cancel();
+            enter.finished
+              .then(() => {
+                enter.cancel();
+                if (wheelAnimationRef.current === enter) {
+                  wheelAnimationRef.current = null;
+                }
+              })
+              .catch(() => {});
+          });
+        });
+      })
+      .catch(() => {});
+  }
+
+  // Google Calendar's scroll-to-navigate: a deliberate wheel gesture over the
+  // grid moves one period (month → month, week → week, day → day). Panes that
+  // scroll vertically on their own (week/day hours, list view), an open
+  // popup/dialog, and a drag in progress keep the wheel for themselves.
+  useEffect(() => {
+    const element = gridRef.current;
+    if (!element) {
+      return;
+    }
+    function onWheel(event: WheelEvent): void {
+      const step = stepWheel(wheelAccumulatorRef.current, event);
+      wheelAccumulatorRef.current = step.accumulator;
+      if (step.direction === 0) {
+        return;
+      }
+      const target = event.target instanceof Element ? event.target : null;
+      const scroller = target?.closest(".fc-scroller");
+      if (scroller && scroller.scrollHeight > scroller.clientHeight + 1) {
+        return;
+      }
+      if (
+        document.querySelector('[role="dialog"]') ||
+        document.querySelector(".fc-event-dragging, .fc-event-resizing")
+      ) {
+        return;
+      }
+      if (!wheelNavAllowed(lastWheelNavAt.current, Date.now())) {
+        return;
+      }
+      event.preventDefault();
+      lastWheelNavAt.current = Date.now();
+      animateWheelNavigation(step.direction);
+    }
+    element.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      element.removeEventListener("wheel", onWheel);
+      wheelAnimationRef.current?.cancel();
+    };
+  }, []);
 
   const { data: events } = useEvents(range);
   const createEvent = useCreateEvent();
@@ -944,6 +1054,7 @@ export function CalendarShell({
                 initialRule={dialog.initialRule}
                 timezone={timezone}
                 timeFormat={preferences.timeFormat}
+                weekStartsOn={weekStartsOn}
                 calendars={writableCalendars}
                 defaultCalendarId={defaultEventCalendarId}
                 onClose={finishCloseDialog}
