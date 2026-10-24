@@ -46,6 +46,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 | `tests/unit/roadmap.test.ts` | `APP_VERSION` matches `package.json`; unique roadmap ids and hrefs; exactly one promised version; `gateLabel` wording; the live set is Calendar + Settings | `npx vitest run tests/unit/roadmap.test.ts` |
 | `tests/unit/env.test.ts` | `assertProductionEnv`: no-op outside production, complete env, missing/short `BETTER_AUTH_SECRET`, implicit `DATABASE_URL`, non-absolute `BETTER_AUTH_URL`, http/localhost warning | `npx vitest run tests/unit/env.test.ts` |
 | `tests/unit/route-origin.test.ts` | `assertSameOrigin`: same-origin write allowed, no-Origin callers allowed, foreign `Origin` rejected, `Sec-Fetch-Site: cross-site` rejected, reads unrestricted | `npx vitest run tests/unit/route-origin.test.ts` |
+| `tests/unit/wheelNav.test.ts` | Wheel-to-navigate gesture maths: mouse-sized deltas step immediately, trackpad deltas accumulate to the 40 threshold, horizontal swipes and ctrl/meta pinch-zoom ignored, and one navigation per 500 ms cooldown | `npx vitest run tests/unit/wheelNav.test.ts` |
 
 ## Integration tests
 
@@ -87,7 +88,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 | `tests/e2e/preferences.spec.ts` | 12-hour format reaches the grid and survives reload, default view persists, the Calendar card is reachable from the sub-nav, week numbers and shortcut toggles persist | `npx playwright test tests/e2e/preferences.spec.ts` |
 | `tests/e2e/view-preference.spec.ts` | Desktop defaults to month and phone to list, the last view survives reload, a stored default beats `auto` after `localStorage` is cleared, overlapping events sit side by side | `npx playwright test tests/e2e/view-preference.spec.ts` |
 | `tests/e2e/settings.spec.ts` | Household name saves and repopulates, sub-nav marks the hash, password and 2FA panels exist, 2FA setup shows the code field and backup codes, security headers on a real response | `npx playwright test tests/e2e/settings.spec.ts` |
-| `tests/e2e/mini-month.spec.ts` | Mini-month jumps the grid, next-month navigation, the toolbar title opens a date picker, `?date=` deep link, the title stays a heading | `npx playwright test tests/e2e/mini-month.spec.ts` |
+| `tests/e2e/mini-month.spec.ts` | Mini-month jumps the grid, next-month navigation, a wheel gesture over the grid moving to the next month, the toolbar title opens a date picker, `?date=` deep link, the title stays a heading | `npx playwright test tests/e2e/mini-month.spec.ts` |
 | `tests/e2e/import.spec.ts` | Settings → importer, upload a Google `.ics`, preview counts, map to a new `From Google` calendar, commit, event visible on the calendar, undo from the history table | `npx playwright test tests/e2e/import.spec.ts` |
 | `tests/e2e/mobile.spec.ts` | At 375px the month grid does not overflow horizontally and the calendar tree opens as a sheet that closes | `npx playwright test tests/e2e/mobile.spec.ts` |
 | `tests/e2e/viewport-fit.spec.ts` | Eight viewports: document never scrolls, whole month fits, grid does not scroll internally, chrome cannot move; week hours and the settings page scroll inside their panels | `npx playwright test tests/e2e/viewport-fit.spec.ts` |

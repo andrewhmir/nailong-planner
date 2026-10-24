@@ -57,6 +57,23 @@ test("the toolbar title opens a date picker", async ({ page }) => {
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
+test("a wheel gesture over the grid moves to the next month", async ({ page }) => {
+  const now = new Date();
+  await expect(
+    page.getByRole("heading", { name: new RegExp(`${MONTHS[now.getMonth()]} ${now.getFullYear()}`) }),
+  ).toBeVisible();
+
+  await page.locator("[data-date]").first().hover();
+  await page.mouse.wheel(0, 300);
+
+  const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  await expect(
+    page.getByRole("heading", {
+      name: new RegExp(`${MONTHS[next.getMonth()] ?? ""} ${next.getFullYear()}`),
+    }),
+  ).toBeVisible();
+});
+
 test("a ?date= deep link opens that month", async ({ page }) => {
   await page.goto("/?date=2027-03-15");
   await expect(page.getByRole("heading", { name: /March 2027/ })).toBeVisible();
