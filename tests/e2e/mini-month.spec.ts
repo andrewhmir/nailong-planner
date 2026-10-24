@@ -84,3 +84,26 @@ test("the toolbar title stays a heading for assistive tech", async ({ page }) =>
   await expect(heading).toBeVisible();
   await expect(heading.getByRole("button")).toHaveAttribute("aria-haspopup", "dialog");
 });
+
+test.describe("with reduced motion", () => {
+  test.use({ reducedMotion: "reduce" });
+
+  test("wheel navigation changes the month without the slide", async ({ page }) => {
+    const now = new Date();
+    const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    await page.locator("[data-date]").first().hover();
+    await page.mouse.wheel(0, 300);
+    await expect(
+      page.getByRole("heading", {
+        name: new RegExp(`${MONTHS[next.getMonth()] ?? ""} ${next.getFullYear()}`),
+      }),
+    ).toBeVisible();
+
+    // The animated path would leave a running Web Animation on the grid.
+    const running = await page.evaluate(
+      () => document.querySelector(".fc")?.getAnimations().length ?? 0,
+    );
+    expect(running).toBe(0);
+  });
+});

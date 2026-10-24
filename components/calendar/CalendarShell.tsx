@@ -194,6 +194,7 @@ export function CalendarShell({
   // stamp the last navigation so one flick advances exactly one period.
   const wheelAccumulatorRef = useRef(0);
   const lastWheelNavAt = useRef(0);
+  const wheelAnimationRef = useRef<Animation | null>(null);
   // Bumped by every surface that replaces the details popover. The search deep
   // link lands asynchronously (it polls for the event block), so the poll needs
   // to know whether the user opened something *after* picking the result: the
@@ -210,6 +211,70 @@ export function CalendarShell({
       }),
     [],
   );
+
+  /**
+   * Google-Calendar-style period change for a wheel gesture: the current grid
+   * slides sideways out and fades, the next period slides in from the other
+   * side. Users who ask for less motion get the instant change instead.
+   */
+  function animateWheelNavigation(direction: 1 | -1): void {
+    const api = calendarRef.current?.getApi();
+    if (!api) {
+      return;
+    }
+    const panel = gridRef.current?.querySelector<HTMLElement>(".fc");
+    if (!panel || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      if (direction > 0) {
+        api.next();
+      } else {
+        api.prev();
+      }
+      return;
+    }
+
+    wheelAnimationRef.current?.cancel();
+    const exit = panel.animate(
+      [
+        { transform: "translateX(0)", opacity: 1 },
+        { transform: `translateX(${-direction * 20}px)`, opacity: 0.35 },
+      ],
+      { duration: 100, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" },
+    );
+    wheelAnimationRef.current = exit;
+
+    exit.finished
+      .then(() => {
+        if (direction > 0) {
+          api.next();
+        } else {
+          api.prev();
+        }
+        // Hold the exit transform for two frames while the new period mounts,
+        // then slide it in, so the change never flashes at its final position.
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const enter = panel.animate(
+              [
+                { transform: `translateX(${direction * 28}px)`, opacity: 0.35 },
+                { transform: "translateX(0)", opacity: 1 },
+              ],
+              { duration: 220, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "forwards" },
+            );
+            wheelAnimationRef.current = enter;
+            exit.cancel();
+            enter.finished
+              .then(() => {
+                enter.cancel();
+                if (wheelAnimationRef.current === enter) {
+                  wheelAnimationRef.current = null;
+                }
+              })
+              .catch(() => {});
+          });
+        });
+      })
+      .catch(() => {});
+  }
 
   // Google Calendar's scroll-to-navigate: a deliberate wheel gesture over the
   // grid moves one period (month → month, week → week, day → day). Panes that
@@ -242,15 +307,13 @@ export function CalendarShell({
       }
       event.preventDefault();
       lastWheelNavAt.current = Date.now();
-      const api = calendarRef.current?.getApi();
-      if (step.direction > 0) {
-        api?.next();
-      } else {
-        api?.prev();
-      }
+      animateWheelNavigation(step.direction);
     }
     element.addEventListener("wheel", onWheel, { passive: false });
-    return () => element.removeEventListener("wheel", onWheel);
+    return () => {
+      element.removeEventListener("wheel", onWheel);
+      wheelAnimationRef.current?.cancel();
+    };
   }, []);
 
   const { data: events } = useEvents(range);
