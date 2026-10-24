@@ -166,7 +166,14 @@ Settings → **Google Calendar import** → *Open the importer* (`/settings/impo
    and a warning list (an unknown `TZID` is skipped rather than guessed). Nothing
    has been written yet.
 4. Map each source calendar: by default it becomes a sub-calendar of a new
-   **From Google** calendar; you can also pick any writable calendar.
+   **From Google** calendar owned by you; you can also pick any writable
+   calendar. Owned calendars are separate per person — hiding Shared ("Ours")
+   does not hide them, and a partner's `From Google` tree is never reused. To
+   import into the shared group, map to an existing shared calendar instead.
+   A `From Google` tree created by an older version is shared (`owner_id` NULL):
+   it keeps its events until you re-import (which creates your own tree and
+   moves the events idempotently) or change the calendar's owner in the calendar
+   dialog.
 5. Press **Import** — the whole batch is one SQLite transaction, so a failure
    writes nothing.
 6. Undo from the report or from **Past imports** at any time; events you edited

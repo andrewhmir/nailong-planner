@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
-import { ANDREW, loadFixtures, signIn } from "./helpers";
+import { ANDREW, loadFixtures, PARTNER, signIn } from "./helpers";
 
 const fixtures = loadFixtures();
 const sample = path.resolve("tests/fixtures/ics/google-sample.ics");
@@ -57,4 +57,30 @@ test("imports a Google export, shows it on the calendar, and undoes it", async (
 
   await page.goto(`/?date=${fixtureMonthDay()}`);
   await expect(page.getByText("Dentist appointment")).toHaveCount(0);
+});
+
+test("the partner's import stays in their own group when Shared is hidden", async ({ page }) => {
+  await signIn(page, PARTNER, fixtures.password);
+
+  await page.goto("/settings/import");
+  await page.getByLabel("Google Calendar files").setInputFiles(sample);
+  await expect(page.getByText("3 to add, 0 to update, 0 already up to date.")).toBeVisible();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Import 3 events" }).click();
+  await expect(page.getByRole("heading", { name: "Import complete" })).toBeVisible();
+
+  // The import created the partner's own From Google tree.
+  const nav = page.getByRole("navigation", { name: "Calendar list" });
+  await expect(nav.getByRole("checkbox", { name: "Family" })).toBeVisible();
+
+  // Hiding Shared ("Ours") must not hide the partner's imported events.
+  await page.getByRole("button", { name: "Ours", exact: true }).click();
+  await page.goto(`/?date=${fixtureMonthDay()}`);
+  await expect(page.getByText("Dentist appointment")).toBeVisible();
+
+  // Undo so the shared E2E database is back to the seeded state for other specs.
+  await page.goto("/settings/import");
+  await expect(page.getByRole("heading", { name: "Past imports" })).toBeVisible();
+  await page.getByRole("button", { name: "Undo", exact: true }).first().click();
+  await expect(page.getByText("Import undone")).toBeVisible();
 });

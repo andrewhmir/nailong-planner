@@ -10,6 +10,7 @@ import {
 } from "@/lib/services/import";
 import { createCalendar, updateCalendar } from "@/lib/services/calendars";
 import { localWallTimeToUtc } from "@/lib/time/zone";
+import { groupOf } from "@/lib/ui/visibility";
 import { makeSeededDb } from "../helpers/fixtures";
 
 const HH = "Asia/Taipei";
@@ -96,8 +97,10 @@ describe("import service", () => {
 
       const root = db.select().from(calendar).where(eq(calendar.name, "From Google")).get();
       expect(root?.parentId).toBeNull();
+      expect(root?.ownerId).toBe("user-a");
       const child = db.select().from(calendar).where(eq(calendar.name, "Family")).get();
       expect(child?.parentId).toBe(root?.id);
+      expect(child?.ownerId).toBe("user-a");
 
       const rows = db.select().from(event).all().filter((row) => row.householdId === "h1");
       expect(rows).toHaveLength(3);
@@ -378,7 +381,68 @@ describe("import service", () => {
     }
   });
 
-  it("refuses to reuse a view-only From Google calendar", async () => {
+  it("keeps each member's import in their own From Google tree", async () => {
+    const { db, close, ctxA, ctxB } = await setup();
+    try {
+      const fileA = threeEvents();
+      const reportA = commitImport(db, ctxA, {
+        files: [fileA],
+        mapping: { Family: { mode: "new" } },
+      });
+      // B imports their own Google account: different UIDs, same source name.
+      const fileB = ics("Family", [
+        timedEvent("b1@google.com", "Yoga", "20261110T090000", "20261110T100000"),
+      ]);
+      const reportB = commitImport(db, ctxB, {
+        files: [fileB],
+        mapping: { Family: { mode: "new" } },
+      });
+
+      expect(reportA.created).toBe(3);
+      expect(reportB.created).toBe(1);
+      const roots = db.select().from(calendar).all().filter((row) => row.name === "From Google");
+      expect(roots).toHaveLength(2);
+      const rootA = roots.find((row) => row.ownerId === "user-a")!;
+      const rootB = roots.find((row) => row.ownerId === "user-b")!;
+      expect(rootA.id).not.toBe(rootB.id);
+
+      // A person's import is in their own pill, not in "Ours".
+      expect(groupOf(rootA, "user-a")).toBe("me");
+      expect(groupOf(rootB, "user-b")).toBe("me");
+      expect(groupOf(rootB, "user-a")).toBe("partner");
+
+      const childA = db
+        .select()
+        .from(calendar)
+        .where(and(eq(calendar.parentId, rootA.id), eq(calendar.name, "Family")))
+        .get()!;
+      const childB = db
+        .select()
+        .from(calendar)
+        .where(and(eq(calendar.parentId, rootB.id), eq(calendar.name, "Family")))
+        .get()!;
+      expect(childA.id).not.toBe(childB.id);
+      expect(childA.ownerId).toBe("user-a");
+      expect(childB.ownerId).toBe("user-b");
+
+      const rows = db.select().from(event).all().filter((row) => row.householdId === "h1");
+      expect(rows.filter((row) => row.calendarId === childA.id)).toHaveLength(3);
+      expect(rows.filter((row) => row.calendarId === childB.id)).toHaveLength(1);
+
+      // Re-importing reuses the importer's own tree and never the partner's.
+      const again = commitImport(db, ctxA, { files: [fileA], mapping: { Family: { mode: "new" } } });
+      expect(again.created).toBe(0);
+      expect(again.unchanged).toBe(3);
+      expect(again.calendarsCreated).toEqual([]);
+      expect(
+        db.select().from(calendar).all().filter((row) => row.name === "From Google"),
+      ).toHaveLength(2);
+    } finally {
+      close();
+    }
+  });
+
+  it("does not reuse a partner's view-only From Google tree", async () => {
     const { db, close, ctxA, ctxB } = await setup();
     try {
       const root = createCalendar(db, ctxB, {
@@ -387,15 +451,32 @@ describe("import service", () => {
         ownerId: "user-b",
         isViewOnlyForPartner: true,
       });
-      createCalendar(db, ctxB, { name: "Family", parentId: root.id });
+      const partnerChild = createCalendar(db, ctxB, { name: "Family", parentId: root.id });
 
-      expect(() =>
-        commitImport(db, ctxA, {
-          files: [threeEvents()],
-          mapping: { Family: { mode: "new" } },
-        }),
-      ).toThrow(/view-only/i);
-      expect(db.select().from(event).all()).toHaveLength(0);
+      const report = commitImport(db, ctxA, {
+        files: [threeEvents()],
+        mapping: { Family: { mode: "new" } },
+      });
+
+      // A gets their own writable tree; B's view-only calendar is untouched.
+      expect(report.calendarsCreated).toEqual(["From Google", "Family"]);
+      const aRoot = db
+        .select()
+        .from(calendar)
+        .all()
+        .find((row) => row.name === "From Google" && row.ownerId === "user-a")!;
+      const aChild = db
+        .select()
+        .from(calendar)
+        .where(and(eq(calendar.parentId, aRoot.id), eq(calendar.name, "Family")))
+        .get()!;
+      expect(aChild.id).not.toBe(partnerChild.id);
+      const rows = db.select().from(event).all().filter((row) => row.householdId === "h1");
+      expect(rows).toHaveLength(3);
+      expect(rows.every((row) => row.calendarId === aChild.id)).toBe(true);
+      expect(db.select().from(calendar).where(eq(calendar.id, partnerChild.id)).get()?.ownerId).toBe(
+        "user-b",
+      );
     } finally {
       close();
     }

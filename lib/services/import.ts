@@ -238,9 +238,19 @@ function importRoots(db: Database, householdId: string): CalendarRow[] {
     .all();
 }
 
-function findImportChild(db: Database, householdId: string, name: string): CalendarRow | null {
-  const roots = importRoots(db, householdId).filter(isImportRoot);
-  for (const root of roots) {
+/**
+ * The import trees this viewer owns. Imports are personal by default: a
+ * partner's `From Google` tree is never reused, so imported events stay in the
+ * importer's person group and hiding "Ours" does not hide them.
+ */
+function ownedImportRoots(db: Database, ctx: ViewerContext): CalendarRow[] {
+  return importRoots(db, ctx.householdId).filter(
+    (row) => isImportRoot(row) && row.ownerId === ctx.userId,
+  );
+}
+
+function findImportChild(db: Database, ctx: ViewerContext, name: string): CalendarRow | null {
+  for (const root of ownedImportRoots(db, ctx)) {
     const child = db
       .select()
       .from(calendar)
@@ -268,7 +278,9 @@ function ensureImportRoot(
   createdNames: string[],
   createdIds: string[],
 ): CalendarRow {
-  const roots = importRoots(db, ctx.householdId).filter(isImportRoot);
+  // Only this viewer's own import trees are candidates: creating or reusing a
+  // partner's tree would put the imported events in their person group.
+  const roots = ownedImportRoots(db, ctx);
   for (const root of roots) {
     const children = db.select().from(calendar).where(eq(calendar.parentId, root.id)).all();
     if (children.length < MAX_CHILDREN) {
@@ -280,6 +292,7 @@ function ensureImportRoot(
   const root = createCalendar(db, ctx, {
     name: `${IMPORT_ROOT_NAME}${suffix}`,
     hueFamily: nextHueFamily(db, ctx.householdId),
+    ownerId: ctx.userId,
   });
   createdNames.push(root.name);
   createdIds.push(root.id);
@@ -329,10 +342,11 @@ function resolveTargets(
       continue;
     }
 
-    const existingChild = findImportChild(db, ctx.householdId, name);
+    const existingChild = findImportChild(db, ctx, name);
     if (existingChild) {
-      // A partner can claim From Google and mark it view-only; reuse still has
-      // to pass the same permission check as an explicit mapping.
+      // Reuse is limited to the viewer's own tree, but still runs the permission
+      // pair used for an explicit mapping: a tree can be re-owned or turned
+      // view-only, and a refusal must write nothing.
       const access = getCalendarAccess(db, ctx, existingChild.id);
       assertCalendarWritable(ctx, access);
       byName.set(name, access.calendar.id);
