@@ -306,7 +306,20 @@ function ensureImportRoot(
   return root;
 }
 
+/**
+ * Imported events live in calendars. A list is a task container: it holds no
+ * events, so mapping an import onto one is a validation error rather than a
+ * silent write that the calendar views would never show.
+ */
+function assertCalendarTarget(target: CollectionRow): void {
+  if (target.kind !== "calendar") {
+    throw new AppError("VALIDATION", "Imported events need a calendar.", 400);
+  }
+}
+
 function validateMapping(
+  db: Database,
+  ctx: ViewerContext,
   mapping: ImportMapping,
   names: string[],
 ): void {
@@ -327,6 +340,11 @@ function validateMapping(
         [`mapping.${name}`]: "Pick a calendar.",
       });
     }
+    if (entry.mode === "existing") {
+      // Checked here as well as in resolveTargets so a bad mapping fails before
+      // the transaction opens, with the same 400 the API envelope reports.
+      assertCalendarTarget(getCollectionAccess(db, ctx, entry.collectionId).collection);
+    }
   }
 }
 
@@ -344,6 +362,7 @@ function resolveTargets(
     const entry = mapping[name]!;
     if (entry.mode === "existing") {
       const access = getCollectionAccess(db, ctx, entry.collectionId);
+      assertCalendarTarget(access.collection);
       assertCollectionWritable(ctx, access);
       byName.set(name, access.collection.id);
       continue;
@@ -355,6 +374,7 @@ function resolveTargets(
       // pair used for an explicit mapping: a tree can be re-owned or turned
       // view-only, and a refusal must write nothing.
       const access = getCollectionAccess(db, ctx, existingChild.id);
+      assertCalendarTarget(access.collection);
       assertCollectionWritable(ctx, access);
       byName.set(name, access.collection.id);
       continue;
@@ -534,11 +554,24 @@ export function commitImport(
   validateFiles(input.files);
   const parsed = parseFiles(input.files, householdTimezone(db, ctx.householdId));
   const names = parsed.calendars.map((summary) => summary.name);
-  validateMapping(input.mapping, names);
+  validateMapping(db, ctx, input.mapping, names);
 
   return db.transaction((tx) => {
     const txn = tx as unknown as Database;
     const targets = resolveTargets(txn, ctx, input.mapping, names);
+    // The per-change target path: every event below is written to one of these
+    // ids, so each one must be a calendar before the first insert runs.
+    const targetIds = [...new Set(targets.byName.values())];
+    if (targetIds.length > 0) {
+      const targetRows = txn
+        .select()
+        .from(collection)
+        .where(inArray(collection.id, targetIds))
+        .all();
+      for (const targetRow of targetRows) {
+        assertCalendarTarget(targetRow);
+      }
+    }
     const existing = existingByKey(
       txn,
       ctx.householdId,
@@ -678,6 +711,9 @@ export function rollbackImportBatch(
       if (!exists) {
         continue; // an earlier rollback (or a manual delete) removed it
       }
+      // A rollback writes events too (deletes, or restores a before_json row),
+      // so the same calendar-only rule applies to every collection it touches.
+      assertCalendarTarget(exists);
       assertCollectionWritable(ctx, getCollectionAccess(txn, ctx, collectionId));
     }
 

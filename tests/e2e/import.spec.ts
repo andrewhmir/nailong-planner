@@ -38,6 +38,10 @@ test("imports a Google export, shows it on the calendar, and undoes it", async (
 
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByLabel("Import target for Family")).toBeVisible();
+  // Lists never hold events: the Inbox list is writable but must not be offered.
+  await expect(
+    page.getByLabel("Import target for Family").getByRole("option", { name: "Inbox" }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "Import 3 events" }).click();
   await expect(page.getByRole("heading", { name: "Import complete" })).toBeVisible();
   await expect(page.getByText("3 added, 0 updated, 0 already up to date.")).toBeVisible();

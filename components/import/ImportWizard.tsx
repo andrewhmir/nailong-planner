@@ -52,10 +52,18 @@ export function ImportWizard({ currentUserId }: { currentUserId: string }) {
     const viewer = { userId: currentUserId, householdId: "" };
     const entries: Array<{ id: string; name: string }> = [];
     for (const root of collectionTree ?? []) {
+      // Imported events only ever land in calendars. Lists are task containers,
+      // so they are never offered as a target (the server refuses them too).
+      if (root.kind !== "calendar") {
+        continue;
+      }
       if (canWriteCollection(viewer, root)) {
         entries.push({ id: root.id, name: root.name });
       }
       for (const child of root.children) {
+        if (child.kind !== "calendar") {
+          continue;
+        }
         const effective = {
           ownerId: root.ownerId ?? child.ownerId,
           visibility: root.visibility === "shared" ? child.visibility : root.visibility,

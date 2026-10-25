@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { collection, event, importBatch, importChange } from "@/lib/db/schema";
+import { AppError } from "@/lib/errors";
 import {
   commitImport,
   listImportBatches,
@@ -194,6 +195,102 @@ describe("import service", () => {
 
       expect(db.select().from(event).all()).toHaveLength(0);
       expect(db.select().from(importBatch).all()).toHaveLength(0);
+    } finally {
+      close();
+    }
+  });
+
+  it("refuses to map imported events into a task list and writes nothing", async () => {
+    const { db, close, ctxA } = await setup();
+    try {
+      // Lists never hold events. A writable list is still not a valid target:
+      // the import must be refused with a 400 rather than writing rows the
+      // calendar views would never show.
+      const errands = createCollection(db, ctxA, {
+        name: "Errands",
+        kind: "list",
+        hueFamily: "amber",
+      });
+
+      let caught: unknown;
+      try {
+        commitImport(db, ctxA, {
+          files: [threeEvents()],
+          mapping: { Family: { mode: "existing", collectionId: errands.id } },
+        });
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(AppError);
+      expect(caught).toMatchObject({
+        code: "VALIDATION",
+        status: 400,
+        message: "Imported events need a calendar.",
+      });
+      expect(db.select().from(event).all()).toHaveLength(0);
+      expect(db.select().from(importBatch).all()).toHaveLength(0);
+      expect(
+        db.select().from(collection).where(eq(collection.name, "From Google")).all(),
+      ).toHaveLength(0);
+    } finally {
+      close();
+    }
+  });
+
+  it("refuses to roll a legacy batch back into a task list", async () => {
+    const { db, close, ctxA } = await setup();
+    try {
+      // Before the kind guard, a batch could point at a list. Its rollback must
+      // be refused before deleting, restoring or marking anything.
+      const errands = createCollection(db, ctxA, {
+        name: "Errands",
+        kind: "list",
+        hueFamily: "amber",
+      });
+      db.insert(event)
+        .values({
+          id: "legacy-event",
+          householdId: "h1",
+          collectionId: errands.id,
+          title: "Legacy import",
+          allDay: 1,
+          startDate: "2026-11-03",
+          endDate: "2026-11-03",
+          createdBy: "user-a",
+          createdAt: 1_000,
+          updatedAt: 1_000,
+        })
+        .run();
+      db.insert(importBatch)
+        .values({
+          id: "legacy-batch",
+          householdId: "h1",
+          createdBy: "user-a",
+          sourceName: "legacy.ics",
+          status: "committed",
+          mapping: JSON.stringify({ Family: { mode: "existing", collectionId: errands.id } }),
+          report: null,
+          createdAt: 2_000,
+          rolledBackAt: null,
+        })
+        .run();
+      db.insert(importChange)
+        .values({
+          id: "legacy-change",
+          batchId: "legacy-batch",
+          eventId: "legacy-event",
+          action: "create",
+          beforeJson: null,
+          createdAt: 2_000,
+        })
+        .run();
+
+      expect(() => rollbackImportBatch(db, ctxA, "legacy-batch")).toThrow(
+        /Imported events need a calendar/,
+      );
+      expect(db.select().from(event).all()).toHaveLength(1);
+      expect(db.select().from(importBatch).all()[0]?.status).toBe("committed");
     } finally {
       close();
     }
