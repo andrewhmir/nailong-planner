@@ -94,19 +94,19 @@ Validation: `createCalendarSchema` / `updateCalendarSchema` (`lib/validation/cal
 
 ### lib/api/handlers/events.ts
 
-**Purpose** — The event endpoints: range listing with a household-month default, text search, create, patch, and delete either a whole series or one occurrence.
+**Purpose** — The event endpoints: range listing with a household-month default, text search, create, patch (plain or scoped to one of the three recurring-edit scopes), and delete a whole series, a range from an occurrence, or one occurrence.
 
 **Public API** — All exported handlers are `guarded`.
 
 - `listEventsHandler(db, ctx, request): Promise<Response>` -> `{ events: EventView[] }`; range from `?from=&to=` epoch milliseconds.
 - `searchEventsHandler(db, ctx, request): Promise<Response>` -> `{ events: EventView[] }`; `?q=` required, `?limit=` optional.
-- `createEventHandler(db, ctx, request): Promise<Response>` -> `{ event: EventView }`, 201.
-- `updateEventHandler(db, ctx, id, request): Promise<Response>` -> `{ event: EventView }`, 200.
-- `deleteEventHandler(db, ctx, id, request): Promise<Response>` -> empty body, 204.
+- `createEventHandler(db, ctx, request): Promise<Response>` -> `{ event: EventView }`, 201. The create schema carries the undo-only `recurrenceParentId`/`recurrenceId`.
+- `updateEventHandler(db, ctx, id, request): Promise<Response>` -> `{ event }` for a plain/`this`/`all`-move PATCH, or `{ event, truncated, relinked, relinkedPrevious }` for `scope: "following"`, 200.
+- `deleteEventHandler(db, ctx, id, request): Promise<Response>` -> `204` empty body for `scope: "this"`; `200 { deleted, truncated }` for `scope: "all"`/`"following"`.
 
-Private helpers: `pad2`, `currentMonthRange` (household timezone -> first of this month to first of next month, December rolls the year), `parseRange` (no bounds -> current month; exactly one bound -> `VALIDATION` 400 with `fields.from`; non-finite -> 400; `from >= to` -> 400). Search requires `q` (null -> 400 with `fields.q`); `limit` is `Number(...)` and dropped when not finite, so the service default of 50 applies. Delete reads the body with `request.json().catch(() => null)` — a body-less DELETE is legal and means `scope: "all"`; `scope: "this"` requires a non-empty string `occurrenceStart` or `VALIDATION` 400 with `fields.occurrenceStart`.
+Private helpers: `pad2`, `currentMonthRange` (household timezone -> first of this month to first of next month, December rolls the year), `parseRange` (no bounds -> current month; exactly one bound -> `VALIDATION` 400 with `fields.from`; non-finite -> 400; `from >= to` -> 400). Search requires `q` (null -> 400 with `fields.q`); `limit` is `Number(...)` and dropped when not finite, so the service default of 50 applies. Delete reads the body with `request.json().catch(() => null)` — a body-less DELETE is legal and means `scope: "all"`; `scope: "this"` requires a non-empty string `occurrenceStart` or `VALIDATION` 400 with `fields.occurrenceStart`. On PATCH, `scope: "this"`/`"following"` require `occurrenceStart`; `scope: "all"` takes the move path only when `occurrenceStart` is present **and** `allDay` is sent.
 
-**State & side effects** — The only direct read is `getHousehold` for the default month's timezone. All writes go through the service; the delete handler mutates `exdates` rather than the row for `scope: "this"`.
+**State & side effects** — The only direct read is `getHousehold` for the default month's timezone. All writes go through the service; `scope: "this"` inserts a linked exception + EXDATE, `scope: "following"` splits, the `scope: "all"` move shifts the series, and the delete scopes remove rows/append EXDATEs.
 
 **Depends on / Used by** — `lib/services/events.ts`, `lib/services/search.ts`, `lib/services/household.ts` (`getHousehold`), `lib/time/zone.ts` (`localWallTimeToUtc`, `utcToLocalDate`), `lib/validation/events.ts`, `./support`. Called by `app/api/events/route.ts`, `app/api/events/[id]/route.ts`, `app/api/events/search/route.ts`; called directly by `tests/integration/events-api.test.ts`; client side is `lib/query/events.ts` and `lib/query/search.ts`.
 
@@ -116,8 +116,10 @@ Private helpers: `pad2`, `currentMonthRange` (household timezone -> first of thi
 - A DELETE unexpectedly removes an entire series -> the request had no JSON body (or a body without `scope`), so the handler defaults to `"all"` -> `deleteEventHandler`.
 - 400 `fields.q` -> the search box sent an empty string or omitted `q`; a 1-character `q` is not a 400, it returns `[]` from the service.
 - Default month looks wrong near a month boundary -> the range is computed in the household timezone, not UTC -> `currentMonthRange` plus the `household.timezone` row.
+- A scoped PATCH hits the plain series path -> `scope`/`occurrenceStart` were stripped before the branch, or `allDay` was missing on an `all`-move -> the destructuring at the top of `updateEventHandler`.
+- A split response is `{ event }` only -> the handler treated `following` as a normal series edit -> the `scope === "following"` branch.
 
-**Tests** — `tests/integration/events-api.test.ts` covers list/create/update/delete and status mapping. `searchEventsHandler` has no direct unit or integration test; `tests/integration/search-api.test.ts` tests `searchEvents` itself.
+**Tests** — `tests/integration/events-api.test.ts` covers list/create/update/delete, all three recurring scopes and status mapping. `searchEventsHandler` has no direct unit or integration test; `tests/integration/search-api.test.ts` tests `searchEvents` itself.
 
 ### lib/api/handlers/preferences.ts
 

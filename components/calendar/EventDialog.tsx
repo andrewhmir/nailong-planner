@@ -6,7 +6,12 @@ import { Button } from "@/components/ui/button";
 import type { CalendarNode } from "@/lib/services/calendars";
 import type { EventView } from "@/lib/services/events";
 import type { TimeFormat } from "@/lib/services/preferences";
-import { useCreateEvent, useDeleteEvent, useUpdateEvent } from "@/lib/query/events";
+import {
+  useCreateEvent,
+  useDeleteEvent,
+  useUpdateEvent,
+  type EventInputPayload,
+} from "@/lib/query/events";
 import { useUpdatePreferences } from "@/lib/query/preferences";
 import { utcToLocalDate, utcToLocalWallTime } from "@/lib/time/zone";
 import { pushUndo, undoLast } from "@/lib/ui/undo";
@@ -44,6 +49,8 @@ const LABEL = "block text-base text-ink";
 
 export interface EventDialogInitial {
   event?: EventView;
+  /** The occurrence that was clicked (a local date or an ISO instant). */
+  occurrenceStart?: string;
   /** Wall-clock start in the household timezone (`YYYY-MM-DDTHH:MM`). */
   start: string;
   /** Wall-clock end in the household timezone (`YYYY-MM-DDTHH:MM`). */
@@ -71,6 +78,16 @@ interface Props {
   /** User asked to close; the shell runs the unsaved-changes guard. */
   onCancel?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  /**
+   * Recurring edits go through the shell, which asks for the scope before it
+   * writes. Absent means the dialog performs the plain series PATCH itself.
+   */
+  onSaveRequest?: (
+    payload: EventInputPayload,
+    meta: { repeatTouched: boolean },
+  ) => void;
+  /** A scoped save (owned by the shell) is in flight; keep Save disabled. */
+  externalPending?: boolean;
 }
 
 function splitWall(wall: string): { date: string; time: string } {
@@ -95,12 +112,14 @@ export function EventDialog({
   onClose,
   onCancel,
   onDirtyChange,
+  onSaveRequest,
+  externalPending = false,
 }: Props) {
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
   const updatePreferences = useUpdatePreferences();
-  const pending = createEvent.isPending || updateEvent.isPending;
+  const pending = createEvent.isPending || updateEvent.isPending || externalPending;
 
   const initialStart = splitWall(initial.start);
   const initialEnd = splitWall(initial.end);
@@ -126,16 +145,35 @@ export function EventDialog({
   // Calendars can finish loading after the dialog opens; fall back live instead
   // of freezing an empty selection into the form.
   const selectedCalendarId = calendarId || fallbackCalendarId;
-  const initialAllDay = initial.event ? initial.event.allDay === 1 : initial.allDay;
-  const initialStartDate = initial.event?.startDate ?? initialStart.date;
+  // Repeating events open on the clicked occurrence, not on the series' first
+  // block; non-recurring rows and creates seed from the event/initial walls.
+  const occurrenceSeeded = Boolean(initial.occurrenceStart);
+  const initialAllDay = occurrenceSeeded
+    ? initial.allDay
+    : initial.event
+      ? initial.event.allDay === 1
+      : initial.allDay;
+  const initialStartDate = occurrenceSeeded
+    ? initialStart.date
+    : (initial.event?.startDate ?? initialStart.date);
   const [allDay, setAllDay] = useState(initialAllDay);
   const [startDate, setStartDate] = useState(initialStartDate);
   const [startTime, setStartTime] = useState(
-    initial.event?.startAt ? utcToLocalWallTime(initial.event.startAt, timezone).split("T")[1]! : initialStart.time,
+    occurrenceSeeded
+      ? initialStart.time
+      : initial.event?.startAt
+        ? utcToLocalWallTime(initial.event.startAt, timezone).split("T")[1]!
+        : initialStart.time,
   );
-  const [endDate, setEndDate] = useState(initial.event?.endDate ?? initialEnd.date);
+  const [endDate, setEndDate] = useState(
+    occurrenceSeeded ? initialEnd.date : (initial.event?.endDate ?? initialEnd.date),
+  );
   const [endTime, setEndTime] = useState(
-    initial.event?.endAt ? utcToLocalWallTime(initial.event.endAt, timezone).split("T")[1]! : initialEnd.time,
+    occurrenceSeeded
+      ? initialEnd.time
+      : initial.event?.endAt
+        ? utcToLocalWallTime(initial.event.endAt, timezone).split("T")[1]!
+        : initialEnd.time,
   );
   // The stored rule parsed into the structured editor. Null when the editor
   // cannot represent it — its text is then kept verbatim until Repeat changes.
@@ -249,8 +287,14 @@ export function EventDialog({
     const onError = (error: Error) => toast.error(error.message);
 
     if (mode === "edit" && initial.event) {
+      const payload = buildPayload();
+      if (onSaveRequest) {
+        // The shell asks for the recurring scope before it writes.
+        onSaveRequest(payload, { repeatTouched });
+        return;
+      }
       updateEvent.mutate(
-        { id: initial.event.id, ...buildPayload() },
+        { id: initial.event.id, ...payload },
         { onSuccess: finishSave, onError },
       );
       return;
@@ -479,7 +523,8 @@ export function EventDialog({
 
         {isRecurringEdit ? (
           <p className="rounded-lg bg-info-soft px-3 py-2 text-sm text-info-ink">
-            This event repeats. Saving changes every occurrence in the series.
+            This event repeats. When you save, choose whether the change applies to this event,
+            this and following events, or the whole series.
           </p>
         ) : null}
       </div>

@@ -106,8 +106,22 @@ The request pipeline in one line:
   zone`), or any `Date.parse`-able string. Malformed JSON or non-string entries
   are **ignored silently** — that is the usual reason a deleted occurrence comes
   back.
-- v0.1.0 edits a recurring event **as a series**; only single-occurrence
-  **deletion** exists (append to `exdates`).
+- Edits, drags/resizes and deletes of a repeating event go through **three
+  scopes** — This event, This and following events, All events. A “This event”
+  write creates an ordinary `event` row linked by `recurrence_parent_id`
+  (self-FK, `ON DELETE CASCADE`) with `recurrence_id` = the replaced occurrence
+  key, and appends that key to the series `exdates`; expansion has **no override
+  branch** (the exception renders from its own row). “This and following”
+  truncates the old row and creates a later segment
+  (`lib/recurrence/scopes.ts`); “All events” shifts the series start, rule and
+  EXDATEs by the drag delta. The Edit form opens on the clicked occurrence and
+  asks the same question on Save.
+- Deleting a recurring series also deletes its exceptions (FK cascade) and the
+  DELETE response returns every deleted row so undo can recreate them
+  parent-first. A row without `rrule` — including an already-moved exception —
+  drags, edits and deletes as a plain single event with no chooser.
+- A per-instance exception inherits title/description/location/calendar edits
+  from its series but keeps its own times; turning the repeat off detaches it.
 - The repeat controls are a structured view over `rrule`
   (`lib/recurrence/rule.ts`): interval, weekly weekdays, monthly
   day-of-month/nth-weekday, and `Never`/`On`/`After N` ends. The dialog sends
@@ -252,7 +266,14 @@ any wrapper in the shell/calendar tree.
 | A new `(app)` route shows the "Calendar" breadcrumb | `AppShell.ROUTE_CRUMBS` is derived from `LIVE_ENTRIES`; the route's roadmap entry is still `status: "planned"` | `lib/roadmap.ts` |
 | A gated rail icon still says "Coming in v0.2.0" after it shipped, or says the wrong release | destinations, `version` and the gate label live in one array and nowhere else | `lib/roadmap.ts`, `ROADMAP[].status`/`ROADMAP[].version` |
 | "Delete this occurrence" wiped the whole series | a DELETE sent with **no JSON body** defaults to `scope: "all"` in the handler; `scope: "this"` needs a non-empty `occurrenceStart` | `lib/api/handlers/events.ts` `deleteEventHandler`, the client mutation in `lib/query/events.ts` |
-| Deleting an occurrence returns 500 | the stored `exdates` JSON is corrupt: the append path parses it strictly, while the read path tolerates it | `lib/services/events.ts` `deleteEvent`, `lib/recurrence/expand.ts` |
+| Deleting an occurrence returns 500 | the stored `exdates` JSON was corrupt and an old write path parsed it strictly; the current path tolerates corruption in `lib/services/events.ts` `parseStoredExdates` | the raw `exdates` column, `deleteEvent` |
+| A recurring drag/resize snaps back with no chooser | the block's id did not parse to a visible series row, or the client sent no `scope`/`occurrenceStart` | `CalendarShell.handleEventMove`/`openScope`, the PATCH body |
+| "This event" leaves the original slot on the grid | the EXDATE key shape does not match expansion (date vs ISO), or the exception row was inserted without the link | `createException`, `lib/recurrence/expand.ts` `parseExdates` |
+| "All events" puts the series start on the dragged occurrence's date instead of shifting by the drag offset | `shiftSeriesTiming` measured the delta from the series start rather than from `occurrenceStart` | `lib/recurrence/scopes.ts` `shiftSeriesTiming`; covered by `tests/unit/recurrence-scopes.test.ts` |
+| "This and following" leaves one segment, or its later segment starts on the series' first date | split at the first occurrence intentionally removes the old row (`truncated: null`); a wrong later start means the dialog payload seeded the series start instead of the clicked occurrence | `splitSeries`/`buildLaterSegment`, `CalendarShell.occurrenceWalls` |
+| Deleting a series leaves moved instances behind, or undo loses them | the `0005` self-FK cascade is missing (stale migration) or the undo recreated exceptions before their series | `drizzle/0005_sloppy_praxagora.sql`, `CalendarShell.recreateDeleted` |
+| "All events" is disabled / PATCH answers "custom repeat rule" | the stored rule is `advanced`/unparseable, so it cannot be shifted safely — only "This event" is allowed | `canShiftSeries` + `shiftRepeatRule` |
+| A split undo leaves a duplicate or a missing block | the undo closure recreated the pre-split exceptions under the wrong parent, or deleted the later segment before re-linking them | `CalendarShell.confirmMoveScope`/`confirmEditScope` undo bodies |
 | Recurring events appear outside the requested range | `listEvents` returns **every** recurring row and lets the client expand it; only non-recurring rows are range-filtered. All-day overlap is compared against the local date of the exclusive `to` bound | `lib/services/events.ts` `listEvents` |
 | Event list looks shifted when the client omits `from`/`to` | the handler defaults to the household-timezone **current month**, falling back to `Asia/Taipei` if the household row is missing | `lib/api/handlers/events.ts` |
 | `z` / `Ctrl+Z` undoes an event while editing a rich-text field | two divergent typing guards (`isTextEntryTarget`, `isEditableTarget`) and neither recognises `div[role="textbox"]` | `lib/ui/useKeyboardShortcuts.ts`, `lib/ui/useUndoHotkey.ts` |

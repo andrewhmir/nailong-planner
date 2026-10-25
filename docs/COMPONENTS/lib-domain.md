@@ -96,7 +96,7 @@ shifts by a day, or an API error carries the wrong code or status.
 
 **State & side effects** — None. No caching, no clock reads, no storage.
 
-**Depends on / Used by** — `rrulestr` from `rrule`; `EventRow` from `lib/db/schema`; `addDaysToDate`, `localWallTimeToUtc` and `utcToLocalWallTime` from `lib/time/zone`. Called by `components/calendar/CalendarShell.tsx` (one pass over the visible events), `components/sidebar/SidebarMiniMonth.tsx`, and `lib/query/search.ts` (fixed two-year window to find the next occurrence).
+**Depends on / Used by** — `rrulestr` from `rrule`; `EventRow` from `lib/db/schema`; `addDaysToDate`, `localWallTimeToUtc` and `utcToLocalWallTime` from `lib/time/zone`. Called by `components/calendar/CalendarShell.tsx` (one pass over the visible events), `components/sidebar/SidebarMiniMonth.tsx`, `lib/query/search.ts` (fixed two-year window to find the next occurrence), and `lib/recurrence/scopes.ts` (`countOccurrencesBefore` to validate a split point). A per-instance exception is an **ordinary event row** plus the series' EXDATE, so expansion has no override branch: the series stops generating that slot and the exception renders from its own row.
 
 **Debugging**
 - A weekly series shows only its first block -> the stored `rrule` failed `safeRule` (for example a rule without `FREQ=`) and the fallback is a single plain occurrence -> inspect `event.rrule` and `safeRule`.
@@ -145,7 +145,7 @@ shifts by a day, or an API error carries the wrong code or status.
 
 **State & side effects** — None. Pure functions; the only dependency is `rrule`'s `rrulestr` for occurrence counting and `lib/time/zone` for the timed `UNTIL` conversion.
 
-**Depends on / Used by** — `rrule` (`rrulestr`), `lib/time/zone` (`localWallTimeToUtc`, `utcToLocalDate`). Used by `components/calendar/EventDialog.tsx` (state and preset labels), `components/calendar/RecurrenceFields.tsx` (controls), `components/calendar/eventPayload.ts` (`formatRepeatRule`). `lib/recurrence/expand.ts` consumes the rule text unchanged.
+**Depends on / Used by** — `rrule` (`rrulestr`), `lib/time/zone` (`localWallTimeToUtc`, `utcToLocalDate`). Used by `components/calendar/EventDialog.tsx` (state and preset labels), `components/calendar/RecurrenceFields.tsx` (controls), `components/calendar/eventPayload.ts` (`formatRepeatRule`), and `lib/recurrence/scopes.ts` (`parseRepeatRule`/`formatRepeatRule`/`anchorRepeat` for shifting and splitting). `lib/recurrence/expand.ts` consumes the rule text unchanged.
 
 **Behaviour that matters**
 - **Never silently mangle a stored rule**: the dialog keeps `initialRule` byte-identical while the controls still describe it (`keepInitialRule`); a rule the editor cannot parse is preserved and flagged, not replaced with a bare `FREQ`.
@@ -160,6 +160,36 @@ shifts by a day, or an API error carries the wrong code or status.
 - A monthly rule shows the wrong mode -> `FREQ=MONTHLY` with no `BYDAY`/`BYMONTHDAY` means day-of-month; only an ordinal `BYDAY` (or `BYDAY`+`BYSETPOS`) is nth-weekday.
 
 **Tests** — `tests/unit/recurrence-rule.test.ts`; consumed by `tests/unit/event-payload.test.ts` and `tests/e2e/repeat.spec.ts`.
+
+### lib/recurrence/scopes.ts
+
+**Purpose** — The pure maths behind the three Google-style repeating-edit scopes: shifting a whole series by the drag delta (“All events”), rewriting an RRULE so a series is truncated before / continued from an occurrence (“This and following events”), and shifting the occurrence keys and EXDATEs that move with either operation. SQL and transactions live in `lib/services/events.ts`; this module only returns patches.
+
+**Public API**
+- `interface ShiftDelta { deltaDays: number; deltaMs: number }` — calendar-day offset for all-day values, instant offset for timed ones.
+- `interface SeriesMove { allDay; startAt; endAt; startDate; endDate }` — the dropped occurrence's new timing from FullCalendar.
+- `localDateOfEvent(row, zone): string` — the series' anchor date in its own zone (`tzid ?? household`).
+- `dateDiffDays(fromDate, toDate): number`, `shiftOccurrenceKey(key, delta)`, `shiftEventTiming(row, delta)` — date/instant key helpers used for EXDATEs, exception rows and undo.
+- `shiftExdates(raw, allDay, delta): string | null` — defensive JSON parse, then format-aware shift: all-day `YYYY-MM-DD` by days, timed instants by milliseconds; floating `YYYY-MM-DDTHH:MM` and junk values are left untouched.
+- `shiftRepeatRule(rule, oldStartDate, newStartDate, context): string | null` — `null` when the rule is unparseable or `advanced`, so the caller refuses an unsafe move instead of rewriting it. Weekly `BYDAY` tokens each shift by the day delta, monthly patterns re-anchor on the new start date, daily/yearly keep their shape, and an `On` end shifts with the series.
+- `shiftSeriesTiming(row, occurrenceStart, move, zone): { patch; delta }` — the whole-series move: start/end, `rrule`, EXDATEs, `updatedAt`. The delta is measured **between the dragged occurrence and its new date**, never between the series start and the new date (the latter was a real bug caught by `tests/unit/recurrence-scopes.test.ts`). Rejects an all-day↔timed conversion and a custom-rule shift with `VALIDATION`.
+- `truncateRuleBefore(rule, splitStart, beforeCount, zone, timed): string` — keeps every other rule part verbatim; a `COUNT` becomes `beforeCount`, otherwise `UNTIL` is written just before the split (a DATE for all-day, a UTC instant whose wall time in `zone` is one second earlier for timed).
+- `continueRule(rule, beforeCount): string` — the later segment's rule when the repeat is unchanged: `COUNT` is reduced by the occurrences left behind, an `UNTIL`/`Never` rule is copied as-is.
+- `countOccurrencesBefore(row, occurrenceStart, zone): number` — expands the series once, throws `VALIDATION` when the key is not a real occurrence (deleted or not generated), and counts the earlier hits.
+- `assertOccurrenceOf(row, occurrenceStart, zone): void` — “This event” validation.
+
+**State & side effects** — None. Pure and deterministic; the only clock read is `updatedAt` on a returned patch.
+
+**Depends on / Used by** — `lib/recurrence/expand.ts` (`expandOccurrences`), `lib/recurrence/rule.ts` (`parseRepeatRule`, `formatRepeatRule`, `anchorRepeat`, `RepeatContext`), `lib/time/zone.ts` (`addDaysToDate`, `localWallTimeToUtc`, `utcToLocalDate`, `utcToLocalWallTime`), `lib/errors.ts`, `EventRow`. Used by `lib/services/events.ts` (`createException`, `moveSeries`, `splitSeries`, `deleteFollowing`) and by `components/calendar/CalendarShell.tsx` (`parseRepeatRule` gate before offering “All events”).
+
+**Debugging**
+- After “All events” the series jumps to the dragged occurrence's date instead of shifting by the drag offset -> `shiftSeriesTiming` measured `deltaDays` from the series start rather than from `occurrenceStart` -> assert `shiftOccurrenceKey(occurrenceStart, delta)` matches the dropped date.
+- “All events” on a weekly Mon/Wed/Fri series collapses to one weekday -> a caller used `anchorRepeat` instead of the per-token shift in `shiftRepeatRule`.
+- A split leaves the later segment repeating forever / stopping early -> `COUNT` vs `UNTIL`: `truncateRuleBefore` keeps the old rule's `COUNT` form, `continueRule` reduces it; an `UNTIL` rule is copied unchanged.
+- A skipped occurrence comes back after a series move -> EXDATEs were not shifted (`shiftExdates`); a floating wall EXDATE is intentionally left alone and therefore cannot follow a move.
+- A monthly split lands on a different day than the dragged occurrence -> `truncateRuleBefore` sets `UNTIL` to the day before, not the split date; `continueRule` copies the rule, whose DTSTART is the split occurrence.
+
+**Tests** — `tests/unit/recurrence-scopes.test.ts` (26 cases: key/EXDATE shifts, weekly/monthly rule shifts, DST `UNTIL`, series timing with an occurrence that is not the first block, truncate/continue, occurrence counting); exercised end to end by `tests/e2e/recurring-scope.spec.ts`.
 
 ## Import (Google Calendar)
 
