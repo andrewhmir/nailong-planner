@@ -18,11 +18,12 @@ Nothing yet — the next promised release is v0.3.0 (Today).
 - **The `/tasks` workspace** — Inbox · Today · Week · Someday buckets with live
   counts, a Plan picker that sends a task to a day or to Someday, and a task
   editor with notes, an optional due date and a checklist.
-- **Keyboard triage** — `j`/`k` move the selection, `1`/`2`/`3` schedule it into
-  Today / the end of the week / Someday, `4` moves it to the next writable list,
-  `x` completes it, `Enter` opens it, and `z`/`Ctrl+Z` undo the last action. The
-  single-key layer is page-scoped, stays inert while you type, and respects the
-  keyboard-shortcuts preference.
+- **Keyboard triage** — `j`/`k` move the selection, `1`/`2` schedule it for Today
+  or the end of the week, `3` clears its dates (and files an already-undated
+  Inbox task into a list, so it leaves the Inbox for Someday), `4` moves it to
+  the next writable list, `x` completes it, `Enter` opens it, and `z`/`Ctrl+Z`
+  undo the last action. The single-key layer is page-scoped, stays inert while
+  you type, and respects the keyboard-shortcuts preference.
 - **Task chips on the calendar** — a scheduled task draws as a read-only
   all-day chip in Month, Week, Day and List; clicking it opens
   `/tasks?task=<id>` with the editor, and dragging a row onto the sidebar mini

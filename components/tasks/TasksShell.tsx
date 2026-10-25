@@ -13,7 +13,7 @@ import type { TaskView } from "@/lib/services/tasks";
 import { taskDeepLinkAction } from "@/lib/ui/taskDeepLink";
 import { pushUndo } from "@/lib/ui/undo";
 import { undoToast } from "@/lib/ui/undoToast";
-import { useTaskShortcuts } from "@/lib/ui/useTaskShortcuts";
+import { useTaskShortcuts, resolveSomedayTriage } from "@/lib/ui/useTaskShortcuts";
 import { useUndoHotkey } from "@/lib/ui/useUndoHotkey";
 import type { UpdateTaskInput } from "@/lib/validation/tasks";
 import { TaskCaptureBar } from "./TaskCaptureBar";
@@ -32,6 +32,10 @@ interface Props {
 
 /** The no-other-list toast: the `4` gesture is a no-op with a single list. */
 const NO_OTHER_LIST = "No other writable list to move to.";
+/** Key `3` on an already-undated Inbox task has three honest outcomes. */
+const FILED_TO_SOMEDAY = "Filed to Someday";
+const ALREADY_SOMEDAY = "Already in Someday";
+const ALREADY_UNSCHEDULED = "Already unscheduled";
 
 /** Stack label + success toast for each status transition (undo is the reverse). */
 const STATUS_COPY: Record<TaskStatus, { label: string; message: string }> = {
@@ -328,7 +332,7 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   }
 
   /** Move + the PATCHes that return the row to its old list and position. */
-  function patchMove(target: TaskView, collectionId: string): void {
+  function patchMove(target: TaskView, collectionId: string, message = "Task moved"): void {
     if (collectionId === target.collectionId) {
       return;
     }
@@ -344,7 +348,7 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
             await updateTask.mutateAsync({ id: target.id, sortOrder: target.sortOrder });
           },
         });
-        undoToast("Task moved", handle);
+        undoToast(message, handle);
       },
     });
   }
@@ -455,27 +459,56 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
       );
       return;
     }
-    patchSchedule(selectedTask, { scheduledOn: null, dueOn: null }, "Task unscheduled");
+    // `3` ("Someday"): clearing dates is a no-op on an Inbox task that is
+    // already undated, so that case files it into the next writable list
+    // instead — which is what actually moves it out of the Inbox.
+    const target = nextListTarget(selectedTask);
+    const action = resolveSomedayTriage({
+      scheduledOn: selectedTask.scheduledOn,
+      dueOn: selectedTask.dueOn,
+      view,
+      hasOtherWritableList: target !== null,
+    });
+    if (action.kind === "clear-dates") {
+      patchSchedule(selectedTask, { scheduledOn: null, dueOn: null }, "Task unscheduled");
+      return;
+    }
+    if (action.kind === "file-to-list") {
+      if (target) {
+        patchMove(selectedTask, target.id, FILED_TO_SOMEDAY);
+      }
+      return;
+    }
+    if (action.kind === "already-someday") {
+      toast(ALREADY_SOMEDAY);
+      return;
+    }
+    toast(ALREADY_UNSCHEDULED);
+  }
+
+  /** The next writable list after the task's own, wrapping; `null` when there is none. */
+  function nextListTarget(task: TaskView): { id: string; name: string } | null {
+    const currentIndex = moveTargets.findIndex((target) => target.id === task.collectionId);
+    const start = currentIndex === -1 ? 0 : currentIndex + 1;
+    for (let step = 0; step < moveTargets.length; step += 1) {
+      const candidate = moveTargets[(start + step) % moveTargets.length];
+      if (candidate && candidate.id !== task.collectionId) {
+        return candidate;
+      }
+    }
+    return null;
   }
 
   function moveToNextList(): void {
     if (!selectedTask) {
       return;
     }
-    if (moveTargets.length === 0) {
+    const target = nextListTarget(selectedTask);
+    if (!target) {
       toast(NO_OTHER_LIST);
       return;
     }
-    const currentIndex = moveTargets.findIndex((target) => target.id === selectedTask.collectionId);
-    const start = currentIndex === -1 ? 0 : currentIndex + 1;
-    for (let step = 0; step < moveTargets.length; step += 1) {
-      const candidate = moveTargets[(start + step) % moveTargets.length];
-      if (candidate && candidate.id !== selectedTask.collectionId) {
-        patchMove(selectedTask, candidate.id);
-        return;
-      }
-    }
-    toast(NO_OTHER_LIST);
+    patchMove(selectedTask, target.id);
   }
 
   function completeSelection(): void {

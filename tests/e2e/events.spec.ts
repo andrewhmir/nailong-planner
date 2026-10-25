@@ -78,35 +78,51 @@ test("task chips join a day's stack without breaking +N more or event drag", asy
   // `events` array with event occurrences; this is the regression guard that the
   // shared array still stacks like a plain event day.
   const stamp = Date.now().toString(36);
-  for (let index = 0; index < 4; index += 1) {
-    const created = await page.request.post("/api/tasks", {
-      data: { title: `E2E stack chip ${index} ${stamp}` },
-    });
-    expect(created.ok()).toBeTruthy();
-    const task = ((await created.json()) as { task: { id: string } }).task;
-    const planned = await page.request.patch(`/api/tasks/${task.id}`, {
-      data: { scheduledOn: chipDay },
-    });
-    expect(planned.ok()).toBeTruthy();
+  const chipPrefix = `E2E stack chip ${stamp}`;
+  // The E2E database is one shared seed and CI retries a flaky test with it
+  // already written to. Track every row this test creates and delete it in the
+  // `finally`, so a failed first attempt cannot leave four chips behind and make
+  // the retry's "+2 more" assertion fail deterministically.
+  const createdIds: string[] = [];
+
+  try {
+    for (let index = 0; index < 4; index += 1) {
+      const created = await page.request.post("/api/tasks", {
+        data: { title: `${chipPrefix} ${index}` },
+      });
+      expect(created.ok()).toBeTruthy();
+      const task = ((await created.json()) as { task: { id: string } }).task;
+      createdIds.push(task.id);
+      const planned = await page.request.patch(`/api/tasks/${task.id}`, {
+        data: { scheduledOn: chipDay },
+      });
+      expect(planned.ok()).toBeTruthy();
+    }
+
+    await page.goto("/");
+    const chipCell = page.locator(`[data-date="${chipDay}"]`);
+    // Count only this test's chips: the title prefix keeps the assertion honest
+    // even if the seed's quiet day is not quiet on a retry or another spec adds
+    // a chip to the same day.
+    await expect(
+      chipCell.locator(".fc-task-chip").filter({ hasText: chipPrefix }),
+    ).toHaveCount(2);
+    const moreLink = chipCell.locator(".fc-more-link");
+    await expect(moreLink).toBeVisible();
+    // The link reports the two chips it folded away ("+2 more"; the month view
+    // uses the long form, not the numeric-only micro/column form).
+    await expect(moreLink).toHaveText(/^\+2( more)?$/);
+
+    // Event drag still works with the chips in the same `events` array.
+    await page
+      .getByText("Kyoto trip")
+      .dragTo(page.locator(`[data-date="${dragDay}"]`), { steps: 5 });
+    await expect(page.locator(`[data-date="${dragDay}"]`).getByText("Kyoto trip")).toBeVisible();
+  } finally {
+    for (const id of createdIds) {
+      await page.request.delete(`/api/tasks/${id}`);
+    }
   }
-
-  await page.goto("/");
-  const chipCell = page.locator(`[data-date="${chipDay}"]`);
-  // The cap is three rows and the more link takes one, so exactly two chips
-  // survive; asserting the count guards against a layout change that silently
-  // hides chips behind the link without accounting for it.
-  await expect(chipCell.locator(".fc-task-chip")).toHaveCount(2);
-  const moreLink = chipCell.locator(".fc-more-link");
-  await expect(moreLink).toBeVisible();
-  // The link reports the two chips it folded away ("+2 more"; the month view
-  // uses the long form, not the numeric-only micro/column form).
-  await expect(moreLink).toHaveText(/^\+2( more)?$/);
-
-  // Event drag still works with the chips in the same `events` array.
-  await page
-    .getByText("Kyoto trip")
-    .dragTo(page.locator(`[data-date="${dragDay}"]`), { steps: 5 });
-  await expect(page.locator(`[data-date="${dragDay}"]`).getByText("Kyoto trip")).toBeVisible();
 });
 
 test("drags an event to another day", async ({ page }) => {

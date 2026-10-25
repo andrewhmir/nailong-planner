@@ -50,16 +50,22 @@ describe("isTextEntryTarget", () => {
 });
 
 describe("hasOpenOverlay", () => {
-  it("reports an open dialog or menu", () => {
+  const OVERLAY_SELECTOR =
+    '[role="dialog"], [role="menu"], [data-radix-popper-content-wrapper]';
+
+  it("reports an open dialog, menu or Radix popover", () => {
     stubDom();
     fakeDocument.querySelector.mockReturnValue(new FakeElement("DIV"));
     expect(hasOpenOverlay()).toBe(true);
-    expect(fakeDocument.querySelector).toHaveBeenCalledWith('[role="dialog"], [role="menu"]');
+    expect(fakeDocument.querySelector).toHaveBeenCalledWith(OVERLAY_SELECTOR);
+    // Radix popover content has no role; only the positioned wrapper is marked.
+    expect(OVERLAY_SELECTOR).toContain("[data-radix-popper-content-wrapper]");
   });
 
   it("is false when nothing modal is mounted", () => {
     stubDom();
     fakeDocument.querySelector.mockReturnValue(null);
     expect(hasOpenOverlay()).toBe(false);
+    expect(fakeDocument.querySelector).toHaveBeenCalledWith(OVERLAY_SELECTOR);
   });
 });

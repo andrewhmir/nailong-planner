@@ -406,6 +406,32 @@ test("scenario 2: Shift+K captures from the calendar and triage keys work withou
   expect(completed.ok()).toBeTruthy();
   expect(((await completed.json()) as { task: ApiTask }).task.status).toBe("done");
 
+  // `3` ("Someday") must not silently no-op on an Inbox task: the row is
+  // already undated, so the key files it into the next writable list, which is
+  // what actually moves it out of the Inbox and into Someday.
+  const somedayTitle = `E2E someday ${stamp}`;
+  await page.locator("#task-capture").fill(somedayTitle);
+  await page.locator("#task-capture").press("Enter");
+  await expect(page.getByRole("checkbox", { name: somedayTitle })).toBeVisible();
+  const somedayId = await taskRow(page, somedayTitle).getAttribute("data-task-id");
+  expect(somedayId).toBeTruthy();
+  await page.locator(`li[data-task-id="${somedayId}"]`).focus();
+  await expect(page.locator(`li[data-task-id="${somedayId}"]`)).toHaveAttribute(
+    "data-selected",
+    "true",
+  );
+  await page.keyboard.press("3");
+  await expect(page.getByText("Filed to Someday")).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: somedayTitle })).toHaveCount(0);
+  await selectView(page, "Someday");
+  await expect(page.getByRole("checkbox", { name: somedayTitle })).toBeVisible();
+
+  // The same key on an undated task that is already outside the Inbox reports
+  // that instead of doing nothing.
+  await page.locator(`li[data-task-id="${somedayId}"]`).focus();
+  await page.keyboard.press("3");
+  await expect(page.getByText("Already in Someday")).toBeVisible();
+
   // The scheduled task is still open and now lives in Today.
   await selectView(page, "Today");
   await expect(page.getByRole("checkbox", { name: title })).toBeVisible();

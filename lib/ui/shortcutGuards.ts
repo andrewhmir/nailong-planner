@@ -22,7 +22,15 @@ export function isTextEntryTarget(target: EventTarget | null): boolean {
  * Radix dialogs, popovers and menus own Escape and their own keys. Task 9's
  * task keys and the global capture treat any open overlay as a hard stop too, so
  * a dialog can never leak `j`/`x` to the page underneath.
+ *
+ * Popover content carries no role: Radix only marks its positioned wrapper with
+ * `data-radix-popper-content-wrapper`, so the Plan/due-date popover needs that
+ * selector or triage keys and `Shift+K` fire underneath it.
  */
 export function hasOpenOverlay(): boolean {
-  return document.querySelector('[role="dialog"], [role="menu"]') !== null;
+  return (
+    document.querySelector(
+      '[role="dialog"], [role="menu"], [data-radix-popper-content-wrapper]',
+    ) !== null
+  );
 }

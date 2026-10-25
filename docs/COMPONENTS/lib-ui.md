@@ -255,7 +255,7 @@ calendar still draws, or an undo action does nothing.
 
 **Public API**
 - `isTextEntryTarget(target: EventTarget | null): boolean` — true when the target is an `HTMLElement` whose `tagName` is `INPUT`, `TEXTAREA` or `SELECT`, or whose `isContentEditable` is true. Non-element targets (`window`, `document`, `null`) are false.
-- `hasOpenOverlay(): boolean` — `document.querySelector('[role="dialog"], [role="menu"]') !== null`. Radix Dialog and DropdownMenu provide those roles; a Radix Popover content is also a `dialog`, so the Plan popover blocks page keys while it is open.
+- `hasOpenOverlay(): boolean` — `document.querySelector('[role="dialog"], [role="menu"], [data-radix-popper-content-wrapper]') !== null`. Radix Dialog and DropdownMenu provide those roles; a Radix Popover's content carries no role, so its positioned wrapper is matched by the data attribute instead — the Plan and due-date popovers block page keys while they are open.
 
 **State & side effects** — Neither function stores state; both read browser globals at call time (`HTMLElement`, `document`). They must not be called during SSR; importing the module is safe because nothing runs until a function is invoked.
 
@@ -263,10 +263,10 @@ calendar still draws, or an undo action does nothing.
 
 **Debugging**
 - A shortcut fires while typing -> the field is not one of the four recognised shapes (for example a `div[role="textbox"]`) -> add it here, not in each hook.
-- Page keys still fire under a dialog -> the overlay container lacks `role="dialog"`/`role="menu"` -> check the overlay component.
+- Page keys still fire under a dialog or popover -> the overlay container lacks `role="dialog"`/`role="menu"`, and (for a popover) the positioned wrapper is missing `data-radix-popper-content-wrapper` -> check the overlay component.
 - Escape closes two things -> the overlay's own handler and a page hook both ran -> the hook checks `hasOpenOverlay()` before dispatching Escape.
 
-**Tests** — `tests/unit/shortcut-guards.test.ts` installs a fake `HTMLElement`/`document`, asserts all four editable shapes plus ordinary elements/null/non-element targets, and checks the overlay selector is exactly `[role="dialog"], [role="menu"]`.
+**Tests** — `tests/unit/shortcut-guards.test.ts` installs a fake `HTMLElement`/`document`, asserts all four editable shapes plus ordinary elements/null/non-element targets, and checks the overlay selector matches dialogs, menus and the Radix popper wrapper.
 
 ### lib/ui/useKeyboardShortcuts.ts
 
@@ -281,7 +281,7 @@ calendar still draws, or an undo action does nothing.
 **The guards, in order**
 1. The listener is attached only while `enabled` is true, and never reacts to `event.repeat`, `ctrlKey`, `metaKey` or `altKey`.
 2. **No shortcut while typing**: `isTextEntryTarget(event.target)` from `./shortcutGuards` returns true for `INPUT`, `TEXTAREA`, `SELECT` or `isContentEditable`, and then the handler returns before any key is looked at.
-3. `hasOpenOverlay()` (also from `./shortcutGuards`) checks `document.querySelector('[role="dialog"], [role="menu"]')`. `Escape` is handled *before* this check but returns early when an overlay is open (Radix owns Escape); every other key is dropped once an overlay exists.
+3. `hasOpenOverlay()` (also from `./shortcutGuards`) checks `document.querySelector('[role="dialog"], [role="menu"], [data-radix-popper-content-wrapper]')`. `Escape` is handled *before* this check but returns early when an overlay is open (Radix owns Escape); every other key is dropped once an overlay exists.
 4. Shift is a separate branch: only `Shift+C` is a gesture (the key is lowercased first because browsers differ on `"C"` vs `"c"`), and shifted keys return without falling through to the letter switch.
 
 Handlers are mirrored into a ref by an effect that runs after every render, so the `keydown` listener closes over the latest callbacks while the effect itself only re-subscribes when `enabled` changes.
@@ -301,11 +301,12 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 ### lib/ui/useTaskShortcuts.ts
 
-**Purpose** — The `/tasks` page's keyboard triage layer: `j`/`k` move the row selection, `1`/`2`/`3` triage into Today / the end of this week / Someday, `4` moves to the next writable list, `x` completes, `Enter` opens, `?` lists the keys and `Escape` clears the selection. It is page-scoped like the calendar hook: the calendar's `j`/`k` still mean period navigation on `/`, and the task keys do nothing there because the hook is mounted by `TasksShell` only.
+**Purpose** — The `/tasks` page's keyboard triage layer: `j`/`k` move the row selection, `1`/`2`/`3` triage into Today / the end of this week / Someday, `4` moves to the next writable list, `x` completes, `Enter` opens, `?` lists the keys and `Escape` clears the selection. `3` clears both dates, but because an Inbox task is already undated it files that row into the next writable list instead (the same path as `4`), which is what actually moves it out of the Inbox and into Someday. It is page-scoped like the calendar hook: the calendar's `j`/`k` still mean period navigation on `/`, and the task keys do nothing there because the hook is mounted by `TasksShell` only.
 
 **Public API**
 - `type TaskShortcutAction = { kind: "move"; delta: 1 | -1 } | { kind: "bucket"; bucket: 1 | 2 | 3 } | { kind: "next-list" } | { kind: "complete" } | { kind: "open" } | { kind: "help" } | { kind: "escape" }`.
 - `interface TaskShortcutHandlers { onMoveSelection(delta: 1 | -1); onBucket(bucket: 1 | 2 | 3); onNextList(); onComplete(); onOpen(); onHelp(); onEscape(); }`.
+- `type SomedayTriageAction = { kind: "clear-dates" } | { kind: "file-to-list" } | { kind: "already-someday" } | { kind: "already-unscheduled" }` and `resolveSomedayTriage({ scheduledOn, dueOn, view, hasOtherWritableList }): SomedayTriageAction` — the **pure** decision table behind `3`; the shell owns the PATCH/toast.
 - `resolveTaskShortcut(event: KeyboardEvent): TaskShortcutAction | null` — the **pure** key map; no DOM reads and no side effects.
 - `useTaskShortcuts(enabled: boolean, handlers: TaskShortcutHandlers): void`.
 
@@ -316,7 +317,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 | `j` / `k` | `move` +1 / -1 | Clamped by the shell; from no selection `j` starts at the first row and `k` at the last. |
 | `1` | `bucket` 1 | `scheduledOn = localToday(timezone)`. |
 | `2` | `bucket` 2 | `scheduledOn = endOfWeek(today, weekStartsOn)`; on the household week's last day this equals today, so the task appears in Today (D6). |
-| `3` | `bucket` 3 | Clears both `scheduledOn` and `dueOn`, so the task returns to Inbox/Someday by its list. |
+| `3` | `bucket` 3 | Dated task: clears both `scheduledOn` and `dueOn`. Already-undated Inbox task: files it into the next writable list and toasts `Filed to Someday`; with no other writable list it toasts `Already unscheduled`. Already-undated outside the Inbox: toasts `Already in Someday`. |
 | `4` | `next-list` | Cycles through the viewer's writable `kind="list"` collections; the shell toasts when there is no other list. |
 | `x` | `complete` | PATCHes `status: "done"`. |
 | `Enter` | `open` | Calls the shell's `openTask`, which opens `TaskEditorDialog` for the selection. |
@@ -337,7 +338,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 - Task keys fire on the calendar -> `useTaskShortcuts` moved out of `TasksShell` into `AppShell`/a server layout -> the hook must stay page-scoped.
 - Pressing `Enter` does nothing -> the focused element is a button/menu item (native activation wins) or no row is selected -> `TasksShell`'s `openSelection`, or this file's native-activation guard.
 
-**Tests** — `tests/unit/use-task-shortcuts.test.ts` (every mapping, modifiers, repeats, shifted keys, Caps Lock, unknown keys); the guard side is in `tests/unit/shortcut-guards.test.ts`; the end-to-end triage flow is scenario 2 of `tests/e2e/tasks.spec.ts`.
+**Tests** — `tests/unit/use-task-shortcuts.test.ts` (every mapping, modifiers, repeats, shifted keys, Caps Lock, unknown keys, and the `resolveSomedayTriage` table: clear-dates, file-to-list, already-unscheduled, already-someday); the guard side is in `tests/unit/shortcut-guards.test.ts`; the end-to-end triage flow is scenario 2 of `tests/e2e/tasks.spec.ts`.
 
 ### lib/ui/useMediaQuery.ts
 

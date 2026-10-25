@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolveTaskShortcut, type TaskShortcutAction } from "@/lib/ui/useTaskShortcuts";
+import {
+  resolveSomedayTriage,
+  resolveTaskShortcut,
+  type TaskShortcutAction,
+} from "@/lib/ui/useTaskShortcuts";
 
 /** A KeyboardEvent-shaped object: the resolver reads keys/flags only, never the DOM. */
 function keyEvent(key: string, init: Partial<KeyboardEvent> = {}): KeyboardEvent {
@@ -65,5 +69,39 @@ describe("resolveTaskShortcut", () => {
     expect(resolve("5")).toBeNull();
     expect(resolve("/")).toBeNull();
     expect(resolve("ArrowDown")).toBeNull();
+  });
+});
+
+describe("resolveSomedayTriage", () => {
+  const base = {
+    scheduledOn: null,
+    dueOn: null,
+    view: "inbox" as const,
+    hasOtherWritableList: true,
+  };
+
+  it("clears either date before it considers filing", () => {
+    expect(resolveSomedayTriage({ ...base, scheduledOn: "2026-10-26" })).toEqual({
+      kind: "clear-dates",
+    });
+    expect(resolveSomedayTriage({ ...base, dueOn: "2026-10-30" })).toEqual({
+      kind: "clear-dates",
+    });
+  });
+
+  it("files an already-undated Inbox task into another writable list", () => {
+    expect(resolveSomedayTriage(base)).toEqual({ kind: "file-to-list" });
+  });
+
+  it("says Already unscheduled when the Inbox has no other writable list", () => {
+    expect(resolveSomedayTriage({ ...base, hasOtherWritableList: false })).toEqual({
+      kind: "already-unscheduled",
+    });
+  });
+
+  it("reports an undated task outside the Inbox as already in Someday", () => {
+    expect(resolveSomedayTriage({ ...base, view: "someday" })).toEqual({
+      kind: "already-someday",
+    });
   });
 });
