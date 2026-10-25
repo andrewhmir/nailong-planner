@@ -146,16 +146,16 @@ The request pipeline in one line:
 
 **Permissions** (`lib/services/permissions.ts`, `lib/services/calendars.ts`)
 
-- `canWriteCalendar` is the one write predicate. A calendar marked
-  `isViewOnlyForPartner` is writable only by its owner; shared ("Ours")
-  calendars are never view-only — the predicate fails closed if that state
-  appears.
-- **View-only is inherited from the root**: `getCalendarAccess` returns
-  `ownerId = root.ownerId ?? row.ownerId` and
-  `isViewOnlyForPartner = max(root, row)`. Nesting is capped at two levels;
-  `updateCalendar` rejects setting `isViewOnlyForPartner` or `hueFamily` on a
-  child, and setting `ownerId: null` also clears view-only. An ownerless
-  view-only calendar therefore has no writer at all.
+- `canWriteCalendar` is the one write predicate. A collection with
+  `visibility = 'view_only'` (or `'private'`) is writable only by its owner;
+  `shared` ("Ours") collections are always writable — the predicate fails closed
+  if an ownerless non-shared row appears.
+- **Visibility is inherited from the root**: `getCalendarAccess` returns
+  `ownerId = root.ownerId ?? row.ownerId` and the most restrictive of the root's
+  and row's `visibility`. Nesting is capped at two levels; `updateCalendar`
+  rejects setting view-only or `hueFamily` on a child, and setting `ownerId: null`
+  also resets `visibility` to `shared`. An ownerless view-only collection
+  therefore has no writer at all.
 - **Household scoping happens before the permission check**, and out-of-household
   ids surface as `NOT_FOUND` 404 — never 403. A 403 means "your account is not in
   this household" (missing `member` row).
@@ -166,6 +166,28 @@ The request pipeline in one line:
   cascade.
 - A missing `member` row means the household was never provisioned → run
   `npm run provision`.
+
+**Collections and tasks (migration 0005)**
+
+- `calendar` was renamed in place to `collection`; SQL queries must use
+  `collection`. The TypeScript layer still imports the deprecated `calendar` alias
+  of the `collection` table (and `CalendarRow`) until Task 2, so a TypeScript hit on
+  `calendar` is not proof the table still exists.
+- `collection.kind` (`calendar`/`list`, default `calendar`) says what the node
+  holds. `collection.visibility` (`shared`/`view_only`/`private`, default `shared`)
+  replaced `is_view_only_for_partner`; migration `0005` backfilled `1` →
+  `view_only`. There is no `is_view_only_for_partner` column any more — a query or
+  a snapshot that mentions it is stale.
+- `event.calendar_id` is now `event.collection_id`; the Drizzle property is still
+  `calendarId` until Task 2, and the index is `event_collection_idx`.
+- `task.scheduled_on`/`task.due_on` are **date-only** household-local `YYYY-MM-DD`
+  strings, not epochs: never pass `startAt`-style milliseconds. `task.status` is
+  `open`/`done`/`dropped`; `task.sort_order` is the manual order; deleting a
+  collection cascades its tasks, and deleting a task cascades its
+  `task_checklist_item` rows.
+- `tests/helpers/db.ts` `makeTestDb({ upTo })` builds a temporary migrations folder
+  truncated at a journal tag, so a migration test can insert pre-migration rows and
+  then call `migrate(db)`. The real `drizzle/` folder is never modified.
 
 **Visibility** (client-only, `lib/ui/visibility.ts`)
 
@@ -268,6 +290,7 @@ any wrapper in the shell/calendar tree.
 | A valid `PATCH /api/settings/preferences` returns 400 | it is the only `.strict()` schema — an extra/renamed key is rejected, while other schemas strip unknown keys silently | `lib/validation/preferences.ts` |
 | `restore-check` cannot find a backup that `npm run backup` just made | `backup` defaults to `--out backups`, `restore-check` hardcodes `.dev/backups`; it also has no npm wrapper and no `loadEnv()` | `scripts/backup.mts`, `scripts/restore-check.mts` |
 | A committed migration never runs | migration ordering comes from `drizzle/meta/_journal.json`, never filenames — an unlisted `.sql` is silently skipped | `drizzle/meta/_journal.json`, `lib/db/migrate.ts` |
+| SQL still names `calendar` or `is_view_only_for_partner` after v0.2 | migration `0005` renamed the table and replaced the flag with `visibility`; the TypeScript layer aliases `calendar` only until Task 2, so check the SQL/snapshot, not the import name | `drizzle/0005_collections_and_tasks.sql`, `lib/db/schema.ts` |
 | A script sees none of the `.env` values | each script must call `loadEnv()` **before** importing `lib/env` (hence the dynamic `await import(...)`); only the first of `.env.local`/`.env` is loaded, from `process.cwd()` | `scripts/load-env.mts`, `lib/env.ts` |
 | E2E sign-in fails though the seed ran | `scripts/seed-test-db.mts` forces a fixed secret after loading env; `playwright.config.ts` must set the same one | both files |
 | E2E passes now but fails on a later date | `tests/e2e/view-preference.spec.ts` hardcodes "October 2026" while the seed fixtures come from the current month | that spec, `scripts/seed-test-db.mts` |

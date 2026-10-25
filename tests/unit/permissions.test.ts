@@ -14,7 +14,8 @@ function calendar(overrides: Partial<CalendarRow>): CalendarRow {
     hueFamily: "indigo",
     shadeIndex: 3,
     ownerId: null,
-    isViewOnlyForPartner: 0,
+    kind: "calendar",
+    visibility: "shared",
     sortOrder: 0,
     createdAt: 0,
     updatedAt: 0,
@@ -34,18 +35,18 @@ describe("canWriteCalendar", () => {
 
   it("lets the owner write their own view-only calendar", () => {
     expect(
-      canWriteCalendar(viewerA, calendar({ ownerId: "user-a", isViewOnlyForPartner: 1 })),
+      canWriteCalendar(viewerA, calendar({ ownerId: "user-a", visibility: "view_only" })),
     ).toBe(true);
   });
 
   it("blocks the partner from writing a view-only calendar they do not own", () => {
     expect(
-      canWriteCalendar(viewerB, calendar({ ownerId: "user-a", isViewOnlyForPartner: 1 })),
+      canWriteCalendar(viewerB, calendar({ ownerId: "user-a", visibility: "view_only" })),
     ).toBe(false);
   });
 
   it("blocks everyone from writing a view-only calendar with no owner", () => {
-    expect(canWriteCalendar(viewerA, calendar({ ownerId: null, isViewOnlyForPartner: 1 }))).toBe(
+    expect(canWriteCalendar(viewerA, calendar({ ownerId: null, visibility: "view_only" }))).toBe(
       false,
     );
   });

@@ -356,17 +356,15 @@ export function CalendarShell({
       }
       const rootEffective = {
         ownerId: root.ownerId,
-        isViewOnlyForPartner: root.isViewOnlyForPartner,
+        visibility: root.visibility,
       };
       for (const child of root.children) {
         // Fold the root's flags in: a protected parent protects its children.
         if (
           !canWriteCalendar(viewer, {
             ownerId: rootEffective.ownerId ?? child.ownerId,
-            isViewOnlyForPartner: Math.max(
-              rootEffective.isViewOnlyForPartner,
-              child.isViewOnlyForPartner,
-            ),
+            visibility:
+              rootEffective.visibility === "shared" ? child.visibility : rootEffective.visibility,
           })
         ) {
           ids.add(child.id);

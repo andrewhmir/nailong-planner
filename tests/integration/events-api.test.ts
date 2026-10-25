@@ -97,7 +97,7 @@ describe("event API", () => {
         hueFamily: "amber",
         ownerId: "user-a",
       });
-      expect(updateCalendar(db, ctxA, work.id, { isViewOnlyForPartner: true }).isViewOnlyForPartner).toBe(1);
+      expect(updateCalendar(db, ctxA, work.id, { isViewOnlyForPartner: true }).visibility).toBe("view_only");
 
       const existing = createEvent(db, ctxA, {
         calendarId: work.id,

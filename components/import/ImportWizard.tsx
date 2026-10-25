@@ -58,7 +58,7 @@ export function ImportWizard({ currentUserId }: { currentUserId: string }) {
       for (const child of root.children) {
         const effective = {
           ownerId: root.ownerId ?? child.ownerId,
-          isViewOnlyForPartner: Math.max(root.isViewOnlyForPartner, child.isViewOnlyForPartner),
+          visibility: root.visibility === "shared" ? child.visibility : root.visibility,
         };
         if (canWriteCalendar(viewer, effective)) {
           entries.push({ id: child.id, name: `${root.name} / ${child.name}` });

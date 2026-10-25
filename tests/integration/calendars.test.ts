@@ -135,7 +135,7 @@ describe("calendar service", () => {
     try {
       const work = createCalendar(db, ctxA, { name: "Work", hueFamily: "amber", ownerId: "user-a" });
       const updated = updateCalendar(db, ctxA, work.id, { isViewOnlyForPartner: true });
-      expect(updated.isViewOnlyForPartner).toBe(1);
+      expect(updated.visibility).toBe("view_only");
 
       expectAppError(() => updateCalendar(db, ctxB, work.id, { name: "Hacked" }), "FORBIDDEN", 403);
       expectAppError(() => deleteCalendar(db, ctxB, work.id), "FORBIDDEN", 403);

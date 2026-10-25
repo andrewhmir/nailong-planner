@@ -74,7 +74,7 @@ describe("calendar permissions (regressions found in review)", () => {
       updateCalendar(db, ctxA, mine.id, { isViewOnlyForPartner: true });
       const sharedAgain = updateCalendar(db, ctxA, mine.id, { ownerId: null });
       expect(sharedAgain.ownerId).toBeNull();
-      expect(sharedAgain.isViewOnlyForPartner).toBe(0);
+      expect(sharedAgain.visibility).toBe("shared");
     } finally {
       close();
     }

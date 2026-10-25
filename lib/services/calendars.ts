@@ -21,7 +21,21 @@ export interface CalendarAccess {
   calendar: CalendarRow;
   root: CalendarRow | null;
   /** Permission columns with the root's flags folded in. */
-  effective: Pick<CalendarRow, "ownerId" | "isViewOnlyForPartner">;
+  effective: Pick<CalendarRow, "ownerId" | "visibility">;
+}
+
+const VISIBILITY_RANK: Record<CalendarRow["visibility"], number> = {
+  shared: 0,
+  view_only: 1,
+  private: 2,
+};
+
+/** Folds a root's visibility into a child's: the most restrictive value wins. */
+function mostRestrictiveVisibility(
+  root: CalendarRow["visibility"],
+  row: CalendarRow["visibility"],
+): CalendarRow["visibility"] {
+  return VISIBILITY_RANK[root] >= VISIBILITY_RANK[row] ? root : row;
 }
 
 function nextSortOrder(db: Database, householdId: string, parentId: string | null): number {
@@ -60,7 +74,7 @@ export function getCalendarAccess(db: Database, ctx: ViewerContext, id: string):
     return {
       calendar: row,
       root: null,
-      effective: { ownerId: row.ownerId, isViewOnlyForPartner: row.isViewOnlyForPartner },
+      effective: { ownerId: row.ownerId, visibility: row.visibility },
     };
   }
 
@@ -76,7 +90,7 @@ export function getCalendarAccess(db: Database, ctx: ViewerContext, id: string):
     root,
     effective: {
       ownerId: root?.ownerId ?? row.ownerId,
-      isViewOnlyForPartner: Math.max(root?.isViewOnlyForPartner ?? 0, row.isViewOnlyForPartner),
+      visibility: root ? mostRestrictiveVisibility(root.visibility, row.visibility) : row.visibility,
     },
   };
 }
@@ -160,7 +174,8 @@ export function createCalendar(
       hueFamily: null,
       shadeIndex,
       ownerId: parent.ownerId,
-      isViewOnlyForPartner: 0,
+      kind: parent.kind,
+      visibility: "shared",
       sortOrder: nextSortOrder(db, ctx.householdId, parent.id),
       createdAt: now,
       updatedAt: now,
@@ -184,8 +199,8 @@ export function createCalendar(
     );
   }
 
-  const isViewOnlyForPartner = input.isViewOnlyForPartner ? 1 : 0;
-  if (isViewOnlyForPartner === 1 && ownerId === null) {
+  const visibility = input.isViewOnlyForPartner ? "view_only" : "shared";
+  if (visibility === "view_only" && ownerId === null) {
     throw new AppError("VALIDATION", "Shared calendars cannot be view-only.", 400, {
       isViewOnlyForPartner: "Assign the calendar to yourself first.",
     });
@@ -199,7 +214,8 @@ export function createCalendar(
     hueFamily: input.hueFamily,
     shadeIndex: PARENT_SHADE_INDEX,
     ownerId,
-    isViewOnlyForPartner,
+    kind: "calendar",
+    visibility,
     sortOrder: nextSortOrder(db, ctx.householdId, null),
     createdAt: now,
     updatedAt: now,
@@ -258,7 +274,7 @@ export function updateCalendar(
     }
     patch.ownerId = input.ownerId ?? null;
     if (patch.ownerId === null) {
-      patch.isViewOnlyForPartner = 0;
+      patch.visibility = "shared";
     }
   }
   if (input.isViewOnlyForPartner !== undefined) {
@@ -274,7 +290,7 @@ export function updateCalendar(
     if (ownerAfter !== ctx.userId) {
       throw new AppError("FORBIDDEN", "Only the owner can change view-only access.", 403);
     }
-    patch.isViewOnlyForPartner = input.isViewOnlyForPartner ? 1 : 0;
+    patch.visibility = input.isViewOnlyForPartner ? "view_only" : "shared";
   }
 
   if (Object.keys(patch).length === 0) {

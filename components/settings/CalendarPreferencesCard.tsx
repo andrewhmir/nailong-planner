@@ -53,7 +53,7 @@ export function CalendarPreferencesCard({ initialPreferences, currentUserId }: P
       // Fold the root's flags in: a protected parent protects its children.
       const effective = {
         ownerId: root.ownerId ?? child.ownerId,
-        isViewOnlyForPartner: Math.max(root.isViewOnlyForPartner, child.isViewOnlyForPartner),
+        visibility: root.visibility === "shared" ? child.visibility : root.visibility,
       };
       if (canWriteCalendar(viewer, effective)) {
         entries.push({ id: child.id, name: `${root.name} / ${child.name}` });

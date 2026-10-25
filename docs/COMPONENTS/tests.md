@@ -52,7 +52,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 
 | File | What it locks down | Command |
 |---|---|---|
-| `tests/integration/db.test.ts` | Migrations apply; a calendar delete cascades to its children and their events; foreign keys reject orphans; all-day and timed columns stay separate; migration `0004` backfills sub-calendar owners from the root | `npx vitest run tests/integration/db.test.ts` |
+| `tests/integration/db.test.ts` | Migrations apply; a calendar delete cascades to its children and their events; foreign keys reject orphans; all-day and timed columns stay separate; migration `0004` backfills sub-calendar owners from the root; migration `0005` renames `calendar` -> `collection`, backfills `visibility`, keeps events/ids, repoints the event FK/indexes and cascades tasks | `npx vitest run tests/integration/db.test.ts` |
 | `tests/integration/auth.test.ts` | Sign-up is closed by default, exactly two accounts are allowed, a session cookie round-trips, passwords are stored hashed | `npx vitest run tests/integration/auth.test.ts` |
 | `tests/integration/calendars.test.ts` | Shade assignment and reuse, the eighth-child conflict, no grandchildren, tenant isolation, hue re-derivation, view-only enforcement, owner moves cascading to sub-calendars, direct child-owner writes rejected | `npx vitest run tests/integration/calendars.test.ts` |
 | `tests/integration/events.test.ts` | Mixed all-day/timed payloads, inverted times, UTC vs local-date storage, recurrence range filtering, EXDATE idempotency, view-only writes, invalid RRULE | `npx vitest run tests/integration/events.test.ts` |
@@ -101,7 +101,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 
 | File | What it provides | Used by |
 |---|---|---|
-| `tests/helpers/db.ts` | `makeTestDb()`: a fresh `:memory:` database with `foreign_keys = ON` and all migrations applied | Every integration test |
+| `tests/helpers/db.ts` | `makeTestDb()`: a fresh `:memory:` database with `foreign_keys = ON` and all migrations applied; `makeTestDb({ upTo })` applies a temporary migrations folder truncated at a journal tag (for migration-by-migration tests) | Every integration test |
 | `tests/helpers/fixtures.ts` | `makeSeededDb()`: two households, two members in `h1`, one in `h2`, and the `ctxA`/`ctxB`/`ctxOther` viewer contexts | `tests/integration/calendars.test.ts`, `events.test.ts`, `calendars-api.test.ts`, `events-api.test.ts`, `settings-api.test.ts`, `preferences-api.test.ts`, `regressions.test.ts`, `search-api.test.ts` |
 | `tests/e2e/helpers.ts` | `loadFixtures()` from `.playwright/fixtures.json`, the `ANDREW`/`PARTNER` emails, and `signIn(page, email, password)` | Every spec in `tests/e2e/` |
 

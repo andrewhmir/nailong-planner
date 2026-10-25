@@ -5,10 +5,11 @@ import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
  * Domain schema.
  *
  * `household` is the tenancy boundary: every query in `lib/services` filters on
- * `household_id`. User references (`member.user_id`, `calendar.owner_id`,
- * `event.created_by`) are logical references to Better Auth's `user` table,
- * which is generated separately and cannot be FK-constrained without a costly
- * table rebuild in SQLite — they are validated in the service layer instead.
+ * `household_id`. User references (`member.user_id`, `collection.owner_id`,
+ * `event.created_by`, `task.created_by`) are logical references to Better Auth's
+ * `user` table, which is generated separately and cannot be FK-constrained
+ * without a costly table rebuild in SQLite — they are validated in the service
+ * layer instead.
  */
 
 export const household = sqliteTable("household", {
@@ -48,37 +49,50 @@ export const userPreference = sqliteTable("user_preference", {
     .$defaultFn(() => Date.now()),
 });
 
-export const calendar = sqliteTable(
-  "calendar",
+/**
+ * One node of the household's two-level tree. `kind` distinguishes a calendar
+ * (holds events) from a task list; `visibility` replaces the old
+ * `is_view_only_for_partner` flag and adds `private` for v0.2.
+ */
+export const collection = sqliteTable(
+  "collection",
   {
     id: text("id").primaryKey(),
     householdId: text("household_id")
       .notNull()
       .references(() => household.id, { onDelete: "cascade" }),
-    parentId: text("parent_id").references((): AnySQLiteColumn => calendar.id, {
+    parentId: text("parent_id").references((): AnySQLiteColumn => collection.id, {
       onDelete: "cascade",
     }),
+    kind: text("kind", { enum: ["calendar", "list"] }).notNull().default("calendar"),
     name: text("name").notNull(),
-    /** Set on top-level calendars only; children inherit their parent's family. */
+    /** Set on top-level collections only; children inherit their parent's family. */
     hueFamily: text("hue_family"),
     /** Meaningful on children only; roots render at PARENT_SHADE_INDEX. */
     shadeIndex: integer("shade_index").notNull().default(0),
-    /** Null means a shared "Ours" calendar. */
+    /** Null means a shared "Ours" collection. */
     ownerId: text("owner_id"),
-    isViewOnlyForPartner: integer("is_view_only_for_partner").notNull().default(0),
+    /** Root-level: a protected parent protects its children (folded in code). */
+    visibility: text("visibility", { enum: ["shared", "view_only", "private"] })
+      .notNull()
+      .default("shared"),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: integer("created_at")
       .notNull()
       .$defaultFn(() => Date.now()),
     updatedAt: integer("updated_at")
       .notNull()
-      .$defaultFn(() => Date.now()),
+      .$defaultFn(() => Date.now())
+      .$onUpdate(() => Date.now()),
   },
   (table) => [
-    index("calendar_household_idx").on(table.householdId),
-    index("calendar_parent_idx").on(table.parentId),
+    index("collection_household_idx").on(table.householdId),
+    index("collection_parent_idx").on(table.parentId),
   ],
 );
+
+/** @deprecated Temporary alias until Task 2 renames the TypeScript layer. */
+export const calendar = collection;
 
 export const event = sqliteTable(
   "event",
@@ -87,9 +101,11 @@ export const event = sqliteTable(
     householdId: text("household_id")
       .notNull()
       .references(() => household.id, { onDelete: "cascade" }),
-    calendarId: text("calendar_id")
+    // The SQL column is `collection_id` (migration 0005); the Drizzle property
+    // keeps its pre-rename name until Task 2 renames the TypeScript layer.
+    calendarId: text("collection_id")
       .notNull()
-      .references(() => calendar.id, { onDelete: "cascade" }),
+      .references(() => collection.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     description: text("description"),
     location: text("location"),
@@ -126,10 +142,67 @@ export const event = sqliteTable(
   (table) => [
     index("event_household_start_idx").on(table.householdId, table.startAt),
     index("event_household_start_date_idx").on(table.householdId, table.startDate),
-    index("event_calendar_idx").on(table.calendarId),
+    index("event_collection_idx").on(table.calendarId),
     // SQLite permits any number of NULL keys, so native events stay unique-free.
     uniqueIndex("event_household_external_key_idx").on(table.householdId, table.externalKey),
   ],
+);
+
+/**
+ * A task lives in a `collection` of kind `list`. `scheduledOn` and `dueOn` are
+ * household-local date-only `YYYY-MM-DD` strings (a task is a day commitment,
+ * not an instant); `completedAt`/`droppedAt` are epoch-ms audit timestamps.
+ */
+export const task = sqliteTable(
+  "task",
+  {
+    id: text("id").primaryKey(),
+    householdId: text("household_id")
+      .notNull()
+      .references(() => household.id, { onDelete: "cascade" }),
+    collectionId: text("collection_id")
+      .notNull()
+      .references(() => collection.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    notes: text("notes"),
+    status: text("status", { enum: ["open", "done", "dropped"] }).notNull().default("open"),
+    /** "I'll work on this day" — drives Today and the Week view. */
+    scheduledOn: text("scheduled_on"),
+    /** Deadline; drives the overdue badge. */
+    dueOn: text("due_on"),
+    completedAt: integer("completed_at"),
+    droppedAt: integer("dropped_at"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdBy: text("created_by").notNull(),
+    createdAt: integer("created_at")
+      .notNull()
+      .$defaultFn(() => Date.now()),
+    updatedAt: integer("updated_at")
+      .notNull()
+      .$defaultFn(() => Date.now())
+      .$onUpdate(() => Date.now()),
+  },
+  (table) => [
+    index("task_household_status_idx").on(table.householdId, table.status),
+    index("task_collection_idx").on(table.collectionId),
+    index("task_scheduled_idx").on(table.scheduledOn),
+    index("task_due_idx").on(table.dueOn),
+  ],
+);
+
+/** A task's flat checklist. No nesting; order is `sortOrder`. */
+export const taskChecklistItem = sqliteTable(
+  "task_checklist_item",
+  {
+    id: text("id").primaryKey(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => task.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    done: integer("done").notNull().default(0),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (table) => [index("task_checklist_task_idx").on(table.taskId)],
 );
 
 /**
@@ -182,8 +255,15 @@ export const importChange = sqliteTable(
 export type HouseholdRow = typeof household.$inferSelect;
 export type MemberRow = typeof member.$inferSelect;
 export type UserPreferenceRow = typeof userPreference.$inferSelect;
-export type CalendarRow = typeof calendar.$inferSelect;
+export type CollectionRow = typeof collection.$inferSelect;
+export type CollectionKind = "calendar" | "list";
+export type CollectionVisibility = "shared" | "view_only" | "private";
+/** @deprecated Temporary alias until Task 2 renames the TypeScript layer. */
+export type CalendarRow = CollectionRow;
 export type EventRow = typeof event.$inferSelect;
+export type TaskRow = typeof task.$inferSelect;
+export type TaskStatus = "open" | "done" | "dropped";
+export type TaskChecklistItemRow = typeof taskChecklistItem.$inferSelect;
 export type ImportBatchRow = typeof importBatch.$inferSelect;
 export type ImportChangeRow = typeof importChange.$inferSelect;
 

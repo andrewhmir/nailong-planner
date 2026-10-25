@@ -45,11 +45,12 @@ interface Effective {
 
 function effectivePermission(
   calendar: CalendarRowType,
-  root?: { ownerId: string | null; isViewOnlyForPartner: number } | null,
+  root?: Pick<CalendarRowType, "ownerId" | "visibility"> | null,
 ): Effective {
   return {
     ownerId: root?.ownerId ?? calendar.ownerId,
-    viewOnly: Math.max(root?.isViewOnlyForPartner ?? 0, calendar.isViewOnlyForPartner) === 1,
+    viewOnly:
+      (root?.visibility ?? "shared") !== "shared" || calendar.visibility !== "shared",
   };
 }
 

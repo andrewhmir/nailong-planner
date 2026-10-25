@@ -80,7 +80,7 @@ export function CalendarDialog({
               : "teal"
           }
           initialOwnerId={isEdit && isRoot ? state.calendar.ownerId : null}
-          initialViewOnly={isEdit && isRoot ? state.calendar.isViewOnlyForPartner === 1 : false}
+          initialViewOnly={isEdit && isRoot ? state.calendar.visibility === "view_only" : false}
           currentUserId={currentUserId}
           currentUserName={currentUserName}
           pending={pending}

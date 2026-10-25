@@ -6,18 +6,19 @@ export interface ViewerContext {
 }
 
 /**
- * The one write-permission rule for calendars and the events inside them.
+ * The one write-permission rule for collections and the events inside them.
  *
- * Every calendar is visible to both household members. A calendar can be marked
- * view-only for the partner, in which case only its owner may write it. Shared
- * ("Ours") calendars are never view-only — validation prevents that state, and
- * if it somehow exists this predicate fails closed.
+ * Every collection is visible to both household members. A `view_only` (or
+ * `private`) collection may only be written by its owner; `shared` ("Ours")
+ * collections are always writable. An ownerless non-shared collection is
+ * writable by nobody — validation prevents that state, and if it somehow exists
+ * this predicate fails closed.
  */
 export function canWriteCalendar(
   viewer: ViewerContext,
-  calendar: Pick<CalendarRow, "ownerId" | "isViewOnlyForPartner">,
+  calendar: Pick<CalendarRow, "ownerId" | "visibility">,
 ): boolean {
-  if (!calendar.isViewOnlyForPartner) {
+  if (calendar.visibility === "shared") {
     return true;
   }
   return calendar.ownerId !== null && calendar.ownerId === viewer.userId;
