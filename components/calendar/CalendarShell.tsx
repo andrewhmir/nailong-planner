@@ -338,7 +338,9 @@ export function CalendarShell({
 
   // Task chips cover the visible grid window (the month view's cells, including
   // the adjacent-month days it paints) and only visible collections. A date
-  // compare on `YYYY-MM-DD` strings avoids any timezone round-trip.
+  // compare on `YYYY-MM-DD` strings avoids any timezone round-trip. Only open
+  // tasks draw: the optimistic task cache can still hold a done/dropped row for
+  // a beat after `x`/Drop, and a chip for a finished task would be a lie.
   const visibleTasks = useMemo(() => {
     if (!range) {
       return [];
@@ -347,6 +349,7 @@ export function CalendarShell({
     const to = utcToLocalDate(range.to, timezone);
     return (taskData?.tasks ?? []).filter(
       (task) =>
+        task.status === "open" &&
         task.scheduledOn !== null &&
         task.scheduledOn >= from &&
         task.scheduledOn < to &&

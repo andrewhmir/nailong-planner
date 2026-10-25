@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/components/ui/icons";
-import { isTaskDrag, readTaskDrag } from "@/lib/ui/taskDrag";
+import { isTaskDrag, readTaskDrag, type TaskDragPayload } from "@/lib/ui/taskDrag";
 import { addDaysToDate } from "@/lib/time/zone";
 import { cn } from "@/lib/utils";
 
@@ -19,9 +19,11 @@ export interface MiniMonthProps {
   /**
    * Optional task-row drop target. Supplying it turns each in-month day button
    * into an HTML5 drop zone for the `text/x-nailong-task` payload; the callback
-   * owns the PATCH. Without it the grid is navigation-only, exactly as before.
+   * owns the PATCH. The payload carries the row's id and its previous
+   * `scheduledOn`, so Undo restores what the user saw. Without it the grid is
+   * navigation-only, exactly as before.
    */
-  onTaskDrop?: (taskId: string, date: string) => void;
+  onTaskDrop?: (drag: TaskDragPayload, date: string) => void;
   labelledBy?: string;
 }
 
@@ -216,14 +218,14 @@ export function MiniMonth({
         delete event.currentTarget.dataset.taskDropActive;
       },
       onDrop: (event) => {
-        const taskId = readTaskDrag(event.dataTransfer);
+        const drag = readTaskDrag(event.dataTransfer);
         delete event.currentTarget.dataset.taskDropActive;
         if (!isTaskDrag(event.dataTransfer)) {
           return;
         }
         event.preventDefault();
-        if (taskId) {
-          onTaskDrop(taskId, date);
+        if (drag) {
+          onTaskDrop(drag, date);
         }
       },
     };

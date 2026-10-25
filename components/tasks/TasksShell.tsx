@@ -10,6 +10,7 @@ import { useCollections } from "@/lib/query/collections";
 import { useCreateTask, useDeleteTask, useTasks, useUpdateTask } from "@/lib/query/tasks";
 import { canWriteCollection, foldCollectionPermission } from "@/lib/services/permissions";
 import type { TaskView } from "@/lib/services/tasks";
+import { taskDeepLinkAction } from "@/lib/ui/taskDeepLink";
 import { pushUndo } from "@/lib/ui/undo";
 import { undoToast } from "@/lib/ui/undoToast";
 import { useTaskShortcuts } from "@/lib/ui/useTaskShortcuts";
@@ -38,6 +39,33 @@ const STATUS_COPY: Record<TaskStatus, { label: string; message: string }> = {
   open: { label: "Reopen task", message: "Task reopened" },
   dropped: { label: "Drop task", message: "Task dropped" },
 };
+
+/** One deep-link lookup: the task, or the message the settle site should toast. */
+type DeepLinkResult = { ok: true; task: TaskView } | { ok: false; error: string };
+
+/**
+ * The deep link's single `GET /api/tasks/{id}`. It resolves instead of toasting
+ * so the settle site (which knows whether the request is still wanted) owns the
+ * error toast; a request cancelled by a param change or unmount stays silent.
+ */
+async function fetchDeepLinkTask(taskId: string): Promise<DeepLinkResult> {
+  try {
+    const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`);
+    const payload = (await response.json().catch(() => null)) as {
+      task?: TaskView;
+      error?: { message?: string };
+    } | null;
+    if (!response.ok || !payload?.task) {
+      throw new Error(payload?.error?.message ?? "Could not open the task.");
+    }
+    return { ok: true, task: payload.task };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Could not open the task.",
+    };
+  }
+}
 
 /**
  * The `/tasks` workspace: capture bar, the Inbox · Today · Week · Someday
@@ -73,8 +101,18 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   // the fetch that removed it has already painted.
   const previousTasksRef = useRef<TaskView[]>([]);
   // The deep link is a one-shot: it must not reopen the editor after the user
-  // closes it and the task list re-renders underneath.
+  // closes it and the task list re-renders underneath. The marker is only set
+  // once a lookup settles — see `lib/ui/taskDeepLink.ts` for the StrictMode
+  // ordering rule that makes an early marker lose the editor entirely.
   const deepLinkHandledRef = useRef<string | null>(null);
+  // One in-flight GET per deep-linked id. React's development double-invoke
+  // (setup → cleanup → setup) cancels the first closure before the response;
+  // caching the promise by param lets the second setup await the same request
+  // instead of starting another one (or skipping it because it looked handled).
+  const deepLinkRequestRef = useRef<{
+    param: string;
+    promise: Promise<DeepLinkResult>;
+  } | null>(null);
   const tasksRef = useRef<TaskView[]>([]);
   const today = useMemo(() => localToday(timezone), [timezone]);
   const tasksQuery = useTasks(view);
@@ -104,43 +142,61 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   // A calendar task chip navigates to `/tasks?task=<id>`: open that task's
   // editor. The current view's rows are preferred (they are the live snapshot
   // the editor expects); otherwise one GET covers a task that is not in the
-  // open bucket yet. A missing/unreadable task toasts and drops the param.
+  // open bucket yet — and a scheduled task is never in the Inbox view, so that
+  // GET is the normal path, not a fallback. A missing/unreadable task toasts
+  // and drops the param.
+  //
+  // Nothing is marked handled until the lookup settles: StrictMode's dev
+  // setup → cleanup → setup runs this effect twice, and an early marker would
+  // make the second setup return while the first closure is already cancelled.
   useEffect(() => {
     if (taskParam === null) {
       deepLinkHandledRef.current = null;
+      deepLinkRequestRef.current = null;
       return;
     }
-    if (deepLinkHandledRef.current === taskParam) {
-      return;
-    }
-    deepLinkHandledRef.current = taskParam;
     const known = tasksRef.current.find((task) => task.id === taskParam);
-    if (known) {
-      setEditorTask(known);
+    const action = taskDeepLinkAction({
+      param: taskParam,
+      handled: deepLinkHandledRef.current,
+      hasCachedRow: known !== undefined,
+      pendingParam: deepLinkRequestRef.current?.param ?? null,
+    });
+    if (action === "reset" || action === "skip") {
       return;
+    }
+    if (action === "open-cached") {
+      deepLinkHandledRef.current = taskParam;
+      if (known) {
+        setEditorTask(known);
+      }
+      return;
+    }
+    if (action === "fetch") {
+      deepLinkRequestRef.current = { param: taskParam, promise: fetchDeepLinkTask(taskParam) };
     }
 
+    const request = deepLinkRequestRef.current;
+    if (!request) {
+      return;
+    }
+    // The cleanup only cancels *this* closure (param changed or unmounted). The
+    // request itself stays cached so the next setup of the same param can await
+    // it, and the handled marker is set at the settle site, after it lands.
     let cancelled = false;
-    void (async () => {
-      try {
-        const response = await fetch(`/api/tasks/${taskParam}`);
-        const payload = (await response.json().catch(() => null)) as {
-          task?: TaskView;
-          error?: { message?: string };
-        } | null;
-        if (!response.ok || !payload?.task) {
-          throw new Error(payload?.error?.message ?? "Could not open the task.");
-        }
-        if (!cancelled) {
-          setEditorTask(payload.task);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          toast.error(error instanceof Error ? error.message : "Could not open the task.");
-          router.replace("/tasks");
-        }
+    void request.promise.then((result) => {
+      if (cancelled || deepLinkRequestRef.current !== request) {
+        return;
       }
-    })();
+      deepLinkHandledRef.current = request.param;
+      deepLinkRequestRef.current = null;
+      if (result.ok) {
+        setEditorTask(result.task);
+        return;
+      }
+      toast.error(result.error);
+      router.replace("/tasks");
+    });
     return () => {
       cancelled = true;
     };

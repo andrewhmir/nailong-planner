@@ -9,6 +9,7 @@ import { expandOccurrences } from "@/lib/recurrence/expand";
 import type { CollectionNode } from "@/lib/services/collections";
 import { localWallTimeToUtc, utcToLocalDate } from "@/lib/time/zone";
 import { useVisibilityApi } from "@/components/shell/VisibilityProvider";
+import type { TaskDragPayload } from "@/lib/ui/taskDrag";
 import { visibleCollectionIds } from "@/lib/ui/visibleCollections";
 
 interface Props {
@@ -19,7 +20,7 @@ interface Props {
    * on `/tasks`, so it is the practical target for a row drag). Omit it and the
    * grid is navigation-only.
    */
-  onTaskDrop?: (taskId: string, date: string) => void;
+  onTaskDrop?: (drag: TaskDragPayload, date: string) => void;
 }
 
 function pad(value: number): string {

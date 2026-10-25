@@ -7,6 +7,24 @@ test.beforeEach(async ({ page }) => {
   await signIn(page, ANDREW, fixtures.password);
 });
 
+/** The household's calendar date, mirroring `localToday` in `lib/domain/tasks.ts`. */
+function householdToday(): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "Asia/Taipei",
+  }).formatToParts(new Date());
+  const pick = (type: string): string => parts.find((part) => part.type === type)!.value;
+  return `${pick("year")}-${pick("month")}-${pick("day")}`;
+}
+
+/** One day of the month `today` belongs to, as a `YYYY-MM-DD` string. */
+function dayInMonth(today: string, day: number): string {
+  const [year, month] = today.split("-");
+  return `${year}-${month}-${String(day).padStart(2, "0")}`;
+}
+
 test("renders the month grid with seeded events", async ({ page }) => {
   await expect(page.getByRole("button", { name: "New event" })).toBeVisible();
   await expect(page.getByText("Math quiz")).toBeVisible();
@@ -30,6 +48,49 @@ test("edits and deletes an event through its popover", async ({ page }) => {
   await page.getByText("Math quiz (moved)").click();
   await page.getByRole("button", { name: "Delete" }).click();
   await expect(page.getByText("Math quiz (moved)")).toHaveCount(0);
+});
+
+test("task chips join a day's stack without breaking +N more or event drag", async ({ page }) => {
+  const today = householdToday();
+  // Days 2–5 are never a seeded event day (the 15th/20th) nor a day another spec
+  // pins a task chip on (the 10th–13th), so the four chips below are the only
+  // rows on their day.
+  const quietDays = [2, 3, 4, 5]
+    .map((day) => dayInMonth(today, day))
+    .filter((date) => date !== today);
+  const [chipDay, dragDay] = quietDays;
+  expect(chipDay).toBeTruthy();
+  expect(dragDay).toBeTruthy();
+
+  // Four open tasks on one day exceed `dayMaxEventRows=3`, so three chips draw
+  // and the rest folds into the grid's built-in "+N more" link. Chips share the
+  // `events` array with event occurrences; this is the regression guard that the
+  // shared array still stacks like a plain event day.
+  const stamp = Date.now().toString(36);
+  for (let index = 0; index < 4; index += 1) {
+    const created = await page.request.post("/api/tasks", {
+      data: { title: `E2E stack chip ${index} ${stamp}` },
+    });
+    expect(created.ok()).toBeTruthy();
+    const task = ((await created.json()) as { task: { id: string } }).task;
+    const planned = await page.request.patch(`/api/tasks/${task.id}`, {
+      data: { scheduledOn: chipDay },
+    });
+    expect(planned.ok()).toBeTruthy();
+  }
+
+  await page.goto("/");
+  const chipCell = page.locator(`[data-date="${chipDay}"]`);
+  await expect(chipCell.locator(".fc-task-chip")).toHaveCount(3);
+  const moreLink = chipCell.locator(".fc-more-link");
+  await expect(moreLink).toBeVisible();
+  await expect(moreLink).toContainText(/\+\d+/);
+
+  // Event drag still works with the chips in the same `events` array.
+  await page
+    .getByText("Kyoto trip")
+    .dragTo(page.locator(`[data-date="${dragDay}"]`), { steps: 5 });
+  await expect(page.locator(`[data-date="${dragDay}"]`).getByText("Kyoto trip")).toBeVisible();
 });
 
 test("drags an event to another day", async ({ page }) => {

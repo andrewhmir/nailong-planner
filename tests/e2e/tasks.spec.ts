@@ -655,17 +655,33 @@ test("dropping a task on a day plans it, and its chip opens the task editor", as
 
   // The task row lives on /tasks and the full grid lives on /, so the row is
   // dragged onto the sidebar mini month — the month grid both pages share.
-  await taskRow(page, title).dragTo(page.locator(`[data-mini-date="${today}"]`));
+  // `steps` synthesises the intermediate `dragover` events of a real drag, so
+  // the highlight path is exercised too (the drop itself reads the payload).
+  await taskRow(page, title).dragTo(page.locator(`[data-mini-date="${today}"]`), { steps: 5 });
   await expect.poll(async () => (await apiTask(page, taskId!)).scheduledOn).toBe(today);
-  await expect(
-    page.locator("[data-sonner-toast]", { hasText: "Task planned" }),
-  ).toBeVisible();
+  const plannedToast = page.locator("[data-sonner-toast]", { hasText: "Task planned" });
+  await expect(plannedToast).toBeVisible();
   // The Today bucket is the visible consequence of the drop.
   await selectView(page, "Today");
   await expect(taskRow(page, title)).toBeVisible();
 
-  // Move it to a quiet day through the row's Plan popover; the month grid must
-  // draw the chip on exactly that day.
+  // The toast is bound to this drop: its Undo restores the date the dragged row
+  // actually showed (unscheduled, so `null`) exactly once. Sonner dismisses the
+  // toast as soon as its action runs, so the second attempt is the `z` hotkey;
+  // the consumed handle must be a no-op, not a second PATCH.
+  await plannedToast.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(async () => (await apiTask(page, taskId!)).scheduledOn).toBeNull();
+  await expect(plannedToast).toHaveCount(0);
+  await page.keyboard.press("z");
+  await expect.poll(async () => (await apiTask(page, taskId!)).scheduledOn).toBeNull();
+
+  // The undo put it back in the Inbox, where the Plan popover can move it to a
+  // quiet day; the month grid must then draw the chip on exactly that day.
+  await selectView(page, "Inbox");
+  await expect(taskRow(page, title)).toBeVisible();
+  await expect
+    .poll(async () => (await tasksInView(page, "inbox")).filter((task) => task.id === taskId).length)
+    .toBe(1);
   await planTask(page, title, chipDay!, today);
   await expect.poll(async () => (await apiTask(page, taskId!)).scheduledOn).toBe(chipDay);
 

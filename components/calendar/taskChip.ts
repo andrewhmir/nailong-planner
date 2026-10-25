@@ -25,7 +25,7 @@ export interface TaskChip extends EventInput {
     collectionId: string;
     /** The owning list's name, for the chip's aria-label and debugging. */
     collectionName: string;
-    /** Always false today: `useTasks("all")` only returns open tasks. */
+    /** Always false: `CalendarShell.visibleTasks` keeps only `status === "open"`. */
     completed: boolean;
     /** Saturated collection accent: FullCalendar paints it as the left bar. */
     accent: string;

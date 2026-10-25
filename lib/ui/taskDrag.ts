@@ -1,11 +1,26 @@
 /**
- * The task-row HTML5 drag contract. The row writes the task id under a custom
- * MIME type; the month grid's day cells and the sidebar mini-month accept only
- * that type, so an event drag, a file, or a text selection can never plan a
- * task by accident. Kept in one module because three components (the row as the
- * source, the two grids as targets) have to agree on the string.
+ * The task-row HTML5 drag contract. The row writes its id **and its current
+ * `scheduledOn`** under a custom MIME type; the month grid's day cells and the
+ * sidebar mini-month accept only that type, so an event drag, a file, or a text
+ * selection can never plan a task by accident. Kept in one module because three
+ * components (the row as the source, the two grids as targets) have to agree on
+ * the string and the payload shape.
+ *
+ * The previous date travels **with the drag**, taken from the dragged row at
+ * `dragstart`, rather than being looked up in a cache at drop time: cached
+ * `["tasks", …]` payloads can disagree (an optimistic row in one view, the
+ * settle refetch in another), and Undo must restore the date the user actually
+ * saw on the row they dragged.
  */
 export const TASK_DRAG_TYPE = "text/x-nailong-task";
+
+/** A dragged task row: what the drop handler needs to plan it and undo it. */
+export interface TaskDragPayload {
+  /** The dragged row's task id. */
+  id: string;
+  /** The row's `scheduledOn` when the drag started; the Undo's restore value. */
+  scheduledOn: string | null;
+}
 
 /** Structural subset of `DataTransfer` so the pure helpers are testable. */
 export interface DragTransfer {
@@ -16,22 +31,64 @@ export interface DragTransfer {
   dropEffect: string;
 }
 
-/** True when a drag carries a task id (used to decide `preventDefault`). */
+/** The source row, structurally: anything with an id and an optional date. */
+export interface TaskDragSource {
+  id: string;
+  scheduledOn: string | null;
+}
+
+/** `YYYY-MM-DD`, the only shape a `scheduledOn` restore value may have. */
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** True when a drag carries a task payload (used to decide `preventDefault`). */
 export function isTaskDrag(transfer: Pick<DragTransfer, "types"> | null | undefined): boolean {
   return transfer?.types.includes(TASK_DRAG_TYPE) ?? false;
 }
 
-/** Source side: stamp the row's payload and advertise a move. */
-export function setTaskDragPayload(transfer: DragTransfer, taskId: string): void {
-  transfer.setData(TASK_DRAG_TYPE, taskId);
+/**
+ * Source side: stamp the row's id + current date and advertise a move. The
+ * payload is JSON so a null date (`undefined` under `setData`, which stringifies
+ * nothing useful) survives the round trip and so a malformed drag is rejectable.
+ */
+export function setTaskDragPayload(transfer: DragTransfer, task: TaskDragSource): void {
+  transfer.setData(
+    TASK_DRAG_TYPE,
+    JSON.stringify({ id: task.id, scheduledOn: task.scheduledOn }),
+  );
   transfer.effectAllowed = "move";
 }
 
-/** Target side: the dragged task id, or `null` for any other drag. */
-export function readTaskDrag(transfer: DragTransfer | null | undefined): string | null {
+/**
+ * Target side: the dragged task, or `null` for any other drag and for a payload
+ * that does not match the contract (an old raw-id payload, corrupt JSON, an
+ * empty id, a date that is not `YYYY-MM-DD`). Rejecting instead of trusting the
+ * string keeps a bad payload from being PATCHed into `scheduledOn` by Undo.
+ */
+export function readTaskDrag(
+  transfer: DragTransfer | null | undefined,
+): TaskDragPayload | null {
   if (!isTaskDrag(transfer)) {
     return null;
   }
-  const taskId = transfer!.getData(TASK_DRAG_TYPE);
-  return taskId.length > 0 ? taskId : null;
+  const raw = transfer!.getData(TASK_DRAG_TYPE);
+  if (raw.length === 0) {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    return null;
+  }
+  const { id, scheduledOn } = parsed as { id?: unknown; scheduledOn?: unknown };
+  if (typeof id !== "string" || id.length === 0) {
+    return null;
+  }
+  if (scheduledOn !== null && (typeof scheduledOn !== "string" || !DATE_ONLY.test(scheduledOn))) {
+    return null;
+  }
+  return { id, scheduledOn };
 }

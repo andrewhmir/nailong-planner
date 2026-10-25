@@ -22,7 +22,8 @@ calendar still draws, or an undo action does nothing.
 | lib/ui/searchBus.ts | Custom-event bus for "focus the search field" |
 | lib/ui/undo.ts | In-memory undo stack: targeted handles for toasts, LIFO for the hotkeys |
 | lib/ui/undoToast.ts | Success toast whose Undo action reverts exactly the change the toast names |
-| lib/ui/taskDrag.ts | The `text/x-nailong-task` drag payload contract shared by task rows and their drop targets |
+| lib/ui/taskDrag.ts | The `text/x-nailong-task` drag payload contract (id + previous `scheduledOn`) shared by task rows and their drop targets |
+| lib/ui/taskDeepLink.ts | Pure decision table for the one-shot `/tasks?task=` deep link (settle-before-handled rule) |
 | lib/ui/useTaskPlanDrop.ts | Drop→PATCH `scheduledOn` handler with a targeted undo and the `Task planned` toast |
 
 ## View and persistence
@@ -447,42 +448,60 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 ### lib/ui/taskDrag.ts
 
-**Purpose** — One place for the HTML5 drag contract that lets a task row be dragged onto a day: the custom MIME type, the source-side payload write and the target-side read/guard. Sharing it keeps the row, the month grid and the sidebar mini month from drifting apart on a string literal.
+**Purpose** — One place for the HTML5 drag contract that lets a task row be dragged onto a day: the custom MIME type, the source-side payload (the task id **and** the row's `scheduledOn` at `dragstart`) and the target-side read/guard. Sharing it keeps the row, the month grid and the sidebar mini month from drifting apart on a string literal or a payload shape. The previous date travels with the drag instead of being looked up in a cache at drop time, because cached `["tasks", …]` payloads can disagree and Undo must restore the date the dragged row actually showed.
 
-**Public API** — `export const TASK_DRAG_TYPE = "text/x-nailong-task"`; `export interface DragTransfer` (the structural subset of `DataTransfer` the helpers need: `types`, `getData`, `setData`, `effectAllowed`, `dropEffect`); `isTaskDrag(transfer: Pick<DragTransfer, "types"> | null | undefined): boolean`; `setTaskDragPayload(transfer: DragTransfer, taskId: string): void` (writes the id and sets `effectAllowed = "move"`); `readTaskDrag(transfer: DragTransfer | null | undefined): string | null` (null for a non-task drag or an empty payload).
+**Public API** — `export const TASK_DRAG_TYPE = "text/x-nailong-task"`; `export interface DragTransfer` (the structural subset of `DataTransfer` the helpers need: `types`, `getData`, `setData`, `effectAllowed`, `dropEffect`); `export interface TaskDragPayload { id: string; scheduledOn: string | null }`; `export interface TaskDragSource` (the same two fields, what a row hands to the source helper); `isTaskDrag(transfer: Pick<DragTransfer, "types"> | null | undefined): boolean`; `setTaskDragPayload(transfer: DragTransfer, task: TaskDragSource): void` (writes JSON `{ id, scheduledOn }` and sets `effectAllowed = "move"`); `readTaskDrag(transfer: DragTransfer | null | undefined): TaskDragPayload | null` (null for a non-task drag, an empty payload, a legacy raw-id payload, corrupt JSON, a missing/empty `id`, or a `scheduledOn` that is neither `null` nor `YYYY-MM-DD`).
 
-**State & side effects** — None; pure and DOM-free. The caller owns the actual `DataTransfer`; only `dragover`/`drop` listeners call `preventDefault`, and only after `isTaskDrag` is true.
+**State & side effects** — None; pure and DOM-free. The caller owns the actual `DataTransfer`; only `dragover`/`drop` listeners call `preventDefault`, and only after `isTaskDrag` is true. JSON is used so a `null` date survives `setData` and so a malformed drag is rejectable rather than PATCHed into the column.
 
-**Depends on / Used by** — No imports. Used by `components/tasks/TaskRow.tsx` (`setTaskDragPayload`), `components/calendar/CalendarView.tsx` and `components/calendar/MiniMonth.tsx` (`isTaskDrag`, `readTaskDrag`).
+**Depends on / Used by** — No imports. Used by `components/tasks/TaskRow.tsx` (`setTaskDragPayload`), `components/calendar/CalendarView.tsx`, `components/calendar/MiniMonth.tsx`, `components/sidebar/SidebarMiniMonth.tsx` (`isTaskDrag`, `readTaskDrag`, `TaskDragPayload`) and `lib/ui/useTaskPlanDrop.ts` (`TaskDragPayload`).
 
 **Debugging**
 - A drag of an event, file or text is accepted by a day cell -> the `preventDefault` moved outside the `isTaskDrag` guard -> this file's callers.
 - A task row drops nothing -> the source and target disagree on the MIME type (one hardcoded it) -> this file's `TASK_DRAG_TYPE`.
 - `readTaskDrag` returns null on a real drop -> the browser does not expose the custom type on `dragover`; check the payload is set in `dragstart` via `setTaskDragPayload` -> this file.
+- A drop works but Undo restores the wrong day -> the source stamped `scheduledOn` from something other than the rendered row, or the drop target passed its own date as the previous value -> `TaskRow.onDragStart` and `useTaskPlanDrop`.
 
-**Tests** — `tests/unit/task-drag.test.ts` (source stamp + move effect, type recognition, read/empty/other-drag rejection).
+**Tests** — `tests/unit/task-drag.test.ts` (source stamp incl. a null date, move effect, type recognition, read-back of the undo date, and rejection of other drags / empty / raw-id / corrupt / bad-date payloads).
+
+### lib/ui/taskDeepLink.ts
+
+**Purpose** — The pure decision table behind `TasksShell`'s `/tasks?task=<id>` effect (the link a calendar task chip pushes). It exists because the effect's correctness is an ordering rule, not a branch: the param may only be marked handled once its lookup settles. React 19's development StrictMode (`reactStrictMode: true`) runs setup → cleanup → setup, so the first closure is cancelled before its `GET` lands; an early marker makes the second setup return and no editor ever opens. The table keeps the second setup on `await-request` (the promise is cached in a ref keyed by the param) and only then on `skip`.
+
+**Public API** — `export type TaskDeepLinkAction = "reset" | "skip" | "open-cached" | "await-request" | "fetch"`; `export interface TaskDeepLinkState { param: string | null; handled: string | null; hasCachedRow: boolean; pendingParam: string | null }`; `taskDeepLinkAction(state): TaskDeepLinkAction`. Order: no param → `reset`; `handled === param` → `skip` (one-shot even if a stale row is cached); a cached row → `open-cached`; a pending request for the same param → `await-request`; otherwise `fetch`.
+
+**State & side effects** — None; a pure function over plain values (no React, no fetch, no storage). `TasksShell` owns the refs it is fed (`deepLinkHandledRef`, `deepLinkRequestRef`) and the `GET`/`setEditorTask`/`router.replace` side effects.
+
+**Depends on / Used by** — No imports. Used by `components/tasks/TasksShell.tsx` (the deep-link effect). The effect's `GET /api/tasks/{id}` is the normal path, not a fallback: a chip is only drawn for a scheduled task, and the Inbox view never holds one.
+
+**Debugging**
+- A chip click lands on `/tasks?task=<id>` with no editor, and only in dev -> the handled marker was set before the request settled (or the in-flight promise cache was dropped), so StrictMode's second setup skipped while the first closure was cancelled -> this file's table plus `TasksShell`'s effect.
+- The editor reopens after being dismissed -> `handled` was cleared while the param still names the task, or `closeEditor` stopped calling `router.replace("/tasks")` -> `components/tasks/TasksShell.tsx`.
+- A second chip for a different task does not open it -> `handled` was compared across params instead of per param -> this file's `handled === param` rule.
+
+**Tests** — `tests/unit/task-deep-link.test.ts` (absent param, cached row, StrictMode setup → cleanup → setup sequence never skipping before a settle, one-shot after a settle, and a new param after a settle fetching again).
 
 ### lib/ui/useTaskPlanDrop.ts
 
 **Purpose** — The shared "a task was dropped on a day" handler. Both month-grid drop surfaces use it: the sidebar mini month (the practical target on `/tasks`, where the rows are) and the full month grid's day cells. It PATCHes `scheduledOn`, toasts `Task planned` with a targeted Undo that restores the exact previous date, and toasts `Could not schedule the task.` on failure.
 
-**Public API** — `useTaskPlanDrop(): (taskId: string, date: string) => void`. No other exports.
+**Public API** — `useTaskPlanDrop(): (drag: TaskDragPayload, date: string) => void`. No other exports.
 
-**State & side effects** — `useQueryClient()` + `useUpdateTask()` (the optimistic PATCH hook); it starts no query of its own. On a drop it looks the row up across every cached `["tasks", …]` payload (`getQueriesData`); if this tab never loaded it, it does one `GET /api/tasks/{id}` so the undo closure has a real previous `scheduledOn` instead of guessing. A drop that does not change the date is a silent no-op (the server echo guard also skips the toast when the row is unchanged). Otherwise it pushes `{ label: "Schedule task", undo: PATCH scheduledOn back }` and calls `undoToast("Task planned", handle)`; failures toast `Could not schedule the task.`.
+**State & side effects** — `useUpdateTask()` (the optimistic PATCH hook); it starts no query and reads no cache. The previous `scheduledOn` comes from the drag payload, stamped by the dragged row at `dragstart` (`lib/ui/taskDrag.ts`), so Undo restores the date the user saw even when cached views disagree. A drop onto the row's own day is a silent no-op (the server echo guard also skips the toast when the row is unchanged). Otherwise it pushes `{ label: "Schedule task", undo: PATCH scheduledOn back }` and calls `undoToast("Task planned", handle)`; failures toast `Could not schedule the task.`.
 
-**Depends on / Used by** — `@tanstack/react-query` (`useQueryClient`), `react` (`useCallback`), `sonner`, `lib/query/taskCache` (`TasksCacheData`), `lib/query/tasks` (`useUpdateTask`), `lib/services/tasks` (`TaskView`), `./undo` (`pushUndo`), `./undoToast`. Used by `components/calendar/CalendarShell.tsx` (`onTaskDrop` for the full grid) and `components/shell/AppShell.tsx` (passed to both `SidebarMiniMonth` instances).
+**Depends on / Used by** — `react` (`useCallback`), `sonner`, `lib/query/tasks` (`useUpdateTask`), `./undo` (`pushUndo`), `./undoToast`, `./taskDrag` (`TaskDragPayload`). Used by `components/calendar/CalendarShell.tsx` (`onTaskDrop` for the full grid) and `components/shell/AppShell.tsx` (passed to both `SidebarMiniMonth` instances).
 
 **Debugging**
-- The Undo restores `null` instead of the previous day -> the row was not in any cached `["tasks", …]` payload and the `GET /api/tasks/{id}` fallback was removed -> this file's `cached()` path.
+- The Undo clears the date instead of restoring the previous day -> the payload stamped `null` because the source read the wrong field, or the drop target rebuilt the payload from a cache instead of passing `readTaskDrag`'s result -> `components/tasks/TaskRow.tsx`, `lib/ui/taskDrag.ts`.
 - A drop toasts but the row does not move -> the PATCH failed (view-only list, 404) -> read the network response; the optimistic patch rolls back.
-- A drop on the same day shows a toast -> the `task.scheduledOn === date` no-op guard was dropped -> this file.
+- A drop on the same day shows a toast -> the `scheduledOn === date` no-op guard was dropped -> this file.
 - Two drops in one toast window undo the wrong plan -> the toast was shown without `pushUndo`'s handle -> this file plus `lib/ui/undoToast.ts`.
 
-**Tests** — No direct unit test (a TanStack mutation hook; the repo has no hook-test harness). `tests/e2e/tasks.spec.ts` scenario 6 drives the row→mini-month drop and asserts `scheduledOn` through `GET /api/tasks/{id}`; the full-grid drop listener is covered structurally by `CalendarView` and the shared handler.
+**Tests** — No direct unit test (a TanStack mutation hook; the repo has no hook-test harness). The payload it consumes is unit-tested in `tests/unit/task-drag.test.ts`; `tests/e2e/tasks.spec.ts` scenario 6 drives the row→mini-month drop, asserts `scheduledOn` through `GET /api/tasks/{id}`, then clicks the `Task planned` toast's Undo and proves the date returns to `null` exactly once.
 
 ## Focused verification
 
 ```bash
-npx vitest run tests/unit/calendarPicker.test.ts tests/unit/view.test.ts tests/unit/visibility.test.ts tests/unit/visibleCollections.test.ts tests/unit/treeFold.test.ts tests/unit/shortcut-guards.test.ts tests/unit/use-task-shortcuts.test.ts tests/unit/undo.test.ts tests/unit/task-drag.test.ts
+npx vitest run tests/unit/calendarPicker.test.ts tests/unit/view.test.ts tests/unit/visibility.test.ts tests/unit/visibleCollections.test.ts tests/unit/treeFold.test.ts tests/unit/shortcut-guards.test.ts tests/unit/use-task-shortcuts.test.ts tests/unit/undo.test.ts tests/unit/task-drag.test.ts tests/unit/task-deep-link.test.ts
 npm run lint && npm run typecheck
 ```

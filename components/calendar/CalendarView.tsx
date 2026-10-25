@@ -23,7 +23,7 @@ import type { TimeFormat } from "@/lib/services/preferences";
 import type { TaskView } from "@/lib/services/tasks";
 import { fcEventTimeFormat, formatInstant } from "@/lib/time/format";
 import { utcToLocalDate } from "@/lib/time/zone";
-import { isTaskDrag, readTaskDrag } from "@/lib/ui/taskDrag";
+import { isTaskDrag, readTaskDrag, type TaskDragPayload } from "@/lib/ui/taskDrag";
 import { taskChip, type TaskChip } from "./taskChip";
 import { occurrenceToFcEvent } from "./toFcEvent";
 
@@ -60,10 +60,11 @@ interface Props {
   onEventClick: (info: EventClickInfo) => void;
   onEventMove: (info: EventDropInfo | EventResizeDoneInfo) => void;
   /**
-   * A task row was dropped on a day cell. `date` is the household-local
+   * A task row was dropped on a day cell. The payload carries the row's id and
+   * its previous `scheduledOn` (for Undo); `date` is the household-local
    * `YYYY-MM-DD`. Only month-view day cells are drop zones.
    */
-  onTaskDrop?: (taskId: string, date: string) => void;
+  onTaskDrop?: (drag: TaskDragPayload, date: string) => void;
 }
 
 export function CalendarView({
@@ -152,14 +153,14 @@ export function CalendarView({
             delete element.dataset.taskDropActive;
           });
           element.addEventListener("drop", (event) => {
-            const taskId = readTaskDrag(event.dataTransfer);
+            const drag = readTaskDrag(event.dataTransfer);
             delete element.dataset.taskDropActive;
             if (!isTaskDrag(event.dataTransfer)) {
               return;
             }
             event.preventDefault();
-            if (taskId) {
-              onTaskDrop(taskId, date);
+            if (drag) {
+              onTaskDrop(drag, date);
             }
           });
         }}

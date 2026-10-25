@@ -77,7 +77,7 @@ export function TaskRow({
       aria-current={selected ? "true" : undefined}
       aria-label={task.title}
       onFocus={onFocus}
-      onDragStart={(event) => setTaskDragPayload(event.dataTransfer, task.id)}
+      onDragStart={(event) => setTaskDragPayload(event.dataTransfer, task)}
       className={cn(
         "group relative flex items-center gap-3 border-b border-line px-2 py-1.5 outline-none last:border-b-0 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
         selected && "bg-well",
