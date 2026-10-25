@@ -62,8 +62,11 @@ test("task chips join a day's stack without breaking +N more or event drag", asy
   expect(chipDay).toBeTruthy();
   expect(dragDay).toBeTruthy();
 
-  // Four open tasks on one day exceed `dayMaxEventRows=3`, so three chips draw
-  // and the rest folds into the grid's built-in "+N more" link. Chips share the
+  // Four open tasks on one day exceed `dayMaxEventRows=3`. FullCalendar charges
+  // the "+N more" link itself as one of those rows: in `maxEventRows` mode
+  // `computeDayGridMoreLinkLevelTax()` returns 1, so the link reserves the third
+  // level and evicts the chip that was placed there — four chips render as two
+  // chips plus a link for the other two, not as three chips. Chips share the
   // `events` array with event occurrences; this is the regression guard that the
   // shared array still stacks like a plain event day.
   const stamp = Date.now().toString(36);
@@ -81,10 +84,15 @@ test("task chips join a day's stack without breaking +N more or event drag", asy
 
   await page.goto("/");
   const chipCell = page.locator(`[data-date="${chipDay}"]`);
-  await expect(chipCell.locator(".fc-task-chip")).toHaveCount(3);
+  // The cap is three rows and the more link takes one, so exactly two chips
+  // survive; asserting the count guards against a layout change that silently
+  // hides chips behind the link without accounting for it.
+  await expect(chipCell.locator(".fc-task-chip")).toHaveCount(2);
   const moreLink = chipCell.locator(".fc-more-link");
   await expect(moreLink).toBeVisible();
-  await expect(moreLink).toContainText(/\+\d+/);
+  // The link reports the two chips it folded away ("+2 more"; the month view
+  // uses the long form, not the numeric-only micro/column form).
+  await expect(moreLink).toHaveText(/^\+2( more)?$/);
 
   // Event drag still works with the chips in the same `events` array.
   await page
