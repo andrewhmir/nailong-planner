@@ -174,6 +174,35 @@ Private helpers: `pad2`, `currentMonthRange` (household timezone -> first of thi
 
 **Tests** — `tests/integration/import-api.test.ts` (preview/commit/list/rollback through the handlers, mapping errors, status codes, route wiring).
 
+### lib/api/handlers/tasks.ts
+
+**Purpose** — The task endpoints: list a triage view (or one list) with the global rail counts, read/create/patch/delete one task, and rewrite a list's manual order.
+
+**Public API** — All six are `guarded`, so each returns `Promise<Response>`.
+
+- `listTasksHandler(db, ctx, request): Promise<Response>` -> `{ tasks: TaskView[]; counts: TaskCounts }`, 200. Query: `view` in `inbox|today|week|someday|all` (absent means `all`) and optional `collectionId`, both parsed by `listTasksQuerySchema`.
+- `getTaskHandler(db, ctx, id): Promise<Response>` -> `{ task: TaskView }`, 200.
+- `createTaskHandler(db, ctx, request): Promise<Response>` -> `{ task: TaskView }`, 201.
+- `updateTaskHandler(db, ctx, id, request): Promise<Response>` -> `{ task: TaskView }`, 200.
+- `deleteTaskHandler(db, ctx, id): Promise<Response>` -> empty body, 204.
+- `reorderTasksHandler(db, ctx, request): Promise<Response>` -> `{ tasks: TaskView[] }`, 200.
+
+`GET /api/tasks` reads the household with `getHousehold` and passes its `timezone` and normalized `weekStartsOn` (0 or 1) into `listTasks`, so bucket membership matches the rail. `counts` always covers every visible open task even when `view` or `collectionId` narrows `tasks`; an unknown or invisible `collectionId` is an empty list, never a 404 (the filter does not leak existence). Zod failures become `VALIDATION` 400 with `fields` keyed by the issue path (`fields.view` for an unknown bucket, `fields.collectionId` for an empty one, `fields.orderedIds` for a malformed reorder body). Every other status comes from `lib/services/tasks.ts` unchanged: 404 "Task not found." for a missing id or a private list the caller does not own (the handler never repeats visibility logic), 403 "This collection is view-only." for a non-writable list, 400 "Tasks live in lists." when the target is a calendar, and 400 "Send exactly the open tasks of this list." for a stale reorder set.
+
+**State & side effects** — The only direct read is `getHousehold`; `listTasks` may lazily create the caller's Inbox and builds the `TaskView` rows. `POST`/`PATCH`/`DELETE` delegate all writes to the service (checklist replacement and reorder run in transactions there). `deleteTaskHandler` answers 204 even though the task's checklist rows cascade.
+
+**Depends on / Used by** — `lib/services/tasks.ts` (all six service functions), `lib/services/household.ts` (`getHousehold`), `lib/validation/tasks.ts` (`createTaskSchema`, `updateTaskSchema`, `reorderTasksSchema`, `listTasksQuerySchema`), `ViewerContext`, `NextResponse`, and `fieldErrors`/`guarded`/`readJson` from `./support`. Called by `app/api/tasks/route.ts` (`GET`, `POST`), `app/api/tasks/[id]/route.ts` (`GET`, `PATCH`, `DELETE`) and `app/api/tasks/order/route.ts` (`PATCH`); called directly by `tests/integration/tasks-api.test.ts`; client side is `lib/query/tasks.ts`.
+
+**Debugging**
+- 400 `fields.view` -> the caller sent something outside `inbox|today|week|someday|all` -> `listTasksQuerySchema` / `taskViewSchema`.
+- A list shows fewer tasks than its badge -> expected: `counts` is global, the filter narrows `tasks` only -> compare `useTasks(view, collectionId)` with a bare `useTasks()`.
+- 404 for a task that exists -> its list is private and owned by the partner, or the id belongs to another household; both answer exactly like a missing id -> `getTask` / `writableTask` in the service.
+- 400 "Tasks live in lists." -> the task targeted a `kind="calendar"` collection (create, move or reorder) -> check the collection's kind.
+- 400 "Send exactly the open tasks of this list." -> the reorder payload was partial, duplicated, or includes a done/cross-list id; refetch `["tasks"]` and resend the full set -> `reorderTasks`.
+- A PATCH that echoes the stored status returns 200 without moving the audit stamps -> intended transition-only behaviour -> `updateTask` in the service.
+
+**Tests** — `tests/integration/tasks-api.test.ts` (list shape and global counts, invalid view, 201/200/204 statuses, reorder and partial-set 400, partner 404, unauthenticated 401 through `withViewer`). Service rules live in `tests/integration/tasks.test.ts`.
+
 ### lib/api/handlers/support.ts
 
 **Purpose** — The three helpers every handler uses: an error boundary, a JSON body reader, and a Zod-to-`fields` mapper.

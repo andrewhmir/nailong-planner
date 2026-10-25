@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TASK_BUCKETS } from "@/lib/domain/tasks";
 
 /**
  * `scheduledOn` and `dueOn` are date-only household-local `YYYY-MM-DD` strings,
@@ -42,6 +43,23 @@ export const reorderTasksSchema = z.object({
   orderedIds: z.array(z.string().min(1)).min(1),
 });
 
+/**
+ * The wire name of the triage filter: a bucket or `"all"`. Built from
+ * `TASK_BUCKETS` so a new bucket reaches the API without a second edit.
+ */
+export const taskViewSchema = z.enum([...TASK_BUCKETS, "all"]);
+
+/**
+ * GET /api/tasks query. Both filters are optional: no `view` means every open
+ * visible task, and an unknown `collectionId` deliberately returns an empty
+ * list rather than a 404 (existence is never leaked by a filter).
+ */
+export const listTasksQuerySchema = z.object({
+  view: taskViewSchema.optional(),
+  collectionId: z.string().min(1).optional(),
+});
+
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
 export type ReorderTasksInput = z.infer<typeof reorderTasksSchema>;
+export type ListTasksQuery = z.infer<typeof listTasksQuerySchema>;

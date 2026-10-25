@@ -273,6 +273,52 @@ Handlers in `lib/api/handlers/events.ts`; range parsing, search clamping and the
 
 **Tests** — `tests/integration/events-api.test.ts`, `tests/e2e/events.spec.ts`, `tests/e2e/undo.spec.ts`, `tests/e2e/details.spec.ts`.
 
+## Task routes
+
+Three thin routes over `lib/api/handlers/tasks.ts`; bucketing (`lib/domain/tasks.ts`), privacy, ordering and the checklist transaction all live in `lib/services/tasks.ts`.
+
+### app/api/tasks/route.ts
+
+**Purpose** — Lists the tasks of one view (or one list) and creates a task, defaulting to the caller's Inbox.
+
+**API** — `GET` query `view` in `inbox | today | week | someday | all` (optional; absent means `all`) and optional `collectionId` → `200 { tasks: TaskView[], counts: TaskCounts }`. `TaskView` is the row plus `checklist: ChecklistItemView[]` and `collection: { id, name, kind, hueFamily, shadeIndex }`; `TaskCounts` is `{ inbox, today, week, someday, overdue }`. An invalid `view` or an empty `collectionId` is `400 VALIDATION` with `fields.view` / `fields.collectionId`; an unknown or invisible `collectionId` is `200` with `tasks: []` while `counts` stays global. `POST` body `createTaskSchema` (`title` required, trimmed, 1-200; optional `notes`, `collectionId`, `scheduledOn`, `dueOn` as `YYYY-MM-DD`) → `201 { task }`. Without `collectionId` the task lands in the caller's private Inbox; a calendar target is `400 VALIDATION` "Tasks live in lists.", a view-only target `403`, and the partner's private list `404`.
+
+**State & side effects** — `GET` reads the household for `timezone`/`weekStartsOn` (the bucket maths is household-local), may lazily create the caller's Inbox (`ensureInbox`), and returns open visible tasks only: done/dropped tasks are never listed, and a task dated beyond this week appears only under `all`. `POST` inserts one row with a generated UUID, `createdBy` from the session and `sortOrder = max + 1` in the target list. No revalidation.
+
+**Depends on / Used by** — `withViewer`; `listTasksHandler`, `createTaskHandler`; `getHousehold`; `listTasksQuerySchema`, `createTaskSchema`. Clients: `useTasks(view?, collectionId?)` (query key `["tasks", view, collectionId]`) and `useCreateTask()` in `lib/query/tasks.ts`.
+
+**Debugging** — Badge counts do not move when a collection filter is applied -> expected: `counts` always covers every visible open task -> compare `useTasks()` with `useTasks(view, id)`. A task created without `collectionId` appears under Inbox -> intended (`ensureInbox`). `400 fields.view` -> the caller sent a bucket name `lib/domain/tasks.ts` does not define -> `taskViewSchema`. A new task is missing from `view=today` -> it has no `scheduledOn`/`dueOn` yet, so it sits in Inbox or Someday -> check the body.
+
+**Tests** — `tests/integration/tasks-api.test.ts`. The Tasks UI and its Playwright spec are not part of this change.
+
+### app/api/tasks/[id]/route.ts
+
+**Purpose** — Reads, patches or deletes one task; the dynamic route unwraps `params` itself because Next 16 hands it a `Promise`.
+
+**API** — `GET` → `200 { task }`. `PATCH` body `updateTaskSchema` (every create field optional plus `status: open|done|dropped`, `checklist: { title, done }[]` up to 50, `sortOrder`; a present `checklist` replaces the whole list) → `200 { task }`. `DELETE` takes no body → `204` with an empty body. Errors: 401/403 from `withViewer`; `404` "Task not found." for an id outside the household **or a private list the caller does not own** (existence hidden); `403` "This collection is view-only." when the task's list denies the write; `400` "Tasks live in lists." when `collectionId` moves the task into a calendar, and 400 for a malformed body. A move needs write access on both the source and the target and appends at the target's end; `status` stamps `completedAt`/`droppedAt` only on a real transition.
+
+**State & side effects** — `PATCH` writes only the defined fields; a body that changes nothing returns the current row without bumping `updatedAt`. A checklist replacement shares one transaction with the row patch. `DELETE` hard-deletes; the checklist rows cascade. No revalidation.
+
+**Depends on / Used by** — `withViewer<{ id: string }>`; `getTaskHandler`, `updateTaskHandler`, `deleteTaskHandler`; `updateTaskSchema`; `getTask`, `updateTask`, `deleteTask`. Clients: `useUpdateTask` (optimistic patch of every cached `["tasks", …]` payload, snapshot rollback, settle invalidate) and `useDeleteTask` (invalidate only) in `lib/query/tasks.ts`.
+
+**Debugging** — A row snaps back after an edit -> the optimistic patch rolled back because the PATCH failed; read the thrown `Error` message and the response status, `restoreTasks` replayed the snapshot. A done task disappears from the list without a manual refresh -> expected: done/dropped rows are excluded from `listTasks` after the settle refetch. `404` for a task that exists -> its list is private and owned by the partner, or the id is another household's. `403` -> the list is view-only for this viewer (effective visibility is inherited from its root).
+
+**Tests** — `tests/integration/tasks-api.test.ts`; the optimistic cache helpers in `tests/unit/task-cache.test.ts`.
+
+### app/api/tasks/order/route.ts
+
+**Purpose** — Rewrites the manual order of one list from the full open-task id set.
+
+**API** — `PATCH` body `reorderTasksSchema` (`collectionId`, `orderedIds` of at least one id) → `200 { tasks: TaskView[] }` in the requested order. Errors: 401/403 from `withViewer`; `400 VALIDATION` with `fields.collectionId`/`fields.orderedIds` for a malformed body, `400` "Send exactly the open tasks of this list." when the ids are partial, duplicated or from another list (a stale client must refetch, never guess), `400` "Tasks live in lists." for a calendar, `403` for a view-only list, and `404` for the partner's private list.
+
+**State & side effects** — One transaction writes `sortOrder = index` and `updatedAt` for every id, then returns the fresh views in the sent order. No revalidation.
+
+**Depends on / Used by** — `withViewer`; `reorderTasksHandler`; `reorderTasksSchema`; `reorderTasks`. Client: `useReorderTasks()` in `lib/query/tasks.ts`, which invalidates `["tasks"]` on settle instead of reordering the cache optimistically.
+
+**Debugging** — `400` "Send exactly the open tasks of this list." -> another session created or completed a task between the read and the drop; refetch `["tasks"]` and retry -> `reorderTasks`. The order survives a drop but resets on reload -> the PATCH failed or never fired; the hook invalidates `["tasks"]`, so a failed request restores the server order. `404`/`403` on a list the caller can see -> privacy is checked before kind; a view-only list can be read but not reordered.
+
+**Tests** — `tests/integration/tasks-api.test.ts` (reorder round-trip plus the partial-set 400).
+
 ## Import routes
 
 Google Calendar import over `lib/api/handlers/import.ts`: the browser uploads exported `.ics` files as `multipart/form-data` (repeated `files` fields) plus an optional JSON `mapping` field. No OAuth, no network calls; the service parses in memory and caps the payload at 5 MB / 50 000 events. All four read the viewer through `withViewer`, so 401/403 behave like every other route.

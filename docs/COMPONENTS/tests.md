@@ -48,6 +48,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 | `tests/unit/route-origin.test.ts` | `assertSameOrigin`: same-origin write allowed, no-Origin callers allowed, foreign `Origin` rejected, `Sec-Fetch-Site: cross-site` rejected, reads unrestricted | `npx vitest run tests/unit/route-origin.test.ts` |
 | `tests/unit/wheelNav.test.ts` | Wheel-to-navigate gesture maths: mouse-sized deltas step immediately, trackpad deltas accumulate to the 40 threshold, horizontal swipes and ctrl/meta pinch-zoom ignored, and one navigation per 500 ms cooldown | `npx vitest run tests/unit/wheelNav.test.ts` |
 | `tests/unit/tasks-buckets.test.ts` | `endOfWeek` for Sunday- and Monday-started weeks pinned to real 2026 dates; `bucketOf`'s earliest-date anchor (past-due + later schedule → today, later-only → null), Inbox/Someday split, done/dropped → null; `isOverdue` boundary; `localToday` Taipei vs UTC | `npx vitest run tests/unit/tasks-buckets.test.ts` |
+| `tests/unit/task-cache.test.ts` | `updateTaskInData`/`removeTaskFromData` on the `{tasks, counts}` payload: patch by id, untouched rows keep identity, unknown-id no-op, new object/array without mutating the input, order preserved on removal, and `counts` returned untouched | `npx vitest run tests/unit/task-cache.test.ts` |
 
 ## Integration tests
 
@@ -67,6 +68,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 | `tests/integration/import-service.test.ts` | Preview without writes, transactional commit and calendar creation, idempotent re-import, in-place update with `before_json`, view-only refusal, per-member separation (each importer's own `From Google` tree, no partner reuse), a spoofing list named `From Google` ignored and only shared calendars created, unknown-TZID warning, size cap, rollback and the edited-after-import skip rule, rollback permission check, batch history | `npx vitest run tests/integration/import-service.test.ts` |
 | `tests/integration/import-api.test.ts` | Multipart preview/commit through the handlers, missing/malformed mapping 400s, list + rollback status codes (409/404), `withViewer` wiring | `npx vitest run tests/integration/import-api.test.ts` |
 | `tests/integration/tasks.test.ts` | Task service: Inbox default and insert order, explicit dates and list summary, private/view-only/foreign create guards, calendar-kind rejection on create/move/reorder, both week-start conventions across all four buckets, global counts vs view/collection filters, overdue boundaries, move permissions and append-on-move, transition-only status timestamps, checklist replacement/clearing and id regeneration, reorder exact-set rejection (partial/duplicate/cross-list/done), partner 404 on get/list/update/delete, view-only read/write split, cascade delete, schema parsing | `npx vitest run tests/integration/tasks.test.ts` |
+| `tests/integration/tasks-api.test.ts` | Handler contracts: GET list returns `{tasks, counts}` with counts global under a `collectionId` filter, invalid `view` → 400 `fields.view`, POST → 201, GET-by-id → 200, PATCH → 200, DELETE → 204 with a following 404, reorder round-trip and partial-set 400, a partner's private task → 404 on read/patch/delete and absent from their list, unauthenticated → 401 through the real route | `npx vitest run tests/integration/tasks-api.test.ts` |
 
 ## E2E specs
 
@@ -104,7 +106,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 | File | What it provides | Used by |
 |---|---|---|
 | `tests/helpers/db.ts` | `makeTestDb()`: a fresh `:memory:` database with `foreign_keys = ON` and all migrations applied; `makeTestDb({ upTo })` applies a temporary migrations folder truncated at a journal tag (for migration-by-migration tests) | Every integration test |
-| `tests/helpers/fixtures.ts` | `makeSeededDb()`: two households, two members in `h1`, one in `h2`, and the `ctxA`/`ctxB`/`ctxOther` viewer contexts | `tests/integration/collections.test.ts`, `events.test.ts`, `collections-api.test.ts`, `events-api.test.ts`, `settings-api.test.ts`, `preferences-api.test.ts`, `regressions.test.ts`, `search-api.test.ts`, `tasks.test.ts` |
+| `tests/helpers/fixtures.ts` | `makeSeededDb()`: two households, two members in `h1`, one in `h2`, and the `ctxA`/`ctxB`/`ctxOther` viewer contexts | `tests/integration/collections.test.ts`, `events.test.ts`, `collections-api.test.ts`, `events-api.test.ts`, `settings-api.test.ts`, `preferences-api.test.ts`, `regressions.test.ts`, `search-api.test.ts`, `tasks.test.ts`, `tasks-api.test.ts` |
 | `tests/e2e/helpers.ts` | `loadFixtures()` from `.playwright/fixtures.json`, the `ANDREW`/`PARTNER` emails, and `signIn(page, email, password)` | Every spec in `tests/e2e/` |
 
 ## Which spec covers what
@@ -134,6 +136,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 | UI primitives (button, dialog, scrim) | `tests/e2e/primitives.spec.ts` |
 | Screenshots and fonts | `tests/e2e/screenshot.spec.ts` (with `CAPTURE_SCREENSHOTS=1`); the Lato assertion in `tests/e2e/design-tokens.spec.ts` |
 | Task service (buckets, counts, checklist, ordering, privacy) | `tests/integration/tasks.test.ts`; the pure bucket/week maths in `tests/unit/tasks-buckets.test.ts` |
+| Task REST endpoints and optimistic cache | `tests/integration/tasks-api.test.ts` (status contracts, global counts, privacy, 401); `tests/unit/task-cache.test.ts` (pure payload helpers) |
 | Event CRUD, drag and occurrence deletion | `tests/e2e/events.spec.ts`; service-level rules in `tests/integration/events.test.ts` |
 | Recurrence expansion (RRULE, EXDATE, duration, DST wall-clock) | `tests/unit/recurrence.test.ts`; the stored-EXDATE side in `tests/integration/events.test.ts` |
 | Google Calendar import | `tests/unit/ics-parse.test.ts`, `tests/integration/import-service.test.ts`, `tests/integration/import-api.test.ts`, `tests/integration/import-schema.test.ts`, `tests/e2e/import.spec.ts` |

@@ -274,6 +274,44 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 
 **Tests** — No direct test coverage for the hook; `navigableDateFor` is exercised through `tests/e2e/search.spec.ts`, and the endpoint through `tests/integration/search-api.test.ts`.
 
+### lib/query/tasks.ts
+
+**Purpose** — The Tasks data layer: one query for a task view (or one list) with the rail counts, plus create/update/delete/reorder mutations. Only the update mutation writes the cache optimistically; every mutation invalidates the `["tasks"]` prefix on settle.
+
+**Public API** — `useTasks(view?: TaskBucket | "all", collectionId?: string)`; `useCreateTask()` over `CreateTaskInput` → `{ task: TaskView }`; `useUpdateTask()` over `{ id: string } & UpdateTaskInput` → `{ task: TaskView }`; `useDeleteTask()` over `string` → `void`; `useReorderTasks()` over `ReorderTasksInput` → `{ tasks: TaskView[] }`. The query resolves to `{ tasks: TaskView[]; counts: TaskCounts }`.
+
+**State & side effects** — Query key: `["tasks", view ?? "all", collectionId ?? null]`, so an omitted view and `"all"` share one cache entry. `GET /api/tasks?view=&collectionId=` (each param omitted when undefined); `POST /api/tasks`; `PATCH /api/tasks/{id}`; `DELETE /api/tasks/{id}` (no body); `PATCH /api/tasks/order`.
+- `useUpdateTask` is the only optimistic hook: `snapshotTasks` cancels the `["tasks"]` queries and stores every `[key, data]` pair, `patchTask` maps the payload onto `Partial<TaskView>` (nullish dates/notes clear the field, `updatedAt` is stamped, checklist items get `temp-<index>` ids), then `updateTaskInData` from `lib/query/taskCache.ts` patches each cached payload. `onError` restores the whole snapshot; `onSettled` invalidates `["tasks"]`.
+- Create, delete and reorder never touch the cache: their `onSettled` invalidates `["tasks"]` and the refetch paints the server result, so counts and bucket membership cannot lie optimistically.
+- `counts` is never patched by hand; one row patch cannot change the global badges, and the settle refetch recalculates them.
+
+**Depends on / Used by** — `@tanstack/react-query`, `lib/query/taskCache`, `TaskView`/`TaskCounts`/`TaskBucket` types, and the `lib/validation/tasks.ts` inferred inputs (`CreateTaskInput`, `UpdateTaskInput`, `ReorderTasksInput`). No component imports it yet; the Tasks views/editor later in this release and the calendar grid call `useTasks`.
+
+**Debugging** —
+- A row flickers back to its old title -> the PATCH failed and `restoreTasks` replayed the snapshot -> read the thrown `Error` message from `requestJson`.
+- A created or deleted task appears only after a moment -> intended: those hooks refetch instead of writing the cache -> check the invalidated prefix is still `["tasks"]`.
+- The list and the rail disagree mid-edit -> `counts` is untouched by the optimistic patch and refreshes only on settle -> expected; a permanently stale badge means the invalidation was removed.
+- Two views show the same edit twice -> `setQueriesData({ queryKey: ["tasks"] })` intentionally patches every cached `(view, collectionId)` pair.
+
+**Tests** — No direct hook test. The pure cache helpers are covered by `tests/unit/task-cache.test.ts`; the endpoints by `tests/integration/tasks-api.test.ts`.
+
+### lib/query/taskCache.ts
+
+**Purpose** — Pure, framework-free helpers for the `{ tasks, counts }` payload held by every `["tasks", …]` query, so the optimistic hook never maps cache shapes inline.
+
+**Public API** — `interface TasksCacheData { tasks: TaskView[]; counts: TaskCounts }`; `updateTaskInData(data, id, patch: Partial<TaskView>): TasksCacheData`; `removeTaskFromData(data, id): TasksCacheData`.
+
+**State & side effects** — None: both functions allocate a new payload and a new `tasks` array and never mutate the input. `updateTaskInData` replaces only the row whose id matches (a missing id leaves every row unchanged) and returns `counts` by reference, because one row patch cannot change the global badges; `removeTaskFromData` filters the row out and keeps the order of the rest. The update hook applies `updateTaskInData` to every cached payload; `removeTaskFromData` is the symmetric helper for a caller that already holds a payload — the delete hook itself only invalidates.
+
+**Depends on / Used by** — `TaskView`/`TaskCounts` types. Imported by `lib/query/tasks.ts` (`updateTaskInData`, `TasksCacheData`) and `tests/unit/task-cache.test.ts`.
+
+**Debugging** —
+- Counts change immediately after a title edit -> `updateTaskInData` started copying `counts`; it must return the same object -> check the helper's spread.
+- A patched task disappears -> the patch carried `status: "done"`/`"dropped"` and the settle refetch excluded it from the open list -> expected; do not "fix" it in the cache helper.
+- A checklist edit flashes ids like `temp-0` -> intended optimistic placeholders until the PATCH response/refetch replaces the row -> `patchTask` in `lib/query/tasks.ts`.
+
+**Tests** — `tests/unit/task-cache.test.ts` (patch by id, unknown-id no-op, immutability, counts untouched, removal order).
+
 ## Auth
 
 ### lib/auth/server.ts
@@ -398,21 +436,22 @@ All five modules export plain Zod schemas (no I/O). Handlers parse the JSON body
 
 ### lib/validation/tasks.ts
 
-**Purpose** — Zod schemas for creating a task, partially updating it and reordering a list, plus the date-only field shared by `scheduledOn` and `dueOn`.
+**Purpose** — Zod schemas for creating a task, partially updating it, reordering a list and filtering the task list query, plus the date-only field shared by `scheduledOn` and `dueOn`.
 
-**Public API** — `dateOnlySchema` (`/^\d{4}-\d{2}-\d{2}$/`, custom message "Use YYYY-MM-DD."); `checklistInputSchema` (array of at most 50 `{ title: 1–200 trimmed, done: boolean }`); `createTaskSchema` (`title` 1–200 trimmed required, `notes` ≤ 2000 nullish, `collectionId` optional non-empty, `scheduledOn`/`dueOn` date-only nullish); `updateTaskSchema` (`createTaskSchema.partial()` plus `status` enum `open|done|dropped`, `checklist`, `sortOrder` int ≥ 0); `reorderTasksSchema` (`collectionId` non-empty, `orderedIds` array of at least 1 non-empty strings); types `CreateTaskInput`, `UpdateTaskInput`, `ReorderTasksInput`.
+**Public API** — `dateOnlySchema` (`/^\d{4}-\d{2}-\d{2}$/`, custom message "Use YYYY-MM-DD."); `checklistInputSchema` (array of at most 50 `{ title: 1–200 trimmed, done: boolean }`); `createTaskSchema` (`title` 1–200 trimmed required, `notes` ≤ 2000 nullish, `collectionId` optional non-empty, `scheduledOn`/`dueOn` date-only nullish); `updateTaskSchema` (`createTaskSchema.partial()` plus `status` enum `open|done|dropped`, `checklist`, `sortOrder` int ≥ 0); `reorderTasksSchema` (`collectionId` non-empty, `orderedIds` array of at least 1 non-empty strings); `taskViewSchema` (`inbox|today|week|someday|all`, built from `TASK_BUCKETS`); `listTasksQuerySchema` (`view` optional, `collectionId` optional non-empty); types `CreateTaskInput`, `UpdateTaskInput`, `ReorderTasksInput`, `ListTasksQuery`.
 
-**State & side effects** — None; pure parsing. Neither schema is `.strict()`, so unknown keys are stripped rather than rejected. `dateOnlySchema` checks the shape only — `2026-13-01` passes, exactly like the event schemas' `dateString`; tasks store the string and the service does no calendar-date check. `nullish()` on the two date fields is what lets a PATCH clear a date with `null`. `title` is trimmed before its length check. `updateTaskSchema` deliberately carries no defaults, so every omitted field means "leave unchanged"; that is why `status` is not defaulted to `"open"` and a checklist PATCH replaces rather than merges.
+**State & side effects** — None; pure parsing. None of the task schemas is `.strict()`, so unknown keys are stripped rather than rejected. `dateOnlySchema` checks the shape only — `2026-13-01` passes, exactly like the event schemas' `dateString`; tasks store the string and the service does no calendar-date check. `nullish()` on the two date fields is what lets a PATCH clear a date with `null`. `title` is trimmed before its length check. `updateTaskSchema` deliberately carries no defaults, so every omitted field means "leave unchanged"; that is why `status` is not defaulted to `"open"` and a checklist PATCH replaces rather than merges. `listTasksQuerySchema` is fed only the two params `GET /api/tasks` reads, so absent params must be passed as `undefined` (not `null`).
 
-**Depends on / Used by** — `zod` only. The schemas and their inferred types are imported by `lib/services/tasks.ts`; Task 6's `lib/api/handlers/tasks.ts` will parse the request bodies with them. Today they are exercised directly by `tests/integration/tasks.test.ts`.
+**Depends on / Used by** — `zod` and `TASK_BUCKETS` from `lib/domain/tasks.ts` (a runtime import, so the bucket list stays the single source for the view enum). The schemas and their inferred types are imported by `lib/services/tasks.ts` and `lib/api/handlers/tasks.ts`; they are exercised directly by `tests/integration/tasks.test.ts` and through the handlers by `tests/integration/tasks-api.test.ts`.
 
 **Debugging** —
 - A PATCH that only changes the title clears a date -> the client sent the field as `null` (or omitted the key and another layer defaulted it); missing keys are left alone by `updateTask`'s whitelist.
 - A task cannot be moved through the reorder payload -> `reorderTasksSchema` only carries order; moving is `updateTaskSchema.collectionId`.
 - An extra field is silently dropped -> task schemas are not `.strict()` (only `lib/validation/preferences.ts` rejects unknown keys).
 - A checklist item title is stored trimmed but a note's whitespace is kept -> only `title` fields call `.trim()`; `notes` is capped, not trimmed.
+- `GET /api/tasks?view=` returns 400 `fields.view` -> the value is outside `TASK_BUCKETS` plus `"all"`; an empty string is not treated as "omitted" -> `listTasksQuerySchema`.
 
-**Tests** — Parsed in `tests/integration/tasks.test.ts` (date shape, create title/notes bounds, partial update with status/checklist/sortOrder, checklist cap, reorder minimum). Handler-level status codes arrive with `tests/integration/tasks-api.test.ts` in Task 6.
+**Tests** — Parsed in `tests/integration/tasks.test.ts` (date shape, create title/notes bounds, partial update with status/checklist/sortOrder, checklist cap, reorder minimum); handler-level status codes are covered by `tests/integration/tasks-api.test.ts`.
 
 ## Non-obvious gotchas for `docs/DEBUGGING.md`
 
@@ -420,8 +459,8 @@ All five modules export plain Zod schemas (no I/O). Handlers parse the JSON body
 - **`event.end_date` is inclusive.** All-day rows carry local `YYYY-MM-DD` in `start_date`/`end_date`; `CalendarShell` subtracts one day when a drag produces FullCalendar's exclusive end. Timed rows carry UTC ms in `start_at`/`end_at` and leave both date columns null.
 - **WAL + one writer.** `createDb` sets `journal_mode = WAL`, `foreign_keys = ON` and `busy_timeout = 15000`; there is one connection per server process (`getDb`) but each script opens its own, so a running dev server and a script both writing will block each other (up to 15 s before `database is locked`). `data/planner.db-wal`/`-shm` are expected files; a stale `-wal` after an abrupt kill is not corruption.
 - **Migrations run on the first request, not at build.** `getDb()` creates the directory, opens the database and calls `migrate()` lazily, and the default migrations folder is `resolve(process.cwd(), "drizzle")` — cwd-sensitive for scripts.
-- **Query keys are three families plus a prefix trick.** `["collections"]`, `["events", from, to]`, `["events", "search", normalized]`, `["preferences"]`. Event mutations use `setQueriesData`/`invalidateQueries` with the `["events"]` prefix, so they also write optimistic temp rows into and refetch search results. Calendar delete invalidates both families; preferences mutations never invalidate (they `setQueryData` the PATCH response, guarded by a `latestIssued` sequence ref).
-- **Optimistic writes are global, rollback is wholesale.** Every cached `["events"]` range is patched, and rollback restores the full snapshot taken in `onMutate` — undo is a separate mechanism (`lib/ui/undo.ts`) that replays the opposite mutation, so an undone create produces a new event id.
+- **Query keys are four families plus a prefix trick.** `["collections"]`, `["events", from, to]`, `["events", "search", normalized]`, `["preferences"]`, `["tasks", view ?? "all", collectionId ?? null]`. Event and task mutations use `setQueriesData`/`invalidateQueries` with the `["events"]` / `["tasks"]` prefix, so event writes also reach search results and task writes reach every `(view, collectionId)` entry. Calendar delete invalidates `["collections"]` and `["events"]`; preferences mutations never invalidate (they `setQueryData` the PATCH response, guarded by a `latestIssued` sequence ref).
+- **Optimistic writes are global, rollback is wholesale.** Every cached `["events"]` range and every cached `["tasks", …]` payload is patched by the respective update hooks, and rollback restores the full snapshot taken in `onMutate` — undo is a separate mechanism (`lib/ui/undo.ts`) that replays the opposite mutation, so an undone create produces a new event id. The task create/delete/reorder hooks are deliberately not optimistic: they only invalidate.
 - **No FK ties domain rows to `user`.** `member.user_id`, `calendar.owner_id` and `event.created_by` are logical references validated in services; `event.created_by` is not indexed. The two-account cap is a `databaseHooks.user.create.before` check in `createAuth`, not a constraint.
 - **`updateEventSchema` must never gain an `allDay` default**, and `updateCollectionSchema` intentionally has no `parentId`; both absences are load-bearing.
 

@@ -1,0 +1,175 @@
+"use client";
+
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type QueryKey,
+} from "@tanstack/react-query";
+import type { TaskBucket } from "@/lib/domain/tasks";
+import { updateTaskInData, type TasksCacheData } from "@/lib/query/taskCache";
+import type { TaskView } from "@/lib/services/tasks";
+import type { CreateTaskInput, ReorderTasksInput, UpdateTaskInput } from "@/lib/validation/tasks";
+
+interface ApiErrorBody {
+  error?: { message?: string };
+}
+
+type TaskSnapshots = Array<[QueryKey, TasksCacheData | undefined]>;
+
+async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
+  const payload = (await response.json().catch(() => null)) as (T & ApiErrorBody) | null;
+  if (!response.ok) {
+    throw new Error(payload?.error?.message ?? "Something went wrong.");
+  }
+  return payload as T;
+}
+
+/**
+ * Every open task the viewer may see, plus the rail counts. `view` defaults to
+ * `"all"` (the calendar grid and the list's initial paint); the key always
+ * carries the effective values so an omitted filter and `"all"` share one cache
+ * entry.
+ */
+export function useTasks(view?: TaskBucket | "all", collectionId?: string) {
+  return useQuery({
+    queryKey: ["tasks", view ?? "all", collectionId ?? null],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (view !== undefined) {
+        params.set("view", view);
+      }
+      if (collectionId !== undefined) {
+        params.set("collectionId", collectionId);
+      }
+      const query = params.toString();
+      return requestJson<TasksCacheData>(`/api/tasks${query ? `?${query}` : ""}`);
+    },
+  });
+}
+
+async function snapshotTasks(queryClient: QueryClient): Promise<TaskSnapshots> {
+  await queryClient.cancelQueries({ queryKey: ["tasks"] });
+  return queryClient.getQueriesData<TasksCacheData>({ queryKey: ["tasks"] });
+}
+
+function restoreTasks(queryClient: QueryClient, snapshots: TaskSnapshots | undefined): void {
+  for (const [key, data] of snapshots ?? []) {
+    queryClient.setQueryData(key, data);
+  }
+}
+
+/**
+ * Maps a PATCH payload onto a cached row. Nullish dates and notes mean "clear",
+ * while an omitted key is skipped so the optimistic row keeps the stored value;
+ * the checklist is flattened to views with placeholder ids (the settle refetch
+ * replaces them with the server-generated ones).
+ */
+function patchTask(input: UpdateTaskInput): Partial<TaskView> {
+  const patch: Partial<TaskView> = { updatedAt: Date.now() };
+  if (input.title !== undefined) {
+    patch.title = input.title.trim();
+  }
+  if (input.notes !== undefined) {
+    patch.notes = input.notes ?? null;
+  }
+  if (input.scheduledOn !== undefined) {
+    patch.scheduledOn = input.scheduledOn ?? null;
+  }
+  if (input.dueOn !== undefined) {
+    patch.dueOn = input.dueOn ?? null;
+  }
+  if (input.sortOrder !== undefined) {
+    patch.sortOrder = input.sortOrder;
+  }
+  if (input.status !== undefined) {
+    patch.status = input.status;
+  }
+  if (input.collectionId !== undefined) {
+    patch.collectionId = input.collectionId;
+  }
+  if (input.checklist !== undefined) {
+    patch.checklist = input.checklist.map((item, index) => ({
+      id: `temp-${index}`,
+      title: item.title.trim(),
+      done: item.done,
+    }));
+  }
+  return patch;
+}
+
+export function useCreateTask() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateTaskInput) =>
+      requestJson<{ task: TaskView }>("/api/tasks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+      }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    },
+  });
+}
+
+/**
+ * The only optimistic hook: every cached `["tasks", …]` payload is patched in
+ * place, snapshotted for rollback, and refreshed on settle so bucket membership
+ * and counts come back from the server.
+ */
+export function useUpdateTask() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...input }: { id: string } & UpdateTaskInput) =>
+      requestJson<{ task: TaskView }>(`/api/tasks/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+      }),
+    onMutate: async ({ id, ...input }) => {
+      const snapshots = await snapshotTasks(queryClient);
+      queryClient.setQueriesData<TasksCacheData>({ queryKey: ["tasks"] }, (old) =>
+        old ? updateTaskInData(old, id, patchTask(input)) : old,
+      );
+      return { snapshots };
+    },
+    onError: (_error, _input, context) => restoreTasks(queryClient, context?.snapshots),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    },
+  });
+}
+
+export function useDeleteTask() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as ApiErrorBody | null;
+        throw new Error(payload?.error?.message ?? "Could not delete the task.");
+      }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    },
+  });
+}
+
+export function useReorderTasks() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ReorderTasksInput) =>
+      requestJson<{ tasks: TaskView[] }>("/api/tasks/order", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+      }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    },
+  });
+}
