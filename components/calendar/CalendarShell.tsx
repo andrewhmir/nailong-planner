@@ -493,31 +493,39 @@ export function CalendarShell({
     ? (collectionNames.get(selectedEvent.collectionId) ?? "")
     : "";
 
+  // Events live only in calendars: a list is a task home, so it must never reach
+  // the event dialog or the quick-create bubble as a target.
   const writableCollections = useMemo<CollectionNode[]>(
     () =>
       (collections ?? [])
-        .filter((root) => !readOnlyCollectionIds.has(root.id))
+        .filter((root) => root.kind === "calendar" && !readOnlyCollectionIds.has(root.id))
         .map((root) => ({
           ...root,
-          children: root.children.filter((child) => !readOnlyCollectionIds.has(child.id)),
+          children: root.children.filter(
+            (child) => child.kind === "calendar" && !readOnlyCollectionIds.has(child.id),
+          ),
         })),
     [collections, readOnlyCollectionIds],
   );
 
   // "Display only this calendar" also sets where new events land — but only
   // when that calendar is writable; isolating a view-only one leaves creation
-  // on the settings default.
+  // on the settings default. `lastEventCalendarId` is not validated against the
+  // collection table, so it may name a list or a deleted collection: resolve it
+  // inside the writable calendars instead of trusting it.
   const defaultEventCollectionId = useMemo(() => {
-    const only = visibility.state.only;
-    if (only) {
-      const writable = writableCollections.some(
-        (root) => root.id === only || root.children.some((child) => child.id === only),
-      );
-      if (writable) {
-        return only;
-      }
-    }
-    return preferences.lastEventCalendarId;
+    const writableCalendar = (id: string | null): string | null =>
+      id !== null &&
+      writableCollections.some(
+        (root) => root.id === id || root.children.some((child) => child.id === id),
+      )
+        ? id
+        : null;
+
+    return (
+      writableCalendar(visibility.state.only) ??
+      writableCalendar(preferences.lastEventCalendarId)
+    );
   }, [preferences.lastEventCalendarId, visibility.state.only, writableCollections]);
 
   function changeView(next: PlannerView) {

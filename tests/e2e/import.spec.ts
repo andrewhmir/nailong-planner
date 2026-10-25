@@ -70,7 +70,7 @@ test("the partner's import stays in their own group when Shared is hidden", asyn
   await expect(page.getByRole("heading", { name: "Import complete" })).toBeVisible();
 
   // The import created the partner's own From Google tree.
-  const nav = page.getByRole("navigation", { name: "Calendar list" });
+  const nav = page.getByRole("navigation", { name: "Collection tree" });
   await expect(nav.getByRole("checkbox", { name: "Family" })).toBeVisible();
 
   // Hiding Shared ("Ours") must not hide the partner's imported events.

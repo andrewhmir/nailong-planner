@@ -16,6 +16,7 @@ import {
   getCollectionAccess,
   resolveShade,
   resolveVisibleCollections,
+  type CollectionAccess,
 } from "./collections";
 import { type ViewerContext } from "./permissions";
 
@@ -90,6 +91,17 @@ function writableEvent(db: Database, ctx: ViewerContext, id: string) {
 }
 
 /**
+ * An event lives only in a `kind: "calendar"` collection; a list holds tasks.
+ * Runs after the write check, so a private or view-only list keeps answering
+ * 404/403 instead of revealing its kind.
+ */
+function assertEventCalendar(access: CollectionAccess): void {
+  if (access.collection.kind !== "calendar") {
+    throw new AppError("VALIDATION", "Events live in calendars.", 400);
+  }
+}
+
+/**
  * Returns every recurring row in the household plus the non-recurring rows that
  * intersect the range. Recurring rows are expanded on the client so that a
  * series is never silently truncated at the edge of the visible range.
@@ -135,6 +147,7 @@ export function createEvent(
 ): EventView {
   const access = getCollectionAccess(db, ctx, input.collectionId);
   assertCollectionWritable(ctx, access);
+  assertEventCalendar(access);
   assertEventShape(input);
   assertValidRrule(input.rrule);
 
@@ -176,10 +189,12 @@ export function updateEvent(
 ): EventView {
   const row = writableEvent(db, ctx, id);
 
-  // Moving an event between calendars needs write access on both ends.
+  // Moving an event between calendars needs write access on both ends, and the
+  // target must be a calendar: a list is a task home, never an event target.
   if (input.collectionId !== undefined && input.collectionId !== row.collectionId) {
     const targetAccess = getCollectionAccess(db, ctx, input.collectionId);
     assertCollectionWritable(ctx, targetAccess);
+    assertEventCalendar(targetAccess);
   }
 
   const allDay = input.allDay ?? row.allDay === 1;

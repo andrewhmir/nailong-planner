@@ -39,7 +39,7 @@ export function BreadcrumbBar({
         <Button
           variant="ghost"
           size="sm"
-          aria-label="Open calendars"
+          aria-label="Open collections"
           onClick={onOpenSidebar}
           className="hidden shrink-0 md:inline-flex lg:hidden"
         >

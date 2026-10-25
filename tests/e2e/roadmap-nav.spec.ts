@@ -57,9 +57,9 @@ test("a gated destination explains itself and returns focus", async ({ page }) =
 
 test("phone drawer lists the gated destinations", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.getByRole("button", { name: "Open calendars" }).click();
+  await page.getByRole("button", { name: "Open collections" }).click();
 
-  const drawer = page.getByRole("dialog", { name: "Calendars" });
+  const drawer = page.getByRole("dialog", { name: "Collections" });
   await drawer.getByRole("button", { name: "Focus — Planned" }).click();
 
   const dialog = page.getByRole("dialog", { name: "Focus" });

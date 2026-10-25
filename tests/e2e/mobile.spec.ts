@@ -18,8 +18,8 @@ test("the month grid does not overflow the viewport horizontally", async ({ page
 });
 
 test("the calendar tree opens as a sheet and closes again", async ({ page }) => {
-  await page.getByRole("button", { name: "Open calendars" }).click();
-  const sheet = page.getByRole("dialog", { name: "Calendars" });
+  await page.getByRole("button", { name: "Open collections" }).click();
+  const sheet = page.getByRole("dialog", { name: "Collections" });
   await expect(sheet).toBeVisible();
   await expect(sheet.getByRole("checkbox", { name: "School" })).toBeVisible();
 
@@ -28,8 +28,8 @@ test("the calendar tree opens as a sheet and closes again", async ({ page }) => 
 });
 
 test("the phone sheet folds the same calendar tree the desktop shows", async ({ page }) => {
-  await page.getByRole("button", { name: "Open calendars" }).click();
-  const sheet = page.getByRole("dialog", { name: "Calendars" });
+  await page.getByRole("button", { name: "Open collections" }).click();
+  const sheet = page.getByRole("dialog", { name: "Collections" });
   await expect(sheet.getByRole("checkbox", { name: "Math" })).toBeVisible();
 
   await sheet.getByRole("button", { name: "Collapse School" }).click();
@@ -39,8 +39,8 @@ test("the phone sheet folds the same calendar tree the desktop shows", async ({ 
   await expect(sheet).toHaveCount(0);
 
   // Reopening mounts a second tree; the fold lives in AppShell, so it is remembered.
-  await page.getByRole("button", { name: "Open calendars" }).click();
-  const reopened = page.getByRole("dialog", { name: "Calendars" });
+  await page.getByRole("button", { name: "Open collections" }).click();
+  const reopened = page.getByRole("dialog", { name: "Collections" });
   await expect(reopened.getByRole("button", { name: "Expand School" })).toBeVisible();
   await expect(reopened.getByRole("checkbox", { name: "Math", includeHidden: true })).toBeHidden();
 });

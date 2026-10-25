@@ -135,6 +135,9 @@ export function CollectionRow({
       >
         {collection.name}
       </span>
+      {/* The visual kind marker is decorative; this gives the row a spoken kind
+          without changing the checkbox name or the options button's label. */}
+      <span className="sr-only">{nounTitle}</span>
       {visibility === "private" ? (
         <LockIcon size={14} title="Private" className="shrink-0 text-ink-mute" />
       ) : showViewOnlyBadge ? (

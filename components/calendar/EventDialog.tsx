@@ -108,11 +108,19 @@ export function EventDialog({
   // does instead of the device's day. Frozen at open, like the shell's anchors.
   const [today] = useState(() => utcToLocalDate(Date.now(), timezone));
 
-  const fallbackCollectionId = collections[0]?.id ?? "";
+  // Events live in calendars; a list is never a valid target. Filtering here as
+  // well as in the shell keeps the fallback and the picker calendar-only even
+  // if a caller hands this dialog the mixed tree.
+  const calendars = useMemo(
+    () => collections.filter((root) => root.kind === "calendar"),
+    [collections],
+  );
+
+  const fallbackCollectionId = calendars[0]?.id ?? "";
   // On edit the event's own calendar wins; on create the caller's default (the
   // isolated calendar, else the settings default) does, provided it is writable.
   const requestedCollectionId = initial.event?.collectionId ?? defaultCollectionId ?? "";
-  const initialCollectionId = collections.some(
+  const initialCollectionId = calendars.some(
     (root) => root.id === requestedCollectionId || root.children.some((child) => child.id === requestedCollectionId),
   )
     ? requestedCollectionId
@@ -312,7 +320,7 @@ export function EventDialog({
           <CalendarPicker
             id="event-calendar"
             variant="field"
-            collections={collections}
+            collections={calendars}
             value={selectedCollectionId}
             onChange={(nextId) => {
               setCollectionId(nextId);

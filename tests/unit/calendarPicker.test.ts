@@ -38,6 +38,13 @@ school.children = [sub("c-school", "c-bio", "Biology", 4), sub("c-school", "c-ma
 const household = root("c-house", "Household", { hueFamily: "amber" });
 const tree: CollectionNode[] = [household, school];
 
+/** A list root with a sub-list, the shape the mixed sidebar tree now produces. */
+const errands = root("l-errands", "Errands", { kind: "list", hueFamily: "rose" });
+errands.children = [
+  row({ id: "l-client", name: "Client A", parentId: "l-errands", hueFamily: null, shadeIndex: 4, kind: "list" }),
+];
+const mixedTree: CollectionNode[] = [errands, ...tree];
+
 describe("buildPickerRows", () => {
   it("lists every top-level calendar collapsed when nothing is expanded", () => {
     const rows = buildPickerRows(tree, new Set());
@@ -46,6 +53,20 @@ describe("buildPickerRows", () => {
     expect(rows.map((pickerRow) => pickerRow.depth)).toEqual([0, 0]);
     expect(rows.map((pickerRow) => pickerRow.hasChildren)).toEqual([false, true]);
     expect(rows.map((pickerRow) => pickerRow.expanded)).toEqual([false, false]);
+  });
+
+  it("skips a list branch, even when that list is expanded", () => {
+    // The picker chooses an event target: a list (and its sub-lists) holds
+    // tasks, so it must never appear.
+    const rows = buildPickerRows(mixedTree, new Set(["l-errands", "c-school"]));
+
+    expect(rows.map((pickerRow) => pickerRow.id)).toEqual([
+      "c-house",
+      "c-school",
+      "c-bio",
+      "c-math",
+    ]);
+    expect(rows.map((pickerRow) => pickerRow.depth)).toEqual([0, 0, 1, 1]);
   });
 
   it("inserts a calendar's sub-calendars directly beneath it once expanded", () => {

@@ -195,6 +195,59 @@ describe("event API", () => {
     }
   });
 
+  it("refuses a list as an event target on create and on move", async () => {
+    const { db, close, ctxA, math } = await setup();
+    try {
+      const errands = createCollection(db, ctxA, {
+        name: "Errands",
+        kind: "list",
+        hueFamily: "rose",
+      });
+
+      const created = await createEventHandler(
+        db,
+        ctxA,
+        jsonRequest("/api/events", "POST", {
+          collectionId: errands.id,
+          title: "Not an event",
+          allDay: false,
+          startAt: at("2026-10-20T09:00"),
+          endAt: at("2026-10-20T10:00"),
+        }),
+      );
+      expect(created.status).toBe(400);
+      const createdPayload = await body<{ error: { code: string; message: string } }>(created);
+      expect(createdPayload.error).toEqual({
+        code: "VALIDATION",
+        message: "Events live in calendars.",
+      });
+      expect(db.select().from(event).all()).toEqual([]);
+
+      const existing = createEvent(db, ctxA, {
+        collectionId: math.id,
+        title: "Quiz",
+        allDay: false,
+        startAt: at("2026-10-20T09:00"),
+        endAt: at("2026-10-20T10:00"),
+      });
+      const moved = await updateEventHandler(
+        db,
+        ctxA,
+        existing.id,
+        jsonRequest(`/api/events/${existing.id}`, "PATCH", { collectionId: errands.id }),
+      );
+      expect(moved.status).toBe(400);
+      const movedPayload = await body<{ error: { code: string; message: string } }>(moved);
+      expect(movedPayload.error.message).toBe("Events live in calendars.");
+      // A rejected move must leave the stored row exactly where it was.
+      const stored = db.select().from(event).where(eq(event.id, existing.id)).get();
+      expect(stored?.collectionId).toBe(math.id);
+      expect(stored?.title).toBe("Quiz");
+    } finally {
+      close();
+    }
+  });
+
   it("creates an event with 201 and validates the body", async () => {
     const { db, close, ctxA, math } = await setup();
     try {

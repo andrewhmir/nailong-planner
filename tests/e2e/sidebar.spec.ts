@@ -33,6 +33,15 @@ function rowOf(page: Page, name: string) {
   return page.getByRole("checkbox", { name }).locator("..");
 }
 
+/**
+ * A field inside the open CollectionDialog. Scoping to the dialog and matching
+ * exactly keeps tree rows (for example the "Private notes" calendar) out of a
+ * label lookup: `getByLabel` is a case-insensitive substring match by default.
+ */
+function inDialog(page: Page, label: string) {
+  return page.getByRole("dialog").getByLabel(label, { exact: true });
+}
+
 async function openVisibilityMenu(page: Page, name: string) {
   await page.getByRole("button", { name: `Options for ${name}` }).click();
   await page.getByRole("menuitem", { name: "Visibility" }).click();
@@ -48,7 +57,7 @@ async function chooseVisibility(
 }
 
 test("the sidebar shows the household groups", async ({ page }) => {
-  const nav = page.getByRole("navigation", { name: "Calendar list" });
+  const nav = page.getByRole("navigation", { name: "Collection tree" });
   await expect(nav.getByText("Shared", { exact: true })).toBeVisible();
   await expect(nav.getByText("Andrew", { exact: true })).toBeVisible();
   await expect(nav.getByText("Partner", { exact: true })).toBeVisible();
@@ -65,7 +74,8 @@ test("the lazily-created Inbox is an ordinary private list row", async ({ page }
   const row = rowOf(page, "Inbox");
   await expect(row.getByTestId("collection-kind-list")).toBeVisible();
   await expect(row.getByTestId("collection-kind-calendar")).toHaveCount(0);
-  // The lock is an aria-hidden decorative icon; its <title> carries the reason.
+  // The lock is an SVG with role="img"; its accessible name comes from the
+  // <title> element, so the test reads that title.
   await expect(row.locator("svg title")).toHaveText("Private");
 });
 
@@ -93,7 +103,7 @@ test("adding a sub-calendar appends it under its parent", async ({ page }) => {
   await page.getByRole("button", { name: "Options for School" }).click();
   await page.getByRole("menuitem", { name: "Add sub-calendar" }).click();
   // The child inherits its parent's visibility and cannot change it.
-  await expect(page.getByLabel("View only")).toBeDisabled();
+  await expect(inDialog(page, "View only")).toBeDisabled();
   await page.getByLabel("Name").fill("Chemistry");
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByRole("checkbox", { name: "Chemistry" })).toBeVisible();
@@ -110,12 +120,12 @@ test("calendar settings can mark a calendar view-only", async ({ page }) => {
 
   await page.getByRole("button", { name: "Options for Private notes" }).click();
   await page.getByRole("menuitem", { name: "Calendar settings" }).click();
-  await page.getByLabel("View only").check();
+  await inDialog(page, "View only").check();
   await page.getByRole("button", { name: "Save" }).click();
 
   await page.getByRole("button", { name: "Options for Private notes" }).click();
   await page.getByRole("menuitem", { name: "Calendar settings" }).click();
-  await expect(page.getByLabel("View only")).toBeChecked();
+  await expect(inDialog(page, "View only")).toBeChecked();
   await page.getByRole("button", { name: "Cancel" }).click();
 });
 
@@ -132,12 +142,12 @@ test("long calendar names truncate inside the nav", async ({ page }) => {
   await createRoot(page, "calendar", long);
   const row = page.getByRole("checkbox", { name: long });
   await expect(row).toBeVisible();
-  const nav = page.getByRole("navigation", { name: "Calendar list" });
+  const nav = page.getByRole("navigation", { name: "Collection tree" });
   expect(await nav.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
 });
 
 test("the nav panel scrolls instead of pushing the page wide", async ({ page }) => {
-  const nav = page.getByRole("navigation", { name: "Calendar list" });
+  const nav = page.getByRole("navigation", { name: "Collection tree" });
   const overflow = await nav.evaluate((el) => getComputedStyle(el).overflowY);
   expect(["auto", "scroll"]).toContain(overflow);
   const pageOverflow = await page.evaluate(
@@ -261,7 +271,7 @@ test("a root can be made private and back to shared", async ({ page }) => {
   // Renaming a private row must not silently downgrade it to shared.
   await page.getByRole("button", { name: "Options for Secret plans" }).click();
   await page.getByRole("menuitem", { name: "Calendar settings" }).click();
-  await expect(page.getByLabel("Private")).toBeChecked();
+  await expect(inDialog(page, "Private")).toBeChecked();
   await page.getByLabel("Name").fill("Secret plans v2");
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByRole("checkbox", { name: "Secret plans v2" })).toBeVisible();
@@ -270,8 +280,8 @@ test("a root can be made private and back to shared", async ({ page }) => {
   // A sub-calendar inherits the private value and cannot change it.
   await page.getByRole("button", { name: "Options for Secret plans v2" }).click();
   await page.getByRole("menuitem", { name: "Add sub-calendar" }).click();
-  await expect(page.getByLabel("Private")).toBeChecked();
-  await expect(page.getByLabel("Private")).toBeDisabled();
+  await expect(inDialog(page, "Private")).toBeChecked();
+  await expect(inDialog(page, "Private")).toBeDisabled();
   await page.getByLabel("Name").fill("Partner surprise");
   await page.getByRole("button", { name: "Save" }).click();
   const child = rowOf(page, "Partner surprise");

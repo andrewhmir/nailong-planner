@@ -166,7 +166,7 @@ export function CollectionTree({
             ? {
                 hueFamily: values.hueFamily,
                 ownerId: values.ownerId ?? null,
-                visibility: values.visibility ?? "shared",
+                visibility: values.visibility,
               }
             : {}),
         },

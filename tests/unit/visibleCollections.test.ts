@@ -105,7 +105,7 @@ describe("visibleCollectionIds", () => {
     expect([...visibleCollectionIds(mixedRoots, onlyListChild, viewer)]).toEqual(["client-list"]);
   });
 
-  it("hides a private list with its person pill like any other collection", () => {
+  it("hides a private list when the owner's me pill is off", () => {
     // The server already drops a partner's private rows; the display layer only
     // applies the same pill/checkbox rules to the owner's copy.
     const meHidden: VisibilityState = {

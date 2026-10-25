@@ -20,7 +20,7 @@ test("the shell has a Canvas rail, breadcrumb bar and course nav", async ({ page
   await expect(page.getByRole("banner").getByText("Calendar", { exact: true })).toBeVisible();
   // The household name is visible chrome, not a screen-reader-only copy.
   await expect(page.getByTestId("breadcrumb-household")).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Calendar list" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Collection tree" })).toBeVisible();
   const railWidth = await rail.evaluate((el) => getComputedStyle(el).width);
   expect(railWidth).toBe("54px");
 });
@@ -115,7 +115,7 @@ test("a failed sign-out keeps the session and reports the error", async ({ page 
 });
 
 test("tab order runs rail → person pills → calendar nav", async ({ page }) => {
-  const nav = page.getByRole("navigation", { name: "Calendar list" });
+  const nav = page.getByRole("navigation", { name: "Collection tree" });
   // The tree loads client-side; wait for a row before tabbing into it.
   await expect(nav.getByRole("checkbox").first()).toBeVisible();
   await page
@@ -137,7 +137,7 @@ test("tab order runs rail → person pills → calendar nav", async ({ page }) =
       return {
         name: el.getAttribute("aria-label") ?? (el.textContent ?? "").trim().slice(0, 40),
         pill: Boolean(el.closest('[role="group"][aria-label="Cross-check calendars"]')),
-        row: Boolean(el.closest('nav[aria-label="Calendar list"] li')),
+        row: Boolean(el.closest('nav[aria-label="Collection tree"] li')),
       };
     });
     seen.push(hit.name);

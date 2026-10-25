@@ -9,7 +9,7 @@ calendar still draws, or an undo action does nothing.
 
 | File | Role |
 |---|---|
-| lib/ui/calendarPicker.ts | Flattens the two-level calendar tree into nested-picker rows with swatch colours |
+| lib/ui/calendarPicker.ts | Flattens the `kind="calendar"` collection tree into nested-picker rows with swatch colours; list branches are skipped |
 | lib/ui/lastView.ts | Persists the last FullCalendar view per user in `localStorage` |
 | lib/ui/view.ts | Resolves which view a device opens on (`auto` = phone/desktop split) |
 | lib/ui/useVisibility.ts | Visibility state + per-user `localStorage` persistence |
@@ -26,11 +26,11 @@ calendar still draws, or an undo action does nothing.
 
 ### lib/ui/calendarPicker.ts
 
-**Purpose** — Pure derivation for the nested calendar picker: flatten the two-level tree into the rows the dropdown draws, decide which branch must be open, and resolve a trigger's name and swatch.
+**Purpose** — Pure derivation for the nested calendar picker: flatten the calendar (`kind="calendar"`) part of the two-level tree into the rows the dropdown draws, decide which branch must be open, and resolve a trigger's name and swatch. The picker chooses an event target, so it deliberately emits calendars only.
 
 **Public API**
 - `interface PickerRow { id: string; name: string; depth: 0 | 1; hasChildren: boolean; expanded: boolean; color: string }`.
-- `buildPickerRows(collections: CollectionNode[], expandedIds: ReadonlySet<string>): PickerRow[]` — every root is listed; a root's `children` follow only when `expandedIds.has(root.id)`. Root rows carry `depth: 0`, `hasChildren: root.children.length > 0`, `expanded`; child rows are fixed at `depth: 1`, `hasChildren: false`, `expanded: false`.
+- `buildPickerRows(collections: CollectionNode[], expandedIds: ReadonlySet<string>): PickerRow[]` — every `kind === "calendar"` root is listed; a root's `children` follow only when `expandedIds.has(root.id)`. A `kind === "list"` root is skipped entirely and so is any non-calendar child, so a mixed calendar/list tree renders only its calendars. Root rows carry `depth: 0`, `hasChildren: root.children.length > 0`, `expanded`; child rows are fixed at `depth: 1`, `hasChildren: false`, `expanded: false`.
 - `expandedForSelection(collections: CollectionNode[], selectedId: string): Set<string>` — the one root whose child is selected, else an empty set (a root selection needs no branch open).
 - `toggleExpanded(expanded: ReadonlySet<string>, id: string): Set<string>` — returns a new `Set`, never mutates the argument.
 - `calendarSwatch(collections: CollectionNode[], id: string): { name: string; color: string } | null` — works for a root or a child anywhere in the tree, `null` for an unknown id.
@@ -43,6 +43,7 @@ calendar still draws, or an undo action does nothing.
 
 **Debugging**
 - A sub-calendar's swatch is the same colour as its parent -> its `shadeIndex` is 3 (the parent slot) or the row is not a child -> check `collection.shade_index` and which branch of `buildPickerRows` produced the row.
+- An event picker lists a task list -> the `kind` filter was dropped from `buildPickerRows` (or a caller built picker rows itself) -> check the `root.kind`/`child.kind` guards; the server also rejects a list target with 400 "Events live in calendars.".
 - The picker opens with the selected sub-calendar collapsed -> `expandedForSelection` only opens one level and returns nothing for a stale id -> check the id passed from the toolbar and that the calendar list is fresh.
 - Expanding a parent does not reveal children -> the caller stored a mutated set instead of the returned one, or `expandedIds` is a new set each render -> check `toggleExpanded` usage in `CalendarPicker.tsx`.
 

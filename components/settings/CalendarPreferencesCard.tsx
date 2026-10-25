@@ -45,7 +45,9 @@ export function CalendarPreferencesCard({ initialPreferences, currentUserId }: P
 
   const viewer = { userId: currentUserId, householdId: "" };
   const writableCollections = (collections ?? []).flatMap((root) => {
-    if (!canWriteCollection(viewer, root)) {
+    // Events live in calendars: a list is not an event target, so it must never
+    // be offered as the default event calendar.
+    if (root.kind !== "calendar" || !canWriteCollection(viewer, root)) {
       return [];
     }
     const entries = [{ id: root.id, name: root.name }];

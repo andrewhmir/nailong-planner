@@ -110,7 +110,7 @@ export function AppShell({
             <Button
               variant="ghost"
               size="sm"
-              aria-label="Open calendars"
+              aria-label="Open collections"
               onClick={() => setSidebarOpen(true)}
               className="ml-auto shrink-0 text-white hover:bg-rail-hover focus-visible:outline-white"
             >
@@ -142,7 +142,7 @@ export function AppShell({
               </div>
               <nav
                 className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
-                aria-label="Calendar list"
+                aria-label="Collection tree"
               >
                 {tree}
               </nav>
@@ -158,13 +158,13 @@ export function AppShell({
           <div className="fixed inset-0 z-40 lg:hidden">
             <button
               type="button"
-              aria-label="Close calendars"
+              aria-label="Close collections"
               className="absolute inset-0 bg-scrim"
               onClick={() => setSidebarOpen(false)}
             />
             <div
               role="dialog"
-              aria-label="Calendars"
+              aria-label="Collections"
               className="absolute inset-x-0 bottom-0 flex max-h-[75vh] flex-col overflow-y-auto rounded-t-md border border-line bg-surface p-4 shadow-dialog md:inset-y-[72px] md:right-auto md:w-56 md:rounded-md md:border-r md:shadow-menu"
             >
               <div className="flex items-center justify-between">
@@ -199,7 +199,7 @@ export function AppShell({
                   ),
                 )}
               </nav>
-              <nav className="min-h-0 flex-1 overflow-y-auto" aria-label="Calendar list">
+              <nav className="min-h-0 flex-1 overflow-y-auto" aria-label="Collection tree">
                 <SidebarMiniMonth currentUserId={currentUser.id} timezone={timezone} />
                 {tree}
               </nav>

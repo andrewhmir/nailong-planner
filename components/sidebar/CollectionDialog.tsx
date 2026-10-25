@@ -30,11 +30,12 @@ export interface CollectionDialogResult {
   hueFamily?: HueFamily;
   ownerId?: string | null;
   /**
-   * Three-valued, exactly like the column. A root edit must send its current
-   * value back even when the user only renamed it, or a private collection
-   * would be silently downgraded to `shared`.
+   * Always present. A root sends the three-valued value the server should
+   * store; a child sends the value it inherits (read-only) and no consumer may
+   * PATCH it back. Consumers must never default it — substituting `shared` for
+   * a missing value is how a private collection used to be silently downgraded.
    */
-  visibility?: CollectionVisibility;
+  visibility: CollectionVisibility;
 }
 
 interface Props {
@@ -189,8 +190,9 @@ function CollectionForm({
           ownerId: isRoot ? ownerId : undefined,
           // Never send a less restrictive value than the stored one: a private
           // root being renamed must stay private, and a shared root cannot be
-          // view-only or private until it is assigned to its owner.
-          visibility: isRoot ? (isMine ? visibility : "shared") : undefined,
+          // view-only or private until it is assigned to its owner. A child
+          // echoes the inherited value it was shown; consumers never send it.
+          visibility: isRoot && !isMine ? "shared" : visibility,
         });
       }}
     >

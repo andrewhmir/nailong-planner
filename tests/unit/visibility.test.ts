@@ -223,7 +223,7 @@ describe("parseVisibility", () => {
     }
   });
 
-  it("drops entries that are not booleans or a real id instead of trusting them", () => {
+  it("drops stored values that are not booleans or strings instead of trusting them", () => {
     const parsed = parseVisibility(
       JSON.stringify({
         groups: { me: "hidden", ours: false },

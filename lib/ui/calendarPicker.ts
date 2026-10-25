@@ -25,8 +25,9 @@ function familyOf(collection: CollectionRow): HueFamily {
 
 /**
  * Flattens the two-level collection tree into the rows the picker draws: every
- * top-level collection is always listed, and a collection's sub-collections
- * appear only once that collection is expanded.
+ * top-level calendar is always listed, and a calendar's sub-calendars appear
+ * only once that calendar is expanded. The picker chooses an event target, so a
+ * `kind: "list"` branch is skipped — lists hold tasks, never events.
  */
 export function buildPickerRows(
   collections: CollectionNode[],
@@ -35,6 +36,9 @@ export function buildPickerRows(
   const rows: PickerRow[] = [];
 
   for (const root of collections) {
+    if (root.kind !== "calendar") {
+      continue;
+    }
     const family = familyOf(root);
     const expanded = expandedIds.has(root.id);
 
@@ -52,6 +56,11 @@ export function buildPickerRows(
     }
 
     for (const child of root.children) {
+      // A child inherits its parent's kind; the guard keeps a stale row from
+      // slipping a list into the event picker anyway.
+      if (child.kind !== "calendar") {
+        continue;
+      }
       rows.push({
         id: child.id,
         name: child.name,
