@@ -180,9 +180,12 @@ CodeQL and Dependabot.
 - **Recurring events** store an RFC 5545 RRULE and are edited with Google-style
   controls: interval, weekly day picker, monthly day-of-month or nth weekday, and
   `Never` / `On <date>` / `After N occurrences` ends. A stored rule is sent back
-  byte-identical until the repeat controls are touched. Deleting one occurrence
-  appends to `exdates`; editing a recurring event always edits the series in
-  v0.1.0.
+  byte-identical until the repeat controls are touched. Repeating events can be
+  changed with Google's three scopes — **This event**, **This and following
+  events**, **All events** — from a drag, a resize, the Edit form or Delete. A
+  one-off change moves just that occurrence (it becomes an ordinary linked event),
+  “this and following” splits the series, and “all events” shifts the whole
+  series.
 - Every query is scoped to the household, and writes are re-checked server-side
   against the view-only rule.
 - **Layout contract**: the app shell owns the viewport (`h-dvh`), `main` owns

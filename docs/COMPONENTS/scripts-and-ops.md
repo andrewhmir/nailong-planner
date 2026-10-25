@@ -113,13 +113,28 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 
 **Tests / verified by** — `tests/integration/db.test.ts` ("backfills sub-calendar owners from their root (0004)"); the visibility fold is covered by `tests/unit/visibility.test.ts` and `tests/unit/visibleCalendars.test.ts`.
 
+### drizzle/0005_sloppy_praxagora.sql
+
+**Purpose** — Adds the per-instance exception link to `event`: `recurrence_parent_id` (nullable self-FK → `event.id`, `ON DELETE CASCADE`), `recurrence_id` (the occurrence key the exception replaced), and the `event_recurrence_parent_idx` index.
+
+**Invocation / wiring** — Generated with `npm run db:generate` from the new `lib/db/schema.ts` columns and applied by the lazy migrator on the first `getDb()` like every other file. The generated SQL omitted `ON DELETE CASCADE` for the self-reference (drizzle-kit does not emit the clause for `ALTER TABLE … ADD COLUMN` self-FKs even though the snapshot records it), so the clause was added to the `.sql` by hand; the snapshot already matches, so a future `db:generate` will not repeat the statement.
+
+**Behaviour & side effects** — Two `ALTER TABLE event ADD COLUMN` statements (nullable, so existing rows get NULL) and one `CREATE INDEX`. From this migration on, deleting a series row cascades to its linked exceptions at the SQL level; a moved instance (`scope: "This event"`) is exactly such a row.
+
+**Gotchas** —
+- SQLite only accepts a `REFERENCES` clause on `ADD COLUMN` while the new column's default is NULL — keep it nullable.
+- The importer's Google overrides remain standalone rows with `external_*` provenance and are **not** linked by this migration; only native “This event” writes set the new columns.
+- A database migrated before this file must run it (or `npm run db:migrate`) before a series delete can cascade.
+
+**Tests / verified by** — `tests/integration/db.test.ts` migrates through it; `tests/integration/events.test.ts` "deletes a series with its linked exceptions and returns them" depends on the cascade.
+
 ### drizzle/meta/_journal.json
 
 **Purpose** — The migrator's ordered index: `version`/`dialect` plus one entry per migration with `idx`, `tag`, `when` and `breakpoints`.
 
 **Invocation / wiring** — Read by `drizzle-orm`'s migrator at runtime and by `drizzle-kit` when generating. No application code imports it.
 
-**Behaviour & side effects** — Lists `0000_even_morg`, `0001_tiny_falcon`, `0002_user_preference`, `0003_salty_stranger` and `0004_normalise_subcalendar_owners` with increasing `when` timestamps. The `tag` must equal the SQL filename without `.sql`. Applied migrations are recorded in the database's own `__drizzle_migrations` table, so re-running is a no-op.
+**Behaviour & side effects** — Lists `0000_even_morg`, `0001_tiny_falcon`, `0002_user_preference`, `0003_salty_stranger`, `0004_normalise_subcalendar_owners` and `0005_sloppy_praxagora` with increasing `when` timestamps. The `tag` must equal the SQL filename without `.sql`. Applied migrations are recorded in the database's own `__drizzle_migrations` table, so re-running is a no-op.
 
 **Gotchas** —
 - A `.sql` file that is not listed here is never applied, even though it sits in `drizzle/`.

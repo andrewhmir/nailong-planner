@@ -26,12 +26,19 @@ export const createEventSchema = z.object({
   calendarId: z.string().min(1),
   ...eventBaseFields,
   allDay: z.boolean().default(false),
+  /** Set only when restoring an exception (undo) under its repeating series. */
+  recurrenceParentId: z.string().min(1).nullish(),
+  /** The occurrence key the exception replaces: YYYY-MM-DD or ISO instant. */
+  recurrenceId: z.string().min(1).nullish(),
 });
 
 export const updateEventSchema = z
   .object({
     calendarId: z.string().min(1).optional(),
     ...eventBaseFields,
+    /** Recurring-edit scope envelope (see `lib/api/handlers/events.ts`). */
+    scope: z.enum(["this", "following", "all"]).optional(),
+    occurrenceStart: z.string().min(1).optional(),
   })
   .partial();
 

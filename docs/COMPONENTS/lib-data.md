@@ -59,6 +59,7 @@ Cross-table rules that are enforced in code rather than SQL:
 - `calendar.parentId` uses `references((): AnySQLiteColumn => calendar.id)` to express the self-FK; `onDelete: "cascade"`.
 - `event.allDay`, `calendar.isViewOnlyForPartner`, `userPreference.showWeekNumbers` and `shortcutsEnabled` are `integer` (0/1), not `boolean`.
 - `event.exdates` is nullable JSON text; `event.startAt`/`endAt` and `startDate`/`endDate` are both nullable because all-day and timed rows populate different pairs.
+- `event.recurrenceParentId` is a nullable self-FK (`references((): AnySQLiteColumn => event.id)`, `onDelete: "cascade"`) set only on a per-instance exception; `event.recurrenceId` stores the occurrence key the exception replaced (`YYYY-MM-DD` for all-day, an ISO instant for timed). Migration `0005` adds both plus `event_recurrence_parent_idx`. Exceptions are ordinary rows: the series keeps an EXDATE for the original slot, so nothing in expansion, rendering or search needs an override branch.
 - `event.tzid` is the IANA zone a recurring timed series is expanded in; null means the household zone. Imported Google series store their source `TZID`, so the recurrence engine keeps their wall-clock time across a DST change.
 - `event.externalSource`/`externalUid`/`externalRecurrenceId`/`externalKey`/`externalContentHash` are import provenance, all null for events created in Nailong. `event_household_external_key_idx` is a unique index on `(household_id, external_key)`; SQLite allows unlimited NULL keys, so native events never collide.
 - `import_batch` records one committed import (`status` `committed` | `rolled_back`, JSON `mapping`/`report`); `import_change` is its undo ledger, one row per inserted/updated event with `before_json` holding the replaced row. Deleting a batch cascades its changes; `import_change.event_id` deliberately has no FK.
@@ -174,13 +175,13 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 
 **Purpose** — Range query for the visible grid window and the three event mutations, each with an optimistic cache write over every cached `["events"]` range plus a snapshot rollback.
 
-**Public API** — `interface EventRange { from; to }` (UTC epoch ms; `from` inclusive, `to` exclusive for timed rows — upstream `listEvents` compares all-day rows as local dates instead); `interface EventInputPayload` (all event fields optional, `exdates: string[]`); hooks `useEvents(range: EventRange | null)`, `useCreateEvent()`, `useUpdateEvent()`, `useDeleteEvent()`. Delete takes `{ id, scope?: "all" | "this", occurrenceStart?: string }` and returns `void`.
+**Public API** — `interface EventRange { from; to }` (UTC epoch ms; `from` inclusive, `to` exclusive for timed rows — upstream `listEvents` compares all-day rows as local dates instead); `type RecurringScope = "this" | "following" | "all"`; `interface EventInputPayload` (all event fields optional, `exdates: string[]`, plus the scope envelope `scope`/`occurrenceStart` and the undo-only `recurrenceParentId`/`recurrenceId`); `interface UpdateEventResult { event; truncated?; relinked?; relinkedPrevious? }`; `interface DeleteEventResult { deleted?; truncated?; segmentId? }`; hooks `useEvents(range)`, `useCreateEvent()`, `useUpdateEvent()`, `useDeleteEvent()`. Delete takes `{ id, scope?: RecurringScope, occurrenceStart? }` and resolves the server's deleted rows; `segmentId` lets a following-delete undo exclude the merged-back segment.
 
 **State & side effects** — Query key: `["events", range?.from ?? 0, range?.to ?? 0]`; disabled while `range` is null (the key still exists as `["events", 0, 0]`). GET `/api/events?from=&to=`; POST `/api/events`; PATCH `/api/events/{id}`; DELETE `/api/events/{id}` with a JSON body `{ scope, occurrenceStart }`.
 - Snapshot/rollback: `snapshotEvents` cancels the `["events"]` queries and stores every `[key, data]` pair; `restoreEvents` writes them back on error. Both are module-private.
 - Create: appends an optimistic `temp-<uuid>` row to every cached range (`householdId` and `createdBy` are empty strings, `color` is `shadeTokens("slate", 1)`); on success `replaceEvent` swaps it for the server row, keeping its index.
-- Update: `patchList` maps the payload onto `Partial<EventView>` (booleans become 0/1, `exdates` array becomes JSON text) and always stamps `updatedAt: Date.now()`.
-- Delete `scope: "all"` filters the row out; `scope: "this"` appends the occurrence to `exdates` for that row, skipping the write when the key is already present.
+- Update: `patchList` maps the payload onto `Partial<EventView>` and always stamps `updatedAt: Date.now()`. **Scoped writes do no optimistic patch** (`scope` present): they change several rows or split a series, so the invalidation renders the authoritative result instead of a guessed shape.
+- Delete `scope: "all"` filters the row and its linked exceptions out of the cache; `scope: "this"` appends the occurrence to `exdates`, skipping the write when the key is already present; `scope: "following"` has no optimistic patch.
 - `onSettled` invalidates `["events"]` for all three mutations, which also refetches `["events", "search", …]` because it shares the prefix.
 
 **Depends on / Used by** — `lib/color/palette` (`shadeTokens`), `lib/query/eventCache`, `EventView` type. Used by `components/calendar/CalendarShell.tsx`, `components/calendar/EventDialog.tsx`, `components/calendar/QuickCreatePopover.tsx`, `components/sidebar/SidebarMiniMonth.tsx`; `EventInputPayload` is the payload type of `components/calendar/eventPayload.ts`.
@@ -190,8 +191,10 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 - A newly created event shows a grey/slate block -> that is the optimistic placeholder colour; if it never updates, the server row never replaced it -> check the `tempId` match in `onSuccess`.
 - Two `useEvents` consumers with different ranges show different data -> each range is a separate cache entry; `setQueriesData({ queryKey: ["events"] })` intentionally patches all of them.
 - Deleting one occurrence leaves the grid unchanged -> `occurrenceStart` did not match the stored EXDATE format (all-day: `YYYY-MM-DD`, timed: ISO string) -> check `parseExdates` callers.
+- A scoped move shows the old row until the refetch -> expected: scoped writes skip the optimistic patch; if it never updates, `onSettled` invalidation was dropped -> `useUpdateEvent`/`useDeleteEvent`.
+- Undo leaves a duplicate block after a split -> the undo closure recreated the pre-split exceptions under the old series but did not filter the merged-back segment; a following-delete undo must use the response's `segmentId` and restore the old rule instead of recreating both segments -> `CalendarShell.confirmDeleteScope` undo.
 
-**Tests** — No direct hook test. The cache behaviour is asserted in `tests/unit/event-cache.test.ts` (helpers) and end-to-end in `tests/e2e/events.spec.ts`, `tests/e2e/undo.spec.ts`, `tests/e2e/shortcuts.spec.ts`.
+**Tests** — No direct hook test. The cache behaviour is asserted in `tests/unit/event-cache.test.ts` (helpers) and end-to-end in `tests/e2e/events.spec.ts`, `tests/e2e/recurring-scope.spec.ts`, `tests/e2e/undo.spec.ts`, `tests/e2e/shortcuts.spec.ts`.
 
 ### lib/query/eventCache.ts
 
@@ -336,13 +339,14 @@ All four modules export plain Zod schemas (no I/O). Handlers parse the JSON body
 
 **Purpose** — Zod schemas for event create/update plus `assertEventShape`, the invariant that keeps all-day rows on local dates and timed rows on UTC instants.
 
-**Public API** — `createEventSchema` (`calendarId` min 1, `title` 1–200 trimmed, `description` ≤4000, `location` ≤200, `allDay` boolean defaulting to `false`, `startAt`/`endAt` integer or nullish, `startDate`/`endDate` matching `^\d{4}-\d{2}-\d{2}$` or nullish, `rrule` ≤500, `exdates` array of non-empty strings or nullish); `updateEventSchema` (same fields, `calendarId` optional, whole object `.partial()`, so `allDay` has **no** default); `assertEventShape(input: EventShapeInput): void`; types `CreateEventInput`, `UpdateEventInput`, `EventShapeInput`.
+**Public API** — `createEventSchema` (`calendarId` min 1, `title` 1–200 trimmed, `description` ≤4000, `location` ≤200, `allDay` boolean defaulting to `false`, `startAt`/`endAt` integer or nullish, `startDate`/`endDate` matching `^\d{4}-\d{2}-\d{2}$` or nullish, `rrule` ≤500, `exdates` array of non-empty strings or nullish, plus the undo-only `recurrenceParentId`/`recurrenceId` non-empty strings or nullish); `updateEventSchema` (same fields, `calendarId` optional, whole object `.partial()`, so `allDay` has **no** default, plus the recurring-scope envelope `scope: "this" | "following" | "all"` and `occurrenceStart` string); `assertEventShape(input: EventShapeInput): void`; types `CreateEventInput`, `UpdateEventInput`, `EventShapeInput`.
 
 **State & side effects** — Pure parsing and throwing only; `assertEventShape` raises `AppError("VALIDATION", …, 400, { field })`.
 - All-day branch: requires both dates, rejects impossible calendar dates via `isRealDate` (UTC round-trip), and rejects any `startAt`/`endAt`. It computes `toAllDayRange(startDate, endDate)` and discards it (`void range`) — the range is used for validation only.
 - Timed branch: requires both instants, rejects any date, and requires `endAt > startAt`.
 - The schema-level default lives on create only; the file comment explains that a default on update would turn a partial PATCH of an all-day event into a timed one. `assertEventShape` defaults `allDay` to false, so a PATCH that changes only a date still needs the caller to pass the existing `allDay`.
 - `rrule` syntax (RFC 5545, `FREQ=`) is validated in `lib/services/events.ts`, not in these schemas.
+- The link fields are create-only so undo can rebuild a deleted exception under its series; the scope envelope is read and stripped by `lib/api/handlers/events.ts` before the service sees a patch.
 
 **Depends on / Used by** — `zod`, `@/lib/errors` (`AppError`), `@/lib/time/zone` (`toAllDayRange`). Parsed in `lib/api/handlers/events.ts`; `assertEventShape` and the input types are used by `lib/services/events.ts`; `CreateEventInput` is imported by `tests/integration/search-api.test.ts` for seeding.
 
@@ -351,6 +355,7 @@ All four modules export plain Zod schemas (no I/O). Handlers parse the JSON body
 - `2026-02-30` passes the regex but is rejected -> `isRealDate` does the calendar check; the message is "That calendar date does not exist.".
 - `endAt === startAt` accepted by Zod then rejected with 400 -> zero-length timed events are invalid; the error field is `endAt`.
 - An all-day update turns into a timed event -> `updateEventSchema` must not carry an `allDay` default; if it reappears, this is the regression.
+- A scoped PATCH loses `scope`/`occurrenceStart` before the handler branches -> `.partial()` still lists them; if a future `.strict()` is added they must stay declared -> `updateEventSchema`.
 
 **Tests** — No direct unit test of the schemas or `assertEventShape`. Behaviour is covered by `tests/integration/events.test.ts` (VALIDATION assertions), `tests/integration/events-api.test.ts`, `tests/integration/regressions.test.ts`, and `tests/e2e/events.spec.ts`.
 

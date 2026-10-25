@@ -224,3 +224,361 @@ describe("event API", () => {
     }
   });
 });
+
+describe("recurring edit scopes API", () => {
+  const iso = (wall: string) => new Date(at(wall)).toISOString();
+
+  it("PATCH scope=this creates a linked exception", async () => {
+    const { db, close, ctxA, math } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: math.id,
+        title: "Standup",
+        allDay: true,
+        startDate: "2026-01-03",
+        endDate: "2026-01-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA",
+      });
+
+      const response = await updateEventHandler(
+        db,
+        ctxA,
+        series.id,
+        jsonRequest(`/api/events/${series.id}`, "PATCH", {
+          scope: "this",
+          occurrenceStart: "2026-01-03",
+          allDay: true,
+          startDate: "2026-01-04",
+          endDate: "2026-01-04",
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const payload = await body<{
+        event: { id: string; rrule: string | null; recurrenceParentId: string; recurrenceId: string };
+      }>(response);
+      expect(payload.event.recurrenceParentId).toBe(series.id);
+      expect(payload.event.recurrenceId).toBe("2026-01-03");
+      expect(payload.event.rrule).toBeNull();
+
+      const stored = db.select().from(event).where(eq(event.id, series.id)).get();
+      expect(JSON.parse(stored?.exdates ?? "[]")).toEqual(["2026-01-03"]);
+    } finally {
+      close();
+    }
+  });
+
+  it("PATCH scope=following returns the split result", async () => {
+    const { db, close, ctxA, math } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: math.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-01-03",
+        endDate: "2026-01-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA;COUNT=8",
+      });
+
+      const response = await updateEventHandler(
+        db,
+        ctxA,
+        series.id,
+        jsonRequest(`/api/events/${series.id}`, "PATCH", {
+          scope: "following",
+          occurrenceStart: "2026-01-17",
+          title: "Piano (later)",
+          rrule: "FREQ=WEEKLY;BYDAY=SA;COUNT=8",
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const payload = await body<{
+        event: { title: string; startDate: string; rrule: string | null };
+        truncated: { id: string } | null;
+        relinked: unknown[];
+        relinkedPrevious: unknown[];
+      }>(response);
+      expect(payload.event.title).toBe("Piano (later)");
+      expect(payload.event.startDate).toBe("2026-01-17");
+      expect(payload.truncated?.id).toBe(series.id);
+      expect(payload.relinked).toEqual([]);
+      expect(payload.relinkedPrevious).toEqual([]);
+    } finally {
+      close();
+    }
+  });
+
+  it("PATCH scope=all with occurrenceStart shifts the series", async () => {
+    const { db, close, ctxA, math } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: math.id,
+        title: "Swim",
+        allDay: false,
+        startAt: at("2026-10-05T09:00"),
+        endAt: at("2026-10-05T10:00"),
+        rrule: "FREQ=WEEKLY;BYDAY=MO",
+      });
+
+      const response = await updateEventHandler(
+        db,
+        ctxA,
+        series.id,
+        jsonRequest(`/api/events/${series.id}`, "PATCH", {
+          scope: "all",
+          occurrenceStart: iso("2026-10-05T09:00"),
+          allDay: false,
+          startAt: at("2026-10-06T10:00"),
+          endAt: at("2026-10-06T11:00"),
+          startDate: null,
+          endDate: null,
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const payload = await body<{ event: { startAt: number; rrule: string | null } }>(response);
+      expect(payload.event.startAt).toBe(at("2026-10-06T10:00"));
+      expect(payload.event.rrule).toContain("BYDAY=TU");
+    } finally {
+      close();
+    }
+  });
+
+  it("rejects scope=this without occurrenceStart and following with an unknown occurrence", async () => {
+    const { db, close, ctxA, math } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: math.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-01-03",
+        endDate: "2026-01-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA",
+      });
+
+      const missing = await updateEventHandler(
+        db,
+        ctxA,
+        series.id,
+        jsonRequest(`/api/events/${series.id}`, "PATCH", { scope: "this", title: "Nope" }),
+      );
+      expect(missing.status).toBe(400);
+
+      const unknown = await updateEventHandler(
+        db,
+        ctxA,
+        series.id,
+        jsonRequest(`/api/events/${series.id}`, "PATCH", {
+          scope: "following",
+          occurrenceStart: "2026-01-04",
+          rrule: "FREQ=WEEKLY;BYDAY=SA",
+        }),
+      );
+      expect(unknown.status).toBe(400);
+    } finally {
+      close();
+    }
+  });
+
+  it("DELETE scope=all returns the deleted rows with 200", async () => {
+    const { db, close, ctxA, math } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: math.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-01-03",
+        endDate: "2026-01-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA",
+      });
+      const exception = createEvent(db, ctxA, {
+        calendarId: math.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-01-04",
+        endDate: "2026-01-04",
+        recurrenceParentId: series.id,
+        recurrenceId: "2026-01-03",
+      });
+
+      const response = await deleteEventHandler(
+        db,
+        ctxA,
+        series.id,
+        jsonRequest(`/api/events/${series.id}`, "DELETE", { scope: "all" }),
+      );
+
+      expect(response.status).toBe(200);
+      const payload = await body<{ deleted: Array<{ id: string }> }>(response);
+      expect(payload.deleted.map((row) => row.id).sort()).toEqual([series.id, exception.id].sort());
+      expect(db.select().from(event).all()).toHaveLength(0);
+    } finally {
+      close();
+    }
+  });
+
+  it("DELETE scope=following returns deleted rows and the truncated row", async () => {
+    const { db, close, ctxA, math } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: math.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-01-03",
+        endDate: "2026-01-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA;COUNT=8",
+      });
+
+      const response = await deleteEventHandler(
+        db,
+        ctxA,
+        series.id,
+        jsonRequest(`/api/events/${series.id}`, "DELETE", {
+          scope: "following",
+          occurrenceStart: "2026-01-17",
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const payload = await body<{
+        deleted: Array<{ id: string }>;
+        truncated: { id: string } | null;
+        segmentId: string;
+      }>(response);
+      expect(payload.truncated?.id).toBe(series.id);
+      expect(payload.deleted).toHaveLength(1);
+      expect(payload.segmentId).toBe(payload.deleted[0]?.id);
+      expect(payload.deleted[0]?.id).not.toBe(series.id);
+    } finally {
+      close();
+    }
+  });
+
+  it("blocks the new scopes on a view-only partner calendar", async () => {
+    const { db, close, ctxA, ctxB } = await setup();
+    try {
+      const work = createCalendar(db, ctxA, { name: "Work", hueFamily: "amber", ownerId: "user-a" });
+      updateCalendar(db, ctxA, work.id, { isViewOnlyForPartner: true });
+      const series = createEvent(db, ctxA, {
+        calendarId: work.id,
+        title: "On-call",
+        allDay: false,
+        startAt: at("2026-10-05T09:00"),
+        endAt: at("2026-10-05T10:00"),
+        rrule: "FREQ=WEEKLY;BYDAY=MO",
+      });
+
+      const patched = await updateEventHandler(
+        db,
+        ctxB,
+        series.id,
+        jsonRequest(`/api/events/${series.id}`, "PATCH", {
+          scope: "this",
+          occurrenceStart: iso("2026-10-05T09:00"),
+          startAt: at("2026-10-06T10:00"),
+          endAt: at("2026-10-06T11:00"),
+        }),
+      );
+      expect(patched.status).toBe(403);
+
+      const movedAll = await updateEventHandler(
+        db,
+        ctxB,
+        series.id,
+        jsonRequest(`/api/events/${series.id}`, "PATCH", {
+          scope: "all",
+          occurrenceStart: iso("2026-10-05T09:00"),
+          allDay: false,
+          startAt: at("2026-10-06T10:00"),
+          endAt: at("2026-10-06T11:00"),
+        }),
+      );
+      expect(movedAll.status).toBe(403);
+
+      const split = await updateEventHandler(
+        db,
+        ctxB,
+        series.id,
+        jsonRequest(`/api/events/${series.id}`, "PATCH", {
+          scope: "following",
+          occurrenceStart: iso("2026-10-12T09:00"),
+          rrule: "FREQ=WEEKLY;BYDAY=MO",
+        }),
+      );
+      expect(split.status).toBe(403);
+
+      const removed = await deleteEventHandler(
+        db,
+        ctxB,
+        series.id,
+        jsonRequest(`/api/events/${series.id}`, "DELETE", {
+          scope: "following",
+          occurrenceStart: iso("2026-10-12T09:00"),
+        }),
+      );
+      expect(removed.status).toBe(403);
+
+      const removedAll = await deleteEventHandler(
+        db,
+        ctxB,
+        series.id,
+        jsonRequest(`/api/events/${series.id}`, "DELETE", { scope: "all" }),
+      );
+      expect(removedAll.status).toBe(403);
+    } finally {
+      close();
+    }
+  });
+
+  it("POST accepts a recurrence parent and rejects an unknown one", async () => {
+    const { db, close, ctxA, math } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: math.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-01-03",
+        endDate: "2026-01-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA",
+      });
+
+      const created = await createEventHandler(
+        db,
+        ctxA,
+        jsonRequest("/api/events", "POST", {
+          calendarId: math.id,
+          title: "Piano",
+          allDay: true,
+          startDate: "2026-01-04",
+          endDate: "2026-01-04",
+          recurrenceParentId: series.id,
+          recurrenceId: "2026-01-03",
+        }),
+      );
+      expect(created.status).toBe(201);
+      const payload = await body<{ event: { recurrenceParentId: string; recurrenceId: string } }>(
+        created,
+      );
+      expect(payload.event.recurrenceParentId).toBe(series.id);
+      expect(payload.event.recurrenceId).toBe("2026-01-03");
+
+      const missing = await createEventHandler(
+        db,
+        ctxA,
+        jsonRequest("/api/events", "POST", {
+          calendarId: math.id,
+          title: "Lost",
+          allDay: true,
+          startDate: "2026-01-04",
+          endDate: "2026-01-04",
+          recurrenceParentId: "missing-series",
+          recurrenceId: "2026-01-03",
+        }),
+      );
+      expect(missing.status).toBe(404);
+    } finally {
+      close();
+    }
+  });
+});
