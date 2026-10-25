@@ -285,7 +285,7 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 - Create, delete and reorder never touch the cache: their `onSettled` invalidates `["tasks"]` and the refetch paints the server result, so counts and bucket membership cannot lie optimistically.
 - `counts` is never patched by hand; one row patch cannot change the global badges, and the settle refetch recalculates them.
 
-**Depends on / Used by** — `@tanstack/react-query`, `lib/query/taskCache`, `TaskView`/`TaskCounts`/`TaskBucket` types, and the `lib/validation/tasks.ts` inferred inputs (`CreateTaskInput`, `UpdateTaskInput`, `ReorderTasksInput`). No component imports it yet; the Tasks views/editor later in this release and the calendar grid call `useTasks`.
+**Depends on / Used by** — `@tanstack/react-query`, `lib/query/taskCache`, `TaskView`/`TaskCounts`/`TaskBucket` types, and the `lib/validation/tasks.ts` inferred inputs (`CreateTaskInput`, `UpdateTaskInput`, `ReorderTasksInput`). Imported by `components/tasks/TasksShell.tsx` (`useTasks`, `useUpdateTask`, `useDeleteTask`) and `components/tasks/TaskCaptureBar.tsx` (`useCreateTask`); the task editor (Task 10) and the calendar chips (Task 11) consume `useTasks`/`useUpdateTask` too, and `useReorderTasks` is still waiting for its UI.
 
 **Debugging** —
 - A row flickers back to its old title -> the PATCH failed and `restoreTasks` replayed the snapshot -> read the thrown `Error` message from `requestJson`.

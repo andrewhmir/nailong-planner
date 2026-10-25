@@ -1,6 +1,6 @@
 # App routes and HTTP API
 
-Everything the Next.js App Router exposes: the root layout and the global stylesheet it imports, the authenticated shell layout, the two signed-in pages, the login page with its client form, and every `/api/*` handler. Read this when a request returns an unexpected status, a page redirects when it should not, the viewport scrolls the document instead of a panel, or a design token is missing. Pipeline internals live in `api-layer.md`; the SQL and business rules behind each handler live in `lib-services.md`.
+Everything the Next.js App Router exposes: the root layout and the global stylesheet it imports, the authenticated shell layout, the signed-in pages, the login page with its client form, and every `/api/*` handler. Read this when a request returns an unexpected status, a page redirects when it should not, the viewport scrolls the document instead of a panel, or a design token is missing. Pipeline internals live in `api-layer.md`; the SQL and business rules behind each handler live in `lib-services.md`.
 
 **How to update this doc:** every source file in this area has its own `### <repo-relative path>` section. When you add, move, or delete a route or page, update its section and run `npm run docs:check`.
 
@@ -11,6 +11,7 @@ Everything the Next.js App Router exposes: the root layout and the global styles
 | `app/providers.tsx` | Client boundary mounting TanStack Query and the sonner `Toaster` |
 | `app/(app)/layout.tsx` | Auth guard + `AppShell` for every signed-in page; owns the viewport contract |
 | `app/(app)/page.tsx` | `/` — the calendar page, renders `CalendarShell` |
+| `app/(app)/tasks/page.tsx` | `/tasks` — the task workspace, renders `TasksShell` |
 | `app/(app)/settings/page.tsx` | `/settings` — household, profile, preferences and security form |
 | `app/api/auth/[...all]/route.ts` | Better Auth catch-all (sign-in, sign-out, two-factor, password, session) |
 | `app/api/collections/route.ts` | `GET` visible collection tree (lazily creates the caller's Inbox), `POST` calendar or list (top-level or sub-collection) |
@@ -106,6 +107,20 @@ Radii ("Canvas is nearly square"): `--radius-sm` 3px, `--radius-md` 4px, `--radi
 **Debugging** — The grid shows the wrong week start -> `household.weekStartsOn` is 0/1 and falls back to `0` (Sunday) when the row is missing -> check the household row and that `SettingsForm.saveHousehold` still calls `router.refresh()`. Grid times are shifted -> `timezone` came from the household, not the browser -> check `household.timezone`. A preferences change does not reach the grid until reload -> `getPreferences` is read server-side per request -> check `router.refresh()` in the settings form.
 
 **Tests** — `tests/e2e/events.spec.ts`, `tests/e2e/view-preference.spec.ts`, `tests/e2e/mobile.spec.ts`.
+
+### app/(app)/tasks/page.tsx
+
+**Purpose** — The `/tasks` page: resolves the household and the viewer's preferences, then renders the task workspace.
+
+**Public API** — Default export `TasksPage()`, a server component with `export const dynamic = "force-dynamic"` (the signed-in layout also sets it; this page repeats it because every request reads the session cookie).
+
+**State & side effects** — Re-resolves the session (`redirect("/login")` when null) and the membership row (again `redirect("/login")`), reads the household row, and calls `getPreferences(db, session.user.id)`. Renders an `h1` "Tasks" and `<TasksShell timezone={household?.timezone ?? "Asia/Taipei"} weekStartsOn={household?.weekStartsOn === 1 ? 1 : 0} shortcutsEnabled={preferences.shortcutsEnabled} currentUserId={session.user.id} />`. The `weekStartsOn` normalisation turns the plain integer column into the shell's `0 | 1` contract. No writes, no revalidation.
+
+**Depends on / Used by** — `@/components/tasks/TasksShell`, `@/lib/services/preferences` (`getPreferences`), `@/lib/auth/server`, `@/lib/db`, `@/lib/db/schema`. Reached by URL (`/tasks`); the rail entry stays gated until Task 13, so the breadcrumb falls back to "Calendar" until then.
+
+**Debugging** — A signed-in user bounces to `/login` -> no `member` row -> check the `member` table. The breadcrumb says "Calendar" -> expected while the rail entry is not live: `ROUTE_CRUMBS` is built from `LIVE_ENTRIES` -> `components/shell/AppShell.tsx`. Tasks bucket against the wrong "today" -> `household.timezone`/`weekStartsOn` are read here, not from the browser -> check the household row. A preference change does not reach the workspace -> `getPreferences` is read per request -> check `router.refresh()` in the settings form.
+
+**Tests** — `tests/e2e/tasks.spec.ts`; the components it renders are documented in `docs/COMPONENTS/components-tasks.md`.
 
 ### app/(app)/settings/page.tsx
 
@@ -289,7 +304,7 @@ Three thin routes over `lib/api/handlers/tasks.ts`; bucketing (`lib/domain/tasks
 
 **Debugging** — Badge counts do not move when a collection filter is applied -> expected: `counts` always covers every visible open task -> compare `useTasks()` with `useTasks(view, id)`. A task created without `collectionId` appears under Inbox -> intended (`ensureInbox`). `400 fields.view` -> the caller sent a bucket name `lib/domain/tasks.ts` does not define -> `taskViewSchema`. A new task is missing from `view=today` -> it has no `scheduledOn`/`dueOn` yet, so it sits in Inbox or Someday -> check the body.
 
-**Tests** — `tests/integration/tasks-api.test.ts`. The Tasks UI and its Playwright spec are not part of this change.
+**Tests** — `tests/integration/tasks-api.test.ts`; the workspace that calls it is covered by `tests/e2e/tasks.spec.ts` and documented in `docs/COMPONENTS/components-tasks.md`.
 
 ### app/api/tasks/[id]/route.ts
 

@@ -561,7 +561,7 @@ Pinned choices that must not drift casually: `@fullcalendar/react` and `@fullcal
 
 **Gotchas** —
 - Deliberately plain ESM with no dependencies: `tsx`/esbuild cannot spawn under agent sandboxes on Windows (`EPERM`), and this gate must run everywhere Node runs. Do not convert it to TypeScript or add imports.
-- `AREA_DOCS` is the prefix → doc map used in the "add" suggestions; add a row when you create a new area doc, or suggestions will point at `docs/COMPONENTS/README.md`.
+- `AREA_DOCS` is the prefix → doc map used in the "add" suggestions; add a row when you create a new area doc, or suggestions will point at `docs/COMPONENTS/README.md`. It maps `app/` → `app-routes.md`, each `components/<area>/` → its area doc (`components/tasks/` → `components-tasks.md` was added in v0.2.0), the `lib/` layers → their layer doc, and everything else under `lib/` → `lib-domain.md`.
 - `tests/` is intentionally not gated (documented as tables in `tests.md`), and `app/fonts/` is skipped (binary woff2 files).
 - The heading must be the bare path on its own `###` line — backticks or trailing prose make the section invisible to the gate.
 

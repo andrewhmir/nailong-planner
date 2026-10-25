@@ -51,6 +51,7 @@ const AREA_DOCS = [
   ["components/calendar/", "docs/COMPONENTS/components-calendar.md"],
   ["components/shell/", "docs/COMPONENTS/components-shell-and-sidebar.md"],
   ["components/sidebar/", "docs/COMPONENTS/components-shell-and-sidebar.md"],
+  ["components/tasks/", "docs/COMPONENTS/components-tasks.md"],
   ["components/settings/", "docs/COMPONENTS/components-settings-ui.md"],
   ["components/ui/", "docs/COMPONENTS/components-settings-ui.md"],
   ["lib/api/", "docs/COMPONENTS/api-layer.md"],

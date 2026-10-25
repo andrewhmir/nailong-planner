@@ -1,7 +1,7 @@
 # Component documentation
 
 Every source file under `app/`, `components/`, `lib/` and `scripts/` has its own
-section in one of the eleven area docs below. Each section follows the same
+section in one of the twelve area docs below. Each section follows the same
 shape — Purpose, Public API, State & side effects, Depends on / Used by,
 Debugging, Tests — so you can jump to the file you care about instead of reading
 the tree.
@@ -28,6 +28,7 @@ never edited.
 | [`lib-ui.md`](lib-ui.md) | `lib/ui/` — client state hooks and storage | View/visibility preferences, keyboard shortcuts, undo, search bus |
 | [`components-calendar.md`](components-calendar.md) | `components/calendar/` | Calendar grid, quick create, event dialog/details, miniature month, search |
 | [`components-shell-and-sidebar.md`](components-shell-and-sidebar.md) | `components/shell/`, `components/sidebar/` | App frame, nav rail, breadcrumbs, visibility provider, mixed collection tree |
+| [`components-tasks.md`](components-tasks.md) | `components/tasks/` | Tasks workspace: capture bar, bucket switcher, task rows, Plan popover |
 | [`components-settings-ui.md`](components-settings-ui.md) | `components/settings/`, `components/ui/` | Settings forms, preference cards, buttons/dialogs/menus/icons/toasts |
 | [`tests.md`](tests.md) | `tests/` | Which suite locks a behaviour down, and the exact command to run it |
 | [`scripts-and-ops.md`](scripts-and-ops.md) | `scripts/`, `drizzle/`, Docker/CI/tooling config, `package.json` | Migrations, provisioning, backups, CI jobs, deploy settings |
