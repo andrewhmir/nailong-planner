@@ -103,8 +103,9 @@ describe("bucketOf", () => {
   });
 
   it("anchors on the earliest of the schedule and the deadline", () => {
-    // A later schedule must not hide work that is already due or overdue, and
-    // the deadline alone is a commitment when nothing scheduled the task.
+    // A later schedule must not hide work that is already overdue or due today,
+    // and the deadline alone is a commitment when nothing scheduled the task.
+    expect(bucketOfTask({ scheduledOn: "2026-10-26", dueOn: "2026-10-20" })).toBe("today");
     expect(bucketOfTask({ scheduledOn: "2026-10-26", dueOn: TODAY })).toBe("today");
     expect(bucketOfTask({ scheduledOn: "2026-10-26", dueOn: "2026-11-02" })).toBeNull();
     expect(bucketOfTask({ scheduledOn: "2026-10-23", dueOn: TODAY })).toBe("today");
