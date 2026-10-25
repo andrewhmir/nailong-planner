@@ -669,12 +669,14 @@ test("scenario 3: dropping a task on a day plans it, and its chip opens the task
   const weekTarget = endOfWeek(today, weekStartsOn);
   const stamp = Date.now().toString(36);
   const title = `E2E chip task ${stamp}`;
-  // Days 10–13 are never one of the seeded event days (the 15th and 20th) and
-  // are not where earlier scenarios plan tasks (Today / end of week), so the
-  // chip cannot be pushed behind a full day's "+N more". Already-scheduled days
-  // come from the API rather than a literal, so the seeded today/week-end chips
-  // and any earlier spec's task are excluded even when the month starts near
-  // the beginning of the week.
+  // Days 10–13 are a best-effort quiet-day choice over the current seed and
+  // specs: they avoid the seeded event anchors (the 15th and 20th) and the days
+  // earlier scenarios plan tasks on (Today / the household week end). The
+  // scheduled days come from the API rather than a literal, so the seeded
+  // today/week-end tasks and any earlier spec's task are excluded even when the
+  // month starts near the beginning of the week — but that query is tasks-only,
+  // so an event on one of these days is not excluded: this is a heuristic, not
+  // a guarantee that no "+N more" link covers the chip.
   const alreadyScheduled = new Set(
     (await tasksInView(page, "all"))
       .map((task) => task.scheduledOn)
@@ -761,11 +763,18 @@ test("scenario 5: the partner cannot see the private list or its tasks", async (
 
   // The sidebar tree is shared by every screen: the partner's own Inbox and
   // Projects list plus the shared Ours/Errands lists render; Journal does not.
+  // `exact` is load-bearing: Playwright's default name matching is a
+  // case-insensitive substring, and this shared database also holds scenario
+  // 1's `E2E errands <stamp>` list and sidebar.spec's `E2E errands`, so
+  // `{ name: "Errands" }` would resolve to 2–3 rows and throw a strict-mode
+  // violation before the privacy assertions run. The count assertion also pins
+  // one row per name, so a duplicate cannot pass silently.
   const nav = page.getByRole("navigation", { name: "Collection tree" });
-  await expect(nav.getByRole("checkbox", { name: "Inbox" })).toBeVisible();
-  await expect(nav.getByRole("checkbox", { name: "Projects" })).toBeVisible();
-  await expect(nav.getByRole("checkbox", { name: "Ours" })).toBeVisible();
-  await expect(nav.getByRole("checkbox", { name: "Errands" })).toBeVisible();
+  for (const name of ["Inbox", "Projects", "Ours", "Errands"]) {
+    const row = nav.getByRole("checkbox", { name, exact: true });
+    await expect(row).toHaveCount(1);
+    await expect(row).toBeVisible();
+  }
   await expect(nav.getByRole("checkbox", { name: "Journal" })).toHaveCount(0);
 
   // No triage view may leak the list name or either task title.
@@ -783,7 +792,11 @@ test("scenario 5: the partner cannot see the private list or its tasks", async (
     const response = await page.request.get(`/api/tasks/${id}`);
     expect(response.status()).toBe(404);
   }
-  const collections = (await (await page.request.get("/api/collections")).json()) as unknown;
+  // Assert the response was served before asserting it is clean: a 401 or 500
+  // body would otherwise satisfy the absence check vacuously.
+  const collectionsResponse = await page.request.get("/api/collections");
+  expect(collectionsResponse.ok()).toBeTruthy();
+  const collections = (await collectionsResponse.json()) as unknown;
   expect(JSON.stringify(collections)).not.toContain(fixtures.collections.journal);
 
   // Filtering by the hidden list id is an empty result, not an existence leak.

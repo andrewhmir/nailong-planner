@@ -72,13 +72,18 @@ async function main(): Promise<void> {
   const andrew = { userId: userIds.andrew!, householdId: household.id };
   const partner = { userId: userIds.partner!, householdId: household.id };
 
-  // All calendar dates below derive from the household's "today", never from a
-  // hardcoded day: the E2E suite must stay green in any month.
+  // All dates below derive from the household's "today" rather than the host
+  // clock, so the E2E suite stays green in any month. Task dates are derived in
+  // full; the events keep fixed day-of-month anchors, noted at `dayMid` below.
   const today = localToday(household.timezone);
   const weekStartsOn: 0 | 1 = household.weekStartsOn === 1 ? 1 : 0;
   const weekEnd = endOfWeek(today, weekStartsOn);
   const yesterday = addDaysToDate(today, -1);
   const [year, month] = today.split("-") as [string, string];
+  // The 15th/20th are the pre-v0.2 seed's event anchors, kept deliberately: only
+  // the month is derived, and the exact day is not load-bearing for any spec.
+  // The "no hardcoded dates" rule is about tasks, whose buckets depend on the
+  // day they are scheduled or due; no task date below hardcodes one.
   const dayMid = `${year}-${month}-15`;
   const dayLater = `${year}-${month}-20`;
 
@@ -225,6 +230,10 @@ async function main(): Promise<void> {
     privateTwo,
   ];
 
+  // Fixture ids. The key names are the v0.2 dispatch's shape and stand:
+  // `collections.{ours,errands,projects,journal,andrewInbox,partnerInbox}` and
+  // `tasks.private` as a `string[]` (the plan sketch's single private id is
+  // superseded). `tests/e2e/helpers.ts`'s `Fixtures` type mirrors this object.
   const fixtures = {
     householdId: household.id,
     password: PASSWORD,
