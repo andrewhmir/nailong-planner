@@ -49,6 +49,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     name: session.user.name,
     isSelf: true,
   };
+  const preferences = getPreferences(db, session.user.id);
 
   return (
     <Providers>
@@ -57,7 +58,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         members={members}
         householdName={householdRow?.name ?? "Our Nest"}
         timezone={householdRow?.timezone ?? "Asia/Taipei"}
-        timeFormat={getPreferences(db, session.user.id).timeFormat}
+        preferences={preferences}
       >
         {children}
       </AppShell>

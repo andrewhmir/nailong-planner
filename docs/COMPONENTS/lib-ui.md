@@ -245,6 +245,25 @@ calendar still draws, or an undo action does nothing.
 
 **Tests** — No direct test coverage; `tests/e2e/search.spec.ts` covers the input end to end.
 
+### lib/ui/shortcutGuards.ts
+
+**Purpose** — The two guards every single-key keyboard layer shares: "this event started in a text field" and "a Radix dialog/menu/popover is open". Task 9 extracted them from `useKeyboardShortcuts.ts` and `useUndoHotkey.ts`, which had drifted into two copies (`isTextEntryTarget` vs `isEditableTarget`), so the calendar keys, the task triage keys, the undo hotkeys and the global `Shift+K` capture all agree on when a key belongs to the page.
+
+**Public API**
+- `isTextEntryTarget(target: EventTarget | null): boolean` — true when the target is an `HTMLElement` whose `tagName` is `INPUT`, `TEXTAREA` or `SELECT`, or whose `isContentEditable` is true. Non-element targets (`window`, `document`, `null`) are false.
+- `hasOpenOverlay(): boolean` — `document.querySelector('[role="dialog"], [role="menu"]') !== null`. Radix Dialog and DropdownMenu provide those roles; a Radix Popover content is also a `dialog`, so the Plan popover blocks page keys while it is open.
+
+**State & side effects** — Neither function stores state; both read browser globals at call time (`HTMLElement`, `document`). They must not be called during SSR; importing the module is safe because nothing runs until a function is invoked.
+
+**Depends on / Used by** — No imports. Used by `lib/ui/useKeyboardShortcuts.ts` (calendar keys), `lib/ui/useUndoHotkey.ts` (`z` / `Ctrl+Z`), `lib/ui/useTaskShortcuts.ts` (triage keys) and `components/shell/GlobalCapture.tsx` (`Shift+K`).
+
+**Debugging**
+- A shortcut fires while typing -> the field is not one of the four recognised shapes (for example a `div[role="textbox"]`) -> add it here, not in each hook.
+- Page keys still fire under a dialog -> the overlay container lacks `role="dialog"`/`role="menu"` -> check the overlay component.
+- Escape closes two things -> the overlay's own handler and a page hook both ran -> the hook checks `hasOpenOverlay()` before dispatching Escape.
+
+**Tests** — `tests/unit/shortcut-guards.test.ts` installs a fake `HTMLElement`/`document`, asserts all four editable shapes plus ordinary elements/null/non-element targets, and checks the overlay selector is exactly `[role="dialog"], [role="menu"]`.
+
 ### lib/ui/useKeyboardShortcuts.ts
 
 **Purpose** — Binds Google Calendar's single-key shortcuts (`spec §7.9 / D7`) on `window`, while refusing to fire from text fields, while a modifier is held, and while a dialog or menu is open. Undo is deliberately not here — `useUndoHotkey` owns `z` and `Ctrl/Cmd+Z`.
@@ -257,24 +276,64 @@ calendar still draws, or an undo action does nothing.
 
 **The guards, in order**
 1. The listener is attached only while `enabled` is true, and never reacts to `event.repeat`, `ctrlKey`, `metaKey` or `altKey`.
-2. **No shortcut while typing**: `isTextEntryTarget(event.target)` returns true for `INPUT`, `TEXTAREA`, `SELECT` or `isContentEditable`, and then the handler returns before any key is looked at.
-3. `hasOpenOverlay()` checks `document.querySelector('[role="dialog"], [role="menu"]')`. `Escape` is handled *before* this check but returns early when an overlay is open (Radix owns Escape); every other key is dropped once an overlay exists.
+2. **No shortcut while typing**: `isTextEntryTarget(event.target)` from `./shortcutGuards` returns true for `INPUT`, `TEXTAREA`, `SELECT` or `isContentEditable`, and then the handler returns before any key is looked at.
+3. `hasOpenOverlay()` (also from `./shortcutGuards`) checks `document.querySelector('[role="dialog"], [role="menu"]')`. `Escape` is handled *before* this check but returns early when an overlay is open (Radix owns Escape); every other key is dropped once an overlay exists.
 4. Shift is a separate branch: only `Shift+C` is a gesture (the key is lowercased first because browsers differ on `"C"` vs `"c"`), and shifted keys return without falling through to the letter switch.
 
 Handlers are mirrored into a ref by an effect that runs after every render, so the `keydown` listener closes over the latest callbacks while the effect itself only re-subscribes when `enabled` changes.
 
 **State & side effects** — One `window` `keydown` listener and one ref. No storage, no URL params.
 
-**Depends on / Used by** — `PlannerView` from `components/calendar/Toolbar`. Mounted once in `components/calendar/CalendarShell.tsx` as `useKeyboardShortcuts(preferences.shortcutsEnabled, {...})`; the settings toggle in `components/settings/SettingsForm.tsx` flips that preference.
+**Depends on / Used by** — `PlannerView` from `components/calendar/Toolbar` and the shared guards from `./shortcutGuards`. Mounted once in `components/calendar/CalendarShell.tsx` as `useKeyboardShortcuts(preferences.shortcutsEnabled, {...})`; the settings toggle in `components/settings/SettingsForm.tsx` flips that preference.
 
 **Debugging**
 - No shortcut works -> `enabled` is false (`shortcutsEnabled` preference) or focus sits in an input/textarea -> check the preference row and `document.activeElement`.
-- Shortcuts fire while typing an event title -> the target is not an `INPUT`/`TEXTAREA` (for example a `div[role="textbox"]` in a custom field) -> check `isTextEntryTarget` and the field's element.
+- Shortcuts fire while typing an event title -> the target is not an `INPUT`/`TEXTAREA` (for example a `div[role="textbox"]` in a custom field) -> check `isTextEntryTarget` in `./shortcutGuards.ts`.
 - `Escape` closes nothing, or closes two things -> `hasOpenOverlay` found a leftover `[role="dialog"]`/`[role="menu"]` in the DOM -> inspect the open overlay stack.
 - A shortcut still fires while a dialog is open -> its container lacks `role="dialog"`/`role="menu"` -> check the overlay component.
 - `z` does not undo -> by design, see `useUndoHotkey`.
 
-**Tests** — `tests/e2e/shortcuts.spec.ts` (today/week, `c` with typing, `?`, the settings toggle, `z` vs `Delete`).
+**Tests** — `tests/e2e/shortcuts.spec.ts` (today/week, `c` with typing, `?`, the settings toggle, `z` vs `Delete`); the guard primitives are unit-tested in `tests/unit/shortcut-guards.test.ts`.
+
+### lib/ui/useTaskShortcuts.ts
+
+**Purpose** — The `/tasks` page's keyboard triage layer: `j`/`k` move the row selection, `1`/`2`/`3` triage into Today / the end of this week / Someday, `4` moves to the next writable list, `x` completes, `Enter` opens, `?` lists the keys and `Escape` clears the selection. It is page-scoped like the calendar hook: the calendar's `j`/`k` still mean period navigation on `/`, and the task keys do nothing there because the hook is mounted by `TasksShell` only.
+
+**Public API**
+- `type TaskShortcutAction = { kind: "move"; delta: 1 | -1 } | { kind: "bucket"; bucket: 1 | 2 | 3 } | { kind: "next-list" } | { kind: "complete" } | { kind: "open" } | { kind: "help" } | { kind: "escape" }`.
+- `interface TaskShortcutHandlers { onMoveSelection(delta: 1 | -1); onBucket(bucket: 1 | 2 | 3); onNextList(); onComplete(); onOpen(); onHelp(); onEscape(); }`.
+- `resolveTaskShortcut(event: KeyboardEvent): TaskShortcutAction | null` — the **pure** key map; no DOM reads and no side effects.
+- `useTaskShortcuts(enabled: boolean, handlers: TaskShortcutHandlers): void`.
+
+**Key map**
+
+| Key | Action | Notes |
+|---|---|---|
+| `j` / `k` | `move` +1 / -1 | Clamped by the shell; from no selection `j` starts at the first row and `k` at the last. |
+| `1` | `bucket` 1 | `scheduledOn = localToday(timezone)`. |
+| `2` | `bucket` 2 | `scheduledOn = endOfWeek(today, weekStartsOn)`; on the household week's last day this equals today, so the task appears in Today (D6). |
+| `3` | `bucket` 3 | Clears both `scheduledOn` and `dueOn`, so the task returns to Inbox/Someday by its list. |
+| `4` | `next-list` | Cycles through the viewer's writable `kind="list"` collections; the shell toasts when there is no other list. |
+| `x` | `complete` | PATCHes `status: "done"`. |
+| `Enter` | `open` | Calls the shell's optional `onOpenTask`; Task 10 supplies the editor. |
+| `?` | `help` | Opens `TaskShortcutHelpDialog`. |
+| `Escape` | `escape` | Clears the selection (no overlay is open when this fires). |
+
+`resolveTaskShortcut` ignores `event.repeat`, Ctrl/Cmd/Alt, and shifted keys other than `?` (so the calendar's `Shift+C` never reaches triage); Caps Lock uppercase letters still map because letter comparison is lower-cased.
+
+**Guards** — `useTaskShortcuts` applies the shared `isTextEntryTarget(event.target)` and `hasOpenOverlay()` from `./shortcutGuards` before resolving: typing `j` in the capture field or a task title never moves the selection, and no task key leaks through an open dialog/menu/popover. `Enter` is also left to native activation when focus is on a button, link, menu item or checkbox inside the row (Plan, Options and the completion checkbox are all buttons), so the focused control opens/toggles instead of the editor hand-off. When `enabled` is false (the `shortcutsEnabled` preference) the listener is never attached.
+
+**State & side effects** — One `window` `keydown` listener plus a handlers ref (the listener closes over the latest handlers while re-subscribing only when `enabled` flips). No storage, no queries.
+
+**Depends on / Used by** — `./shortcutGuards` and React. Mounted once by `components/tasks/TasksShell.tsx`; the row selection lives there, not in this hook.
+
+**Debugging**
+- `j`/`x` do nothing -> `shortcutsEnabled` is off, focus is in an input/textarea, or a dialog/menu is open -> check the `data-shortcuts-enabled` attribute on `[data-testid="tasks-shell"]`, `document.activeElement`, and the overlay stack.
+- `j` scrolls the page instead of moving -> the handler did not `preventDefault` (the action was not recognised) -> check the key map’s shift/modifier branches.
+- Task keys fire on the calendar -> `useTaskShortcuts` moved out of `TasksShell` into `AppShell`/a server layout -> the hook must stay page-scoped.
+- Pressing `Enter` does nothing -> expected until Task 10 passes `onOpenTask`; the key is accepted and calls the optional hand-off.
+
+**Tests** — `tests/unit/use-task-shortcuts.test.ts` (every mapping, modifiers, repeats, shifted keys, Caps Lock, unknown keys); the guard side is in `tests/unit/shortcut-guards.test.ts`; the end-to-end triage flow is scenario 2 of `tests/e2e/tasks.spec.ts`.
 
 ### lib/ui/useMediaQuery.ts
 
@@ -301,14 +360,14 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 **Accepted gestures** — The key must be `z`/`Z` with neither `altKey` nor `shiftKey` (so `Ctrl+Shift+Z` redo is ignored). `plain` = neither `ctrl` nor `meta`; `modified` = exactly one of them (holding both is not the gesture). Either one passes, then `preventDefault()` and `void undoLast()`.
 
-**The typing guard** — `isEditableTarget(event.target)` returns true for `INPUT`, `TEXTAREA`, `SELECT` or `isContentEditable`, and the handler returns immediately: `Ctrl+Z` while typing must edit the text, never revert an event. This is a different helper from `useKeyboardShortcuts`' `isTextEntryTarget`, so the two lists can drift.
+**The typing guard** — `isTextEntryTarget(event.target)` from `./shortcutGuards` returns true for `INPUT`, `TEXTAREA`, `SELECT` or `isContentEditable`, and the handler returns immediately: `Ctrl+Z` while typing must edit the text, never revert an event. This is the same shared predicate the calendar and task shortcut hooks use, so the three lists cannot drift.
 
 **State & side effects** — One `window` listener, no state, no storage. It calls into module-level undo state (`lib/ui/undo.ts`), so an undo triggered here is the same stack the toasts use.
 
-**Depends on / Used by** — `undoLast` from `./undo`. Mounted once in `components/calendar/CalendarShell.tsx` (`useUndoHotkey()`).
+**Depends on / Used by** — `undoLast` from `./undo` and `isTextEntryTarget` from `./shortcutGuards`. Mounted once in `components/calendar/CalendarShell.tsx` (`useUndoHotkey()`).
 
 **Debugging**
-- `Ctrl+Z` reverts an event while the cursor is in a field -> the field is not a text-entry element (a `div[role="textbox"]`, a canvas editor) -> check `isEditableTarget` and the field's markup.
+- `Ctrl+Z` reverts an event while the cursor is in a field -> the field is not a text-entry element (a `div[role="textbox"]`, a canvas editor) -> check `isTextEntryTarget` in `./shortcutGuards.ts`.
 - `z` stops working after a reload -> expected: the undo stack is module state and empty after a reload -> `lib/ui/undo.ts`.
 - Undo fires twice for one keystroke -> two components mounted the hook, or another listener also calls `undoLast` -> grep `useUndoHotkey` and `undoLast` call sites.
 
@@ -367,6 +426,6 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 ## Focused verification
 
 ```bash
-npx vitest run tests/unit/calendarPicker.test.ts tests/unit/view.test.ts tests/unit/visibility.test.ts tests/unit/visibleCollections.test.ts tests/unit/treeFold.test.ts
+npx vitest run tests/unit/calendarPicker.test.ts tests/unit/view.test.ts tests/unit/visibility.test.ts tests/unit/visibleCollections.test.ts tests/unit/treeFold.test.ts tests/unit/shortcut-guards.test.ts tests/unit/use-task-shortcuts.test.ts
 npm run lint && npm run typecheck
 ```

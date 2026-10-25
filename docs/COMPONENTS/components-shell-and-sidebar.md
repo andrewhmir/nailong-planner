@@ -6,10 +6,11 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 
 | File | Role |
 |---|---|
-| `components/shell/AppShell.tsx` | Viewport-locked frame: rail, breadcrumb, desktop sidebar, phone sheet |
+| `components/shell/AppShell.tsx` | Viewport-locked frame: rail, breadcrumb, desktop sidebar, phone sheet, global capture |
 | `components/shell/Brand.tsx` | Logomark tile (initial in a white square), optional name |
 | `components/shell/BreadcrumbBar.tsx` | 72px header: household + route crumb, search, person pills |
 | `components/shell/ComingSoonDialog.tsx` | "What's coming" dialog behind a gated roadmap destination |
+| `components/shell/GlobalCapture.tsx` | `Shift+K` quick-capture dialog that files a task in the Inbox from any page |
 | `components/shell/GlobalNavRail.tsx` | 54px dark rail: live destinations, greyed roadmap icons, account menu |
 | `components/shell/VisibilityProvider.tsx` | React context carrying the `VisibilityApi` to descendants |
 | `components/sidebar/CollectionDialog.tsx` | Create/rename collection form (kind, owner, visibility, hue) |
@@ -24,21 +25,43 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 
 **Purpose** — The application frame for every `app/(app)` route. It renders the nav rail, breadcrumb bar, one desktop sidebar, and a phone/tablet sheet that reuses the same collection tree, inside a `h-dvh overflow-hidden` viewport lock. The landmarks name the mixed tree, not just calendars: the tree is a `nav` labelled `Collection tree`, the sheet is a `dialog` labelled `Collections`, and its controls are `Open collections` / `Close collections`.
 
-**Public API** — `export interface MemberSummary { id: string; name: string; isSelf: boolean }`; `export function AppShell(props: Props)`. Props: `currentUser: { id; name }`, `members: MemberSummary[]`, `householdName: string`, `timezone: string`, `timeFormat: TimeFormat`, `children: React.ReactNode`. Route labels live in module scope: `ROUTE_CRUMBS`, built from `LIVE_ENTRIES` in `lib/roadmap.ts`, and `FALLBACK_CRUMB = "Calendar"`.
+**Public API** — `export interface MemberSummary { id: string; name: string; isSelf: boolean }`; `export function AppShell(props: Props)`. Props: `currentUser: { id; name }`, `members: MemberSummary[]`, `householdName: string`, `timezone: string`, `preferences: UserPreferences` (the server snapshot read by `app/(app)/layout.tsx`; `timeFormat` for the header and the initial data for `GlobalCapture` come from it), `children: React.ReactNode`. Route labels live in module scope: `ROUTE_CRUMBS`, built from `LIVE_ENTRIES` in `lib/roadmap.ts`, and `FALLBACK_CRUMB = "Calendar"`.
 
-**State & side effects** — `usePathname()` for the crumb and rail highlight; `sidebarOpen` state for the sheet; `comingSoon: RoadmapEntry | null` plus a `comingSoonTrigger` ref drive the shared "what's coming" dialog — the rail and the phone drawer both call `openComingSoon(entry, trigger)`, and `closeComingSoon` restores focus to that trigger once the dialog has unmounted; `useVisibility(currentUser.id)` owns the visibility state (persisted under `localStorage` key `nailong.visibility.<userId>` by that hook); `useTreeFold(currentUser.id)` owns the sidebar's fold state (persisted under `nailong.treeFold.<userId>`) and is passed to both tree copies as `fold`, so folding moves them in lockstep; `VisibilityProvider` publishes the visibility API. No queries and no URL writes. The `CollectionTree` element is created once and rendered twice (desktop `aside` and the sheet), so both copies share the TanStack cache and the fold state but have independent local dialog state. Focus is not trapped in the sheet.
+**State & side effects** — `usePathname()` for the crumb and rail highlight; `sidebarOpen` state for the sheet; `comingSoon: RoadmapEntry | null` plus a `comingSoonTrigger` ref drive the shared "what's coming" dialog — the rail and the phone drawer both call `openComingSoon(entry, trigger)`, and `closeComingSoon` restores focus to that trigger once the dialog has unmounted; `useVisibility(currentUser.id)` owns the visibility state (persisted under `localStorage` key `nailong.visibility.<userId>` by that hook); `useTreeFold(currentUser.id)` owns the sidebar's fold state (persisted under `nailong.treeFold.<userId>`) and is passed to both tree copies as `fold`, so folding moves them in lockstep; `VisibilityProvider` publishes the visibility API. No queries and no URL writes. The `CollectionTree` element is created once and rendered twice (desktop `aside` and the sheet), so both copies share the TanStack cache and the fold state but have independent local dialog state. `<GlobalCapture initialPreferences={preferences} />` is mounted once at the end of the frame, so the global `Shift+K` gesture exists on every signed-in page; the component seeds `usePreferences` with this snapshot and gates itself on the live `shortcutsEnabled` value. Focus is not trapped in the sidebar sheet (the global capture dialog does trap focus while it is open).
 
-**Depends on / Used by** — `next/link`, `next/navigation`, `components/sidebar/CollectionTree`, `components/sidebar/SidebarMiniMonth`, `components/ui/button`, `components/ui/icons`, `lib/roadmap` (`LIVE_ENTRIES`, `ROADMAP`, `gateLabel`, `RoadmapEntry`), `lib/services/preferences` (`TimeFormat`), `lib/ui/useTreeFold`, `lib/ui/useVisibility`. Plus `./Brand`, `./BreadcrumbBar`, `./ComingSoonDialog`, `./GlobalNavRail`, `./VisibilityProvider`. Rendered by `app/(app)/layout.tsx`, which resolves the session, members, household name/timezone and preferences.
+**Depends on / Used by** — `next/link`, `next/navigation`, `components/sidebar/CollectionTree`, `components/sidebar/SidebarMiniMonth`, `components/ui/button`, `components/ui/icons`, `lib/roadmap` (`LIVE_ENTRIES`, `ROADMAP`, `gateLabel`, `RoadmapEntry`), `lib/services/preferences` (`UserPreferences`), `lib/ui/useTreeFold`, `lib/ui/useVisibility`. Plus `./Brand`, `./BreadcrumbBar`, `./ComingSoonDialog`, `./GlobalCapture`, `./GlobalNavRail`, `./VisibilityProvider`. Rendered by `app/(app)/layout.tsx`, which resolves the session, members, household name/timezone and preferences.
 
 **Debugging** —
 - A new `(app)` route shows "Calendar" as its crumb -> its roadmap entry is still `status: "planned"` (route-derived labels are the only mechanism) -> flip `lib/roadmap.ts`, not this file.
 - A gated dialog closes onto the document body instead of its trigger -> the opening control unmounted before the close (the phone drawer closed first) -> `openComingSoon`/`closeComingSoon`.
+- `Shift+K` does nothing on every page -> `GlobalCapture` is not mounted, or the server snapshot says `shortcutsEnabled: false` -> this file plus the `preferences` row.
+- `Shift+K` keeps firing after the Settings toggle is turned off -> `GlobalCapture` stopped reading `usePreferences` and used the static prop -> check `components/shell/GlobalCapture.tsx`.
 - The document scrolls on a phone -> the `h-dvh overflow-hidden` frame or `min-h-0` on an inner flex child was dropped -> this file's top-level `div` and `main`.
 - The sidebar sheet opens on desktop -> `lg:hidden` on the overlay wrapper was lost -> the `sidebarOpen` block.
 - Collection mutations from the sheet seem to reset -> two `CollectionTree` instances with separate `dialog`/`pendingDelete` state -> expected; the shared cache keeps data consistent.
 - A Playwright locator for the sidebar stops resolving -> the landmark/control names changed with the mixed tree (`Collection tree`, `Collections`, `Open collections`/`Close collections`) -> update the spec, not this file.
 
-**Tests** — `tests/e2e/shell.spec.ts`, `tests/e2e/mobile.spec.ts`, `tests/e2e/viewport-fit.spec.ts`, `tests/e2e/sidebar.spec.ts`, `tests/e2e/roadmap-nav.spec.ts`.
+**Tests** — `tests/e2e/shell.spec.ts`, `tests/e2e/mobile.spec.ts`, `tests/e2e/viewport-fit.spec.ts`, `tests/e2e/sidebar.spec.ts`, `tests/e2e/roadmap-nav.spec.ts`; the mounted `GlobalCapture` gesture is scenario 2 of `tests/e2e/tasks.spec.ts`.
+
+### components/shell/GlobalCapture.tsx
+
+**Purpose** — App-wide quick capture: pressing `Shift+K` anywhere opens a one-field dialog; `Enter` files the title in the viewer's Inbox without navigating, toasts `Task captured` with an Undo action, closes and returns focus to whatever was focused before the dialog opened.
+
+**Public API** — `export function GlobalCapture(props: { initialPreferences: UserPreferences })`. Mounted once by `AppShell`; no route or page props. The dialog input id is `global-capture-title` (the page capture bar owns `task-capture`).
+
+**State & side effects** — Local `open` and `title`; a `returnFocusRef` for the trigger. `usePreferences(initialPreferences)` seeds from the server snapshot and reads the live cache, so flipping the Settings toggle updates the gesture immediately; `preferences.shortcutsEnabled` gates the `window` `keydown` listener (no listener at all when off). The handler accepts only `Shift+K` with no Ctrl/Meta/Alt and no `event.repeat`, and returns early through `isTextEntryTarget`/`hasOpenOverlay` from `lib/ui/shortcutGuards`, so typing `Shift+K` in a field or opening it under a dialog does nothing. `useCreateTask()` POSTs `{ title }` (the server defaults to the caller's Inbox) and invalidates `["tasks"]`; the title is trimmed and an empty title is ignored. On success: clear the field, close, push `{ label: "Capture task", undo: () => deleteTask.mutateAsync(task.id) }` onto `lib/ui/undo.ts`, then `toast.success("Task captured", { action: { label: "Undo", onClick: () => void undoLast() }, duration: 10_000 })`. Failure keeps the dialog and text open and toasts `Could not add the task.`; cancelling keeps the typed text for the next open. The form's submit button is disabled while pending/empty and both controls grow to 44px on a coarse pointer. Closing (Escape, outside-click, Cancel, or success) restores focus on the next paint if the original element is still connected.
+
+**Depends on / Used by** — `lib/query/tasks` (`useCreateTask`, `useDeleteTask`), `lib/query/preferences` (`usePreferences`), `lib/services/preferences` (`UserPreferences`), `lib/ui/shortcutGuards`, `lib/ui/undo` (`pushUndo`, `undoLast`), `components/ui/button`, `components/ui/dialog`, `sonner`. Rendered once by `components/shell/AppShell.tsx`.
+
+**Debugging**
+- `Shift+K` never opens -> `shortcutsEnabled` is off, focus is in an input/textarea, or a dialog/menu is already open -> check the preference and `lib/ui/shortcutGuards.ts`.
+- `Shift+K` opens while typing a task title -> the field is not an `INPUT`/`TEXTAREA`/`SELECT`/`contentEditable` -> the shared guard.
+- The task is not in the Inbox -> `POST /api/tasks` failed (read the toast) or an explicit `collectionId` was added to the payload -> this file's `{ title }` only.
+- Undo deletes the wrong task -> the stack is global LIFO; another action was pushed between capture and Undo -> `lib/ui/undo.ts`; check the toast's timing.
+- Focus lands on `<body>` after closing -> the previously focused element unmounted -> `returnFocusRef` intentionally skips a disconnected node.
+- Capture works on `/` but not `/tasks` -> `GlobalCapture` moved out of `AppShell` or the app layout stopped rendering it -> `components/shell/AppShell.tsx`.
+
+**Tests** — Scenario 2 of `tests/e2e/tasks.spec.ts` (from the calendar: `Shift+K`, type, Enter, toast, no navigation, then the task is in `/tasks` Inbox). The Undo action is not covered by that scenario; no component renderer exists, so it is asserted by the toast payload shape only in review.
 
 ### components/shell/Brand.tsx
 
@@ -167,7 +190,7 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 - A view-only row offers Edit/Delete -> the `readOnly` prop was computed without folding the parent's flags -> the `foldCollectionPermission` call in `CollectionTree`.
 - Sub-calendar dots all look identical -> `shadeIndex` is duplicated in the DB or `ownerHue` fell back to `"slate"` -> `hueOf` in `CollectionTree`.
 - A list row has no family colour -> the glyph lost its inherited `color: tokens.main` or the row fell back to a non-palette hue -> this file's kind-marker block plus `hueOf`.
-- A private row lacks the lock -> the row was given its own `visibility` instead of the root's effective value -> `effectivePermission` in `CollectionTree`.
+- A private row lacks the lock -> the row was given its own `visibility` instead of the root's folded value -> `foldCollectionPermission` in `CollectionTree`.
 - A screen-reader user cannot tell a calendar row from a list row -> the `sr-only` kind word was dropped or moved inside the `aria-hidden` marker -> this file's row body.
 - A child row can change Shared/View only/Private -> `canChangeVisibility` was computed for a child -> the child `CollectionRow` wiring in `CollectionTree`.
 - The disclosure chevron does nothing -> `foldable`/`onToggleFold` was not passed for that root, or the row is a child (children fold with their parent) -> this file's `canFold` plus `CollectionTree`.

@@ -274,7 +274,7 @@ any wrapper in the shell/calendar tree.
 | 403 "not part of this household" | `member` row missing — household not provisioned | `npm run provision` |
 | 500 with generic message | a non-`AppError` was thrown; the real error is only in the server log | `[api] unhandled error` in the dev server output; throw `AppError` for expected failures |
 | Zod/field errors on a valid form | request body shape vs `lib/validation/*.ts` schema (field names, `.strict()`) | the matching schema + the mutation in `lib/query/*` |
-| Shortcut fires while typing | the input is not recognized as editable by the guard | `lib/ui/useKeyboardShortcuts.ts` |
+| Shortcut fires while typing | the input is not recognized as editable by the shared guard | `lib/ui/shortcutGuards.ts` `isTextEntryTarget` |
 | Settings change has no effect | preference cached by TanStack Query; check the query key and invalidation | `lib/query/preferences.ts`, `lib/services/preferences.ts` |
 | Wrong month on load / deep link | `?date=` / `?event=` parsing and remembered last view | `lib/ui/view.ts`, `lib/ui/lastView.ts`, `app/(app)/page.tsx` |
 | Two popups at once (event details over a new-event bubble, or the reverse) | two surfaces were opened without dismissing each other: the search deep-link poll landed after the user started creating, or an opener skipped clearing the other state | `components/calendar/CalendarShell.tsx` (`overlaySeqRef`/`linkSeqRef`; `openQuickCreate`, `openDialog`, `requestDeleteFor`, `handleEventClick` each clear the others) |
@@ -306,7 +306,7 @@ any wrapper in the shell/calendar tree.
 | Task counts stay the same after picking a list or a view | intended: `counts` are global over visible open tasks and ignore `collectionId`/`view` | `lib/services/tasks.ts` `listTasks` |
 | A deleted task cannot be restored | there is no trash table: `deleteTask` hard-deletes and the checklist cascades, so undo re-creates the task with a new id | `lib/services/tasks.ts` `deleteTask`, the undo call site |
 | Checklist item ids change on every save | intended: a checklist PATCH is a full replacement (delete all, insert in array order), not a diff | `lib/services/tasks.ts` `replaceChecklist` |
-| `z` / `Ctrl+Z` undoes an event while editing a rich-text field | two divergent typing guards (`isTextEntryTarget`, `isEditableTarget`) and neither recognises `div[role="textbox"]` | `lib/ui/useKeyboardShortcuts.ts`, `lib/ui/useUndoHotkey.ts` |
+| `z` / `Ctrl+Z` undoes an event while editing a rich-text field | the field is not a text-entry element the shared `isTextEntryTarget` recognizes (`INPUT`/`TEXTAREA`/`SELECT`/`contentEditable`; a `div[role="textbox"]` is not) | `lib/ui/shortcutGuards.ts` |
 | Child calendar renders identical to its parent | `shadeIndex` 3 is reserved for the root; children must come from `[4,2,5,1,6,0,7]`, so a child stored as 3 collides with the parent | `lib/color/palette.ts`, `lib/services/collections.ts` |
 | An error response's status does not match its code | `AppError.status` is an explicit constructor argument, not derived from `code` | `lib/errors.ts`; the throw site |
 | Changing `TZ` has no runtime effect | `TZ` is validated in `lib/env.ts` but nothing reads it; the household zone comes from `household.timezone` | `lib/env.ts`, `lib/time/zone.ts`, household settings |
@@ -349,6 +349,8 @@ any wrapper in the shell/calendar tree.
 | E2E fails only in some months | a spec hardcoded a month/day instead of deriving it (the October 2026 literals were removed) | use `currentMonthLabel()`/`dayMonthLabel()` from `tests/e2e/helpers.ts`; CI pins `TZ=Asia/Taipei` for the runner |
 | A large import makes a concurrent write fail with `database is locked` | one transaction longer than `busy_timeout` blocks the next writer; 2000 events take ~4.8 s | `lib/db/client.ts` sets 15 s; keep single-batch imports under the 50 000-event cap and avoid parallel writers |
 | A task shows in the wrong triage bucket, or a past-due task is missing from Today | buckets are derived at read time, never stored (a stored bucket goes stale at midnight); task dates are date-only strings, not event epochs; the earliest of scheduledOn/dueOn anchors a task, so a past-due task is never stranded | `lib/domain/tasks.ts` `bucketOf`'s `effective` anchor; `ctx.today`/`ctx.endOfWeek`/`ctx.inboxId` at the call site |
+| Single-key task shortcuts never fire, or fire on the calendar | `/tasks` keys are page-scoped to `TasksShell` and blocked while typing or with any open overlay (dialog, menu, Plan popover); the calendar's `j`/`k` are period navigation, not row movement; `shortcutsEnabled` off removes the listener entirely | `lib/ui/useTaskShortcuts.ts` (`resolveTaskShortcut`, guards), `lib/ui/shortcutGuards.ts`, `components/tasks/TasksShell.tsx` (`data-shortcuts-enabled`) |
+| `Shift+K` does nothing, or opens while typing | the gesture is gated on the same `shortcutsEnabled` preference (read live through `usePreferences`) and the shared typing/overlay guards; it is mounted once in `AppShell`, not by a page | `components/shell/GlobalCapture.tsx`, `components/shell/AppShell.tsx`, `lib/ui/shortcutGuards.ts` |
 
 ## 5. Adding a feature — the touch list
 

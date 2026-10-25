@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type { PlannerView } from "@/components/calendar/Toolbar";
+import { hasOpenOverlay, isTextEntryTarget } from "./shortcutGuards";
 
 /**
  * Single-key shortcuts, matching Google Calendar where the gesture exists
@@ -25,21 +26,6 @@ export interface ShortcutHandlers {
   onEscape: () => void;
   /** `g` — later tasks add the picker; absent means the key is ignored. */
   onOpenDatePicker?: () => void;
-}
-
-function isTextEntryTarget(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLElement &&
-    (target.tagName === "INPUT" ||
-      target.tagName === "TEXTAREA" ||
-      target.tagName === "SELECT" ||
-      target.isContentEditable)
-  );
-}
-
-/** Radix dialogs/popovers/menus own Escape and their own keys. */
-function hasOpenOverlay(): boolean {
-  return document.querySelector('[role="dialog"], [role="menu"]') !== null;
 }
 
 export function useKeyboardShortcuts(enabled: boolean, handlers: ShortcutHandlers): void {

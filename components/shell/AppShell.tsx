@@ -8,12 +8,13 @@ import { SidebarMiniMonth } from "@/components/sidebar/SidebarMiniMonth";
 import { Button } from "@/components/ui/button";
 import { MenuIcon } from "@/components/ui/icons";
 import { LIVE_ENTRIES, ROADMAP, gateLabel, type RoadmapEntry } from "@/lib/roadmap";
-import type { TimeFormat } from "@/lib/services/preferences";
+import type { UserPreferences } from "@/lib/services/preferences";
 import { useTreeFold } from "@/lib/ui/useTreeFold";
 import { useVisibility } from "@/lib/ui/useVisibility";
 import { Brand } from "./Brand";
 import { BreadcrumbBar } from "./BreadcrumbBar";
 import { ComingSoonDialog } from "./ComingSoonDialog";
+import { GlobalCapture } from "./GlobalCapture";
 import { GlobalNavRail } from "./GlobalNavRail";
 import { VisibilityProvider } from "./VisibilityProvider";
 
@@ -28,7 +29,8 @@ interface Props {
   members: MemberSummary[];
   householdName: string;
   timezone: string;
-  timeFormat: TimeFormat;
+  /** The current user's server snapshot; `timeFormat` and global capture read it. */
+  preferences: UserPreferences;
   children: React.ReactNode;
 }
 
@@ -49,7 +51,7 @@ export function AppShell({
   members,
   householdName,
   timezone,
-  timeFormat,
+  preferences,
   children,
 }: Props) {
   const pathname = usePathname();
@@ -131,7 +133,7 @@ export function AppShell({
             me={currentUser.name}
             partner={partnerName}
             timezone={timezone}
-            timeFormat={timeFormat}
+            timeFormat={preferences.timeFormat}
             onOpenSidebar={() => setSidebarOpen(true)}
           />
 
@@ -208,6 +210,7 @@ export function AppShell({
         ) : null}
 
         <ComingSoonDialog entry={comingSoon} onClose={closeComingSoon} />
+        <GlobalCapture initialPreferences={preferences} />
       </div>
     </VisibilityProvider>
   );

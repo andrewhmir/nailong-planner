@@ -1,30 +1,19 @@
 "use client";
 
 import { useEffect } from "react";
+import { isTextEntryTarget } from "./shortcutGuards";
 import { undoLast } from "./undo";
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-  const tag = target.tagName;
-  return (
-    tag === "INPUT" ||
-    tag === "TEXTAREA" ||
-    tag === "SELECT" ||
-    target.isContentEditable
-  );
-}
 
 /**
  * Binds Google Calendar's two undo gestures: plain `z` and `Ctrl/Cmd+Z`. Text
  * fields keep their native undo — pressing Ctrl+Z while typing must edit the
- * text, never revert an event.
+ * text, never revert an event. The typing guard is the shared
+ * `isTextEntryTarget`, the same predicate every keyboard layer uses.
  */
 export function useUndoHotkey(): void {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
-      if (isEditableTarget(event.target)) {
+      if (isTextEntryTarget(event.target)) {
         return;
       }
       if (event.key.toLowerCase() !== "z" || event.altKey || event.shiftKey) {

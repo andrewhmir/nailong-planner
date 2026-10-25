@@ -23,6 +23,10 @@ interface Props {
   task: TaskView;
   /** Household-local today, for `Overdue` and the Plan popover's Today button. */
   today: string;
+  /** True when this row is the triage layer's current selection. */
+  selected: boolean;
+  /** Fired by any focus inside the row, so clicking or tabbing selects it. */
+  onFocus: () => void;
   /** Writable lists this task may move to, with the current list already removed. */
   moveTargets: ReadonlyArray<{ id: string; name: string }>;
   onToggleDone: (done: boolean) => void;
@@ -34,13 +38,17 @@ interface Props {
 
 /**
  * One task row: completion checkbox, title, due badge, the owning list's shade
- * dot, Plan and the row menu. The row itself is focusable and draggable — the
- * keyboard triage layer (Task 9) and the calendar chips (Task 11) read
- * `data-task-id` / the `text/x-nailong-task` payload from it.
+ * dot, Plan and the row menu. The row itself is focusable, draggable and the
+ * triage layer's selection unit: it carries `aria-current`/`data-selected` when
+ * selected, gains a visible background, and reports focus upward so a click or
+ * Tab lands on the same selection `j`/`k` move. `data-task-id` and the
+ * `text/x-nailong-task` payload are read by the calendar chips (Task 11).
  */
 export function TaskRow({
   task,
   today,
+  selected,
+  onFocus,
   moveTargets,
   onToggleDone,
   onPlan,
@@ -61,11 +69,18 @@ export function TaskRow({
       tabIndex={0}
       draggable
       data-task-id={task.id}
+      data-selected={selected ? "true" : undefined}
+      aria-current={selected ? "true" : undefined}
+      aria-label={task.title}
+      onFocus={onFocus}
       onDragStart={(event) => {
         event.dataTransfer.setData("text/x-nailong-task", task.id);
         event.dataTransfer.effectAllowed = "move";
       }}
-      className="group relative flex items-center gap-3 border-b border-line px-2 py-1.5 outline-none last:border-b-0 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link"
+      className={cn(
+        "group relative flex items-center gap-3 border-b border-line px-2 py-1.5 outline-none last:border-b-0 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
+        selected && "bg-well",
+      )}
     >
       <Checkbox
         label={task.title}

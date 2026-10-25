@@ -76,6 +76,19 @@ async function serverCounts(page: Page): Promise<TaskCounts> {
   return ((await response.json()) as { counts: TaskCounts }).counts;
 }
 
+interface ApiTask {
+  id: string;
+  title: string;
+  status: string;
+}
+
+/** The tasks of one view, in the exact order the server sends (and the shell renders). */
+async function tasksInView(page: Page, view: "inbox" | "today"): Promise<ApiTask[]> {
+  const response = await page.request.get(`/api/tasks?view=${view}`);
+  expect(response.ok()).toBeTruthy();
+  return ((await response.json()) as { tasks: ApiTask[] }).tasks;
+}
+
 /** The task row `li`; `data-task-id` makes the locator self-describing. */
 function taskRow(page: Page, title: string) {
   return page.locator("li[data-task-id]", {
@@ -146,7 +159,8 @@ test("captured and planned tasks keep their buckets across a reload", async ({ p
   await capture(page, todayTitle);
   await capture(page, weekTitle);
 
-  // No keyboard triage yet (Task 9): schedule through the Plan popover.
+  // Scenario 1 deliberately uses the Plan popover, so it keeps testing the mouse
+  // path; the keyboard triage layer has its own scenario below.
   await planTask(page, todayTitle, today, today);
   await planTask(page, weekTitle, weekTarget, today);
 
@@ -197,4 +211,110 @@ test("captured and planned tasks keep their buckets across a reload", async ({ p
   } else {
     await expect(page.getByRole("checkbox", { name: weekTitle })).toBeVisible();
   }
+});
+
+test("Shift+K captures from the calendar and triage keys work without a mouse", async ({ page }) => {
+  const stamp = Date.now().toString(36);
+  const title = `E2E global capture ${stamp}`;
+  const neighbourTitle = `E2E triage neighbour ${stamp}`;
+
+  // Global capture starts on the calendar and must not navigate there.
+  await expect(page).toHaveURL(/\/$/);
+  await page.keyboard.press("Shift+K");
+  const captureDialog = page.getByRole("dialog", { name: "Capture a task" });
+  await expect(captureDialog).toBeVisible();
+  await captureDialog.locator("#global-capture-title").fill(title);
+  await captureDialog.locator("#global-capture-title").press("Enter");
+  await expect(page.locator("[data-sonner-toast]", { hasText: "Task captured" })).toBeVisible();
+  await expect(captureDialog).toBeHidden();
+  await expect(page).toHaveURL(/\/$/);
+
+  await page.goto("/tasks");
+  await expect(page.getByRole("heading", { name: "Tasks", exact: true })).toBeVisible();
+  // Inbox is the default view: the captured task is visible without switching.
+  await expect(page.getByRole("checkbox", { name: title })).toBeVisible();
+
+  // A second Inbox task gives the keyboard selection somewhere to move. Both
+  // titles are unique, so the row locators cannot collide with seeded tasks.
+  await page.locator("#task-capture").fill(neighbourTitle);
+  await page.locator("#task-capture").press("Enter");
+  await expect(page.getByRole("checkbox", { name: neighbourTitle })).toBeVisible();
+
+  const inbox = await tasksInView(page, "inbox");
+  const captured = inbox.find((task) => task.title === title);
+  const neighbour = inbox.find((task) => task.title === neighbourTitle);
+  expect(captured).toBeTruthy();
+  expect(neighbour).toBeTruthy();
+  const taskId = captured!.id;
+  const neighbourId = neighbour!.id;
+  const neighbourIndex = inbox.findIndex((task) => task.id === neighbourId);
+  expect(neighbourIndex).toBeGreaterThan(0);
+
+  // Focus the first row, then walk with `j` until the neighbour (captured after
+  // the task, so it follows it in the list) and step back with `k`.
+  const firstRow = page.locator("li[data-task-id]").first();
+  await firstRow.focus();
+  await expect(firstRow).toHaveAttribute("data-selected", "true");
+  for (let step = 0; step < neighbourIndex; step += 1) {
+    await page.keyboard.press("j");
+  }
+  await expect(page.locator(`li[data-task-id="${neighbourId}"]`)).toHaveAttribute(
+    "data-selected",
+    "true",
+  );
+  await page.keyboard.press("k");
+  await expect(
+    page.locator(`li[data-task-id="${inbox[neighbourIndex - 1]!.id}"]`),
+  ).toHaveAttribute("data-selected", "true");
+
+  // Select the captured task directly (focus = selection), then prove typing
+  // inside the page capture field does not move it.
+  await page.locator(`li[data-task-id="${taskId}"]`).focus();
+  await expect(page.locator(`li[data-task-id="${taskId}"]`)).toHaveAttribute(
+    "data-selected",
+    "true",
+  );
+  await page.locator("#task-capture").focus();
+  await page.keyboard.press("j");
+  await expect(page.locator("#task-capture")).toHaveValue("j");
+  await expect(page.locator(`li[data-task-id="${taskId}"]`)).toHaveAttribute(
+    "data-selected",
+    "true",
+  );
+  await page.locator("#task-capture").fill("");
+
+  // `1` schedules the selected task for Today; it leaves the Inbox.
+  await page.locator(`li[data-task-id="${taskId}"]`).focus();
+  await expect(page.locator(`li[data-task-id="${taskId}"]`)).toHaveAttribute(
+    "data-selected",
+    "true",
+  );
+  await page.keyboard.press("1");
+  await expect(page.getByRole("checkbox", { name: title })).toHaveCount(0);
+  expect((await tasksInView(page, "today")).some((task) => task.id === taskId)).toBe(true);
+
+  // `x` completes the remaining task without any pointer input: focus the first
+  // Inbox row, walk to the neighbour, complete it. This is acceptance criterion 1.
+  const remaining = await tasksInView(page, "inbox");
+  const remainingNeighbourIndex = remaining.findIndex((task) => task.id === neighbourId);
+  expect(remainingNeighbourIndex).toBeGreaterThanOrEqual(0);
+  const firstRemaining = page.locator("li[data-task-id]").first();
+  await firstRemaining.focus();
+  await expect(firstRemaining).toHaveAttribute("data-selected", "true");
+  for (let step = 0; step < remainingNeighbourIndex; step += 1) {
+    await page.keyboard.press("j");
+  }
+  await expect(page.locator(`li[data-task-id="${neighbourId}"]`)).toHaveAttribute(
+    "data-selected",
+    "true",
+  );
+  await page.keyboard.press("x");
+  await expect(page.getByRole("checkbox", { name: neighbourTitle })).toHaveCount(0);
+  const completed = await page.request.get(`/api/tasks/${neighbourId}`);
+  expect(completed.ok()).toBeTruthy();
+  expect(((await completed.json()) as { task: ApiTask }).task.status).toBe("done");
+
+  // The scheduled task is still open and now lives in Today.
+  await selectView(page, "Today");
+  await expect(page.getByRole("checkbox", { name: title })).toBeVisible();
 });
