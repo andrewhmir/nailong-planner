@@ -18,7 +18,9 @@ npm run db:migrate && npm run provision       # empty database / no household
 npx vitest run tests/unit/view.test.ts        # one unit file
 npx vitest run tests/integration/events.test.ts
 npx vitest run tests/unit/recurrence.test.ts -t "exdate"   # one test name
+npx tsx scripts/seed-test-db.mts              # reseed .playwright/test.db + fixtures.json
 npx playwright test tests/e2e/events.spec.ts  # one spec
+npx playwright test tests/e2e/tasks.spec.ts   # the tasks workspace (seeded lists/tasks)
 npx playwright test tests/e2e/events.spec.ts --headed --debug
 
 # Before claiming done
@@ -333,7 +335,7 @@ any wrapper in the shell/calendar tree.
 | SQL still names `calendar` or `is_view_only_for_partner` after v0.2 | migration `0005` renamed the table and replaced the flag with `visibility`; the TypeScript layer is unconditionally `collection`/`CollectionRow` (no alias), so check the SQL/snapshot names, not an import name | `drizzle/0005_collections_and_tasks.sql`, `lib/db/schema.ts` |
 | A script sees none of the `.env` values | each script must call `loadEnv()` **before** importing `lib/env` (hence the dynamic `await import(...)`); only the first of `.env.local`/`.env` is loaded, from `process.cwd()` | `scripts/load-env.mts`, `lib/env.ts` |
 | E2E sign-in fails though the seed ran | `scripts/seed-test-db.mts` forces a fixed secret after loading env; `playwright.config.ts` must set the same one | both files |
-| E2E passes now but fails on a later date | `tests/e2e/view-preference.spec.ts` hardcodes "October 2026" while the seed fixtures come from the current month | that spec, `scripts/seed-test-db.mts` |
+| E2E passes now but fails on a later date | a spec hardcoded a month/day or assumed an empty task view: the seed derives every date from `localToday(household.timezone)` and now also seeds task rows. Derive dates with `currentMonthLabel()`/`householdToday()`/`endOfWeek()` and assert count deltas or `li[data-task-id]` titles | `tests/e2e/helpers.ts`, `tests/e2e/tasks.spec.ts`, `scripts/seed-test-db.mts` |
 | An imported event is at the wrong time | the `.ics` used jCal-style date values instead of RFC 5545 compact ones, the `TZID` parameter was dropped, or the event's `tzid` is null so it expanded in the household zone | `lib/import/ics.ts` `resolveTime`, the event's `tzid`; fixtures in `tests/fixtures/ics/` |
 | Re-importing a Google export duplicates events | `external_key` changed between parses (UID or `RECURRENCE-ID` read differently), or the old rows predate the external columns (null keys) | `lib/import/ics.ts` `externalKeyFor`, `event.external_key` |
 | Re-import reports "unchanged" but events stay in the old calendar | a mapping change is only written when the target differs from the row's calendar; check the commit's `moved` branch in `lib/services/import.ts` | `commitImport` (`moved`), the `import_change` row |

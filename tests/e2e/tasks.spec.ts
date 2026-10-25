@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ANDREW, loadFixtures, signIn } from "./helpers";
+import { ANDREW, loadFixtures, PARTNER, signIn } from "./helpers";
 
 const fixtures = loadFixtures();
 
@@ -105,7 +105,10 @@ interface ApiTask {
 }
 
 /** The tasks of one view, in the exact order the server sends (and the shell renders). */
-async function tasksInView(page: Page, view: "inbox" | "today"): Promise<ApiTask[]> {
+async function tasksInView(
+  page: Page,
+  view: "inbox" | "today" | "all",
+): Promise<ApiTask[]> {
   const response = await page.request.get(`/api/tasks?view=${view}`);
   expect(response.ok()).toBeTruthy();
   return ((await response.json()) as { tasks: ApiTask[] }).tasks;
@@ -123,6 +126,13 @@ function taskRow(page: Page, title: string) {
   return page.locator("li[data-task-id]", {
     has: page.getByRole("checkbox", { name: title }),
   });
+}
+
+/** The task ids currently rendered in the open view, in DOM order. */
+async function renderedTaskIds(page: Page): Promise<string[]> {
+  return page
+    .locator("li[data-task-id]")
+    .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-task-id") ?? ""));
 }
 
 async function capture(page: Page, title: string): Promise<void> {
@@ -170,7 +180,9 @@ async function selectView(page: Page, label: "Inbox" | "Today" | "Week" | "Somed
   await page.getByRole("button", { name: new RegExp(`^${label},`) }).click();
 }
 
-test("captured and planned tasks keep their buckets across a reload", async ({ page }) => {
+// Spec §8 scenario 1: create a list, capture three tasks, triage one to Today,
+// one to Week and leave one in the Inbox; a reload persists all of it.
+test("scenario 1: captured and planned tasks keep their buckets across a reload", async ({ page }) => {
   const { timezone, weekStartsOn } = await householdInfo(page);
   const today = householdToday(timezone);
   const weekTarget = endOfWeek(today, weekStartsOn);
@@ -256,7 +268,9 @@ test("captured and planned tasks keep their buckets across a reload", async ({ p
   }
 });
 
-test("Shift+K captures from the calendar and triage keys work without a mouse", async ({ page }) => {
+// Spec §8 scenario 2: `Shift+K` from the calendar captures into the Inbox
+// without navigating, and the triage keys work without a mouse.
+test("scenario 2: Shift+K captures from the calendar and triage keys work without a mouse", async ({ page }) => {
   const stamp = Date.now().toString(36);
   const undoProbeTitle = `E2E undo probe ${stamp}`;
   const title = `E2E global capture ${stamp}`;
@@ -310,6 +324,13 @@ test("Shift+K captures from the calendar and triage keys work without a mouse", 
   await expect(page.getByRole("checkbox", { name: neighbourTitle })).toBeVisible();
 
   const inbox = await tasksInView(page, "inbox");
+  // The seed gives the household real Inbox rows, so nothing here may assume
+  // this test owns the list: the DOM order must equal the API order, and the
+  // keyboard walker starts at whatever row the API says is first. Poll because
+  // the capture's optimistic cache update settles through a refetch.
+  await expect
+    .poll(() => renderedTaskIds(page))
+    .toEqual(inbox.map((task) => task.id));
   const captured = inbox.find((task) => task.title === title);
   const neighbour = inbox.find((task) => task.title === neighbourTitle);
   expect(captured).toBeTruthy();
@@ -319,9 +340,11 @@ test("Shift+K captures from the calendar and triage keys work without a mouse", 
   const neighbourIndex = inbox.findIndex((task) => task.id === neighbourId);
   expect(neighbourIndex).toBeGreaterThan(0);
 
-  // Focus the first row, then walk with `j` until the neighbour (captured after
-  // the task, so it follows it in the list) and step back with `k`.
-  const firstRow = page.locator("li[data-task-id]").first();
+  // Focus the first rendered row (which may be a seeded Inbox task), then walk
+  // with `j` until the neighbour (captured after the task, so it follows it in
+  // the list) and step back with `k`. The walk count is the neighbour's API
+  // index, so seeded rows shift both equally.
+  const firstRow = page.locator(`li[data-task-id="${inbox[0]!.id}"]`);
   await firstRow.focus();
   await expect(firstRow).toHaveAttribute("data-selected", "true");
   for (let step = 0; step < neighbourIndex; step += 1) {
@@ -367,7 +390,7 @@ test("Shift+K captures from the calendar and triage keys work without a mouse", 
   const remaining = await tasksInView(page, "inbox");
   const remainingNeighbourIndex = remaining.findIndex((task) => task.id === neighbourId);
   expect(remainingNeighbourIndex).toBeGreaterThanOrEqual(0);
-  const firstRemaining = page.locator("li[data-task-id]").first();
+  const firstRemaining = page.locator(`li[data-task-id="${remaining[0]!.id}"]`);
   await firstRemaining.focus();
   await expect(firstRemaining).toHaveAttribute("data-selected", "true");
   for (let step = 0; step < remainingNeighbourIndex; step += 1) {
@@ -388,6 +411,9 @@ test("Shift+K captures from the calendar and triage keys work without a mouse", 
   await expect(page.getByRole("checkbox", { name: title })).toBeVisible();
 });
 
+// Editor persistence is not one of the five spec §8 acceptance scenarios (the
+// plan asks for it in addition): title, notes, checklist, due date and the
+// Escape-discard path are exercised through both the keyboard and the row menu.
 test("the task editor persists title, notes and checklist, and Escape discards", async ({ page }) => {
   const { timezone } = await householdInfo(page);
   const today = householdToday(timezone);
@@ -509,7 +535,9 @@ test("the task editor persists title, notes and checklist, and Escape discards",
   await expect(page.getByRole("checkbox", { name: `E2E discarded ${stamp}` })).toHaveCount(0);
 });
 
-test("completing a task is undoable from the toast and restores the counts", async ({ page }) => {
+// Spec §8 scenario 4: completing a task removes it from the open view, and the
+// toast's Undo restores exactly that task once with its counts.
+test("scenario 4: completing a task is undoable from the toast and restores the counts", async ({ page }) => {
   const stamp = Date.now().toString(36);
   const title = `E2E undo complete ${stamp}`;
 
@@ -548,6 +576,8 @@ test("completing a task is undoable from the toast and restores the counts", asy
   expect(((await restored.json()) as { task: ApiTask }).task.status).toBe("open");
 });
 
+// Not a spec §8 scenario: delete-undo has no trash table, so this locks the
+// re-create path (new id, same title/list/checklist) and its single-use handle.
 test("deleting a task is undoable from the toast and restores its checklist", async ({ page }) => {
   const stamp = Date.now().toString(36);
   const title = `E2E undo delete ${stamp}`;
@@ -631,7 +661,9 @@ test("deleting a task is undoable from the toast and restores its checklist", as
     .toBe(1);
 });
 
-test("dropping a task on a day plans it, and its chip opens the task editor", async ({ page }) => {
+// Spec §8 scenario 3: planning a task puts it on the month grid as a chip; the
+// chip opens the task, and the row can also be dragged onto the mini-month.
+test("scenario 3: dropping a task on a day plans it, and its chip opens the task editor", async ({ page }) => {
   const { timezone, weekStartsOn } = await householdInfo(page);
   const today = householdToday(timezone);
   const weekTarget = endOfWeek(today, weekStartsOn);
@@ -639,10 +671,20 @@ test("dropping a task on a day plans it, and its chip opens the task editor", as
   const title = `E2E chip task ${stamp}`;
   // Days 10–13 are never one of the seeded event days (the 15th and 20th) and
   // are not where earlier scenarios plan tasks (Today / end of week), so the
-  // chip cannot be pushed behind a full day's "+N more".
+  // chip cannot be pushed behind a full day's "+N more". Already-scheduled days
+  // come from the API rather than a literal, so the seeded today/week-end chips
+  // and any earlier spec's task are excluded even when the month starts near
+  // the beginning of the week.
+  const alreadyScheduled = new Set(
+    (await tasksInView(page, "all"))
+      .map((task) => task.scheduledOn)
+      .filter((date): date is string => date !== null),
+  );
   const chipDay = [10, 11, 12, 13]
     .map((day) => dayInMonth(today, day))
-    .find((date) => date !== today && date !== weekTarget);
+    .find(
+      (date) => date !== today && date !== weekTarget && !alreadyScheduled.has(date),
+    );
   expect(chipDay).toBeTruthy();
 
   await page.goto("/tasks");
@@ -704,4 +746,50 @@ test("dropping a task on a day plans it, and its chip opens the task editor", as
   await editor.getByRole("button", { name: "Cancel" }).click();
   await expect(editor).toBeHidden();
   await expect(page).toHaveURL(/\/tasks$/);
+});
+
+// Spec §8 scenario 5: the private list and its tasks are unreachable for the
+// partner in the UI and at the API (acceptance criterion 3).
+test("scenario 5: the partner cannot see the private list or its tasks", async ({ page }) => {
+  // The global beforeEach signs Andrew in; the partner scenario needs its own
+  // session, so drop the cookie before using the normal login form.
+  await page.context().clearCookies();
+  await signIn(page, PARTNER, fixtures.password);
+
+  await page.goto("/tasks");
+  await expect(page.getByRole("heading", { name: "Tasks", exact: true })).toBeVisible();
+
+  // The sidebar tree is shared by every screen: the partner's own Inbox and
+  // Projects list plus the shared Ours/Errands lists render; Journal does not.
+  const nav = page.getByRole("navigation", { name: "Collection tree" });
+  await expect(nav.getByRole("checkbox", { name: "Inbox" })).toBeVisible();
+  await expect(nav.getByRole("checkbox", { name: "Projects" })).toBeVisible();
+  await expect(nav.getByRole("checkbox", { name: "Ours" })).toBeVisible();
+  await expect(nav.getByRole("checkbox", { name: "Errands" })).toBeVisible();
+  await expect(nav.getByRole("checkbox", { name: "Journal" })).toHaveCount(0);
+
+  // No triage view may leak the list name or either task title.
+  for (const label of ["Inbox", "Today", "Week", "Someday"] as const) {
+    await selectView(page, label);
+    await expect(page.getByText("Journal", { exact: true })).toHaveCount(0);
+    for (const title of ["Morning pages", "Weekly reflection"]) {
+      await expect(page.getByText(title, { exact: true })).toHaveCount(0);
+    }
+  }
+
+  // The boundary is server-side, not just hidden markup: reads of the private
+  // task ids are 404 and the private list id never appears in the tree payload.
+  for (const id of fixtures.tasks.private) {
+    const response = await page.request.get(`/api/tasks/${id}`);
+    expect(response.status()).toBe(404);
+  }
+  const collections = (await (await page.request.get("/api/collections")).json()) as unknown;
+  expect(JSON.stringify(collections)).not.toContain(fixtures.collections.journal);
+
+  // Filtering by the hidden list id is an empty result, not an existence leak.
+  const filtered = await page.request.get(
+    `/api/tasks?collectionId=${fixtures.collections.journal}`,
+  );
+  expect(filtered.ok()).toBeTruthy();
+  expect(((await filtered.json()) as { tasks: ApiTask[] }).tasks).toHaveLength(0);
 });

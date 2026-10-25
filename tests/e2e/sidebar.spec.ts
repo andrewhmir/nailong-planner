@@ -65,10 +65,10 @@ test("the sidebar shows the household groups", async ({ page }) => {
   await expect(page.getByRole("checkbox", { name: "Math" })).toBeVisible();
 });
 
-test("the lazily-created Inbox is an ordinary private list row", async ({ page }) => {
-  // GET /api/collections creates the caller's private Inbox on first load, so
-  // the tree must render it like any other list — no calendar swatch, with the
-  // owner's private lock.
+test("the seeded Inbox is an ordinary private list row", async ({ page }) => {
+  // The seed creates both Inboxes with `ensureInbox`, so this locks the row's
+  // rendering; the lazy-creation path itself is covered by the collections API
+  // integration tests (GET creates one private Inbox per viewer).
   const inbox = page.getByRole("checkbox", { name: "Inbox" });
   await expect(inbox).toBeVisible();
   const row = rowOf(page, "Inbox");
@@ -224,23 +224,24 @@ test("a new root calendar opens its folded group", async ({ page }) => {
 test("creating a list from the New menu shows a list glyph and can be renamed", async ({
   page,
 }) => {
-  await createRoot(page, "list", "Errands");
+  // "Errands" is a seeded shared list, so the probe needs its own name.
+  await createRoot(page, "list", "E2E errands");
 
-  const row = rowOf(page, "Errands");
+  const row = rowOf(page, "E2E errands");
   await expect(row.getByTestId("collection-kind-list")).toBeVisible();
   await expect(row.getByTestId("collection-kind-calendar")).toHaveCount(0);
   // The list row keeps the checkbox and the fold/visibility behaviour.
-  await expect(page.getByRole("checkbox", { name: "Errands" })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "E2E errands" })).toBeChecked();
 
-  await page.getByRole("button", { name: "Options for Errands" }).click();
+  await page.getByRole("button", { name: "Options for E2E errands" }).click();
   await page.getByRole("menuitem", { name: "List settings" }).click();
-  await page.getByLabel("Name").fill("Errands & chores");
+  await page.getByLabel("Name").fill("E2E errands & chores");
   await page.getByRole("button", { name: "Save" }).click();
 
-  const renamed = page.getByRole("checkbox", { name: "Errands & chores" });
+  const renamed = page.getByRole("checkbox", { name: "E2E errands & chores" });
   await expect(renamed).toBeVisible();
-  await expect(rowOf(page, "Errands & chores").getByTestId("collection-kind-list")).toBeVisible();
-  await expect(page.getByRole("checkbox", { name: "Errands", exact: true })).toHaveCount(0);
+  await expect(rowOf(page, "E2E errands & chores").getByTestId("collection-kind-list")).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "E2E errands", exact: true })).toHaveCount(0);
 });
 
 test("a list can have sub-lists, which inherit its kind", async ({ page }) => {

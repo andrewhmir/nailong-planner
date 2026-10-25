@@ -12,7 +12,7 @@ This area covers everything that is not a click path: the `.mts` scripts under `
 | `scripts/reset-password.mts` | Sets a new password for one account and revokes its sessions |
 | `scripts/backup.mts` | Online SQLite backup, gzipped, with 14-file retention |
 | `scripts/restore-check.mts` | Opens a backup, runs `PRAGMA integrity_check` and prints row counts; non-zero exit if it looks empty or corrupt |
-| `scripts/seed-test-db.mts` | Truncates and reseeds `.playwright/test.db` plus `.playwright/fixtures.json` for E2E |
+| `scripts/seed-test-db.mts` | Truncates and reseeds `.playwright/test.db` with users, calendars, task lists and tasks, then writes `.playwright/fixtures.json` |
 | `drizzle/0000_even_morg.sql` | Domain schema: `household`, `member`, `calendar`, `event` |
 | `drizzle/0001_tiny_falcon.sql` | Better Auth core tables: `user`, `session`, `account`, `verification`, `two_factor` |
 | `drizzle/0002_user_preference.sql` | Per-user preference table |
@@ -258,19 +258,21 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 
 ### scripts/seed-test-db.mts
 
-**Purpose** — Builds the deterministic world every E2E spec runs against: two users, ten calendars across both owners, four events in the current month, and a fixtures file the specs read ids from.
+**Purpose** — Builds the deterministic world every E2E spec runs against: two users, ten calendars across both owners, six task lists (a private Inbox per user, the shared `Ours` list, Andrew's shared `Errands`, the partner's shared `Projects`, Andrew's private `Journal`), four events in the current month, ten tasks covering every bucket (plus one done task), and a fixtures file the specs read ids from.
 
 **Invocation / wiring** — `npm run test:e2e` runs `tsx scripts/seed-test-db.mts && playwright test`, so a seeding failure stops the run. Re-run it alone with `npx tsx scripts/seed-test-db.mts` before `npx playwright test <spec>`. It forces `DATABASE_URL=file:./.playwright/test.db`, `BETTER_AUTH_URL=http://localhost:3100`, a fixed Better Auth secret and `TZ=Asia/Taipei` after loading `.env.local`.
 
-**Behaviour & side effects** — Creates `.playwright/`, opens and migrates the database, deletes every row from `user_preference`, `event`, `calendar`, `member`, `two_factor`, `session`, `account`, `verification`, `household` and `user` in that order (truncate rather than delete the file, because a dev server may still hold the handle), signs up `andrew@example.test` and `partner@example.test` with password `test-password-1234`, creates the `Our Nest` household, builds the calendar tree (Household/Chores/Trips, School/Math/Biology, Work/On-call with Work view-only, Health/Gym), and creates `Math quiz`, `Kyoto trip`, `Weekly class` (weekly on Tuesday) and `On-call shift` on the 15th and 20th of the current month. Writes `.playwright/fixtures.json` and prints the counts.
+**Behaviour & side effects** — Creates `.playwright/`, opens and migrates the database, deletes every row from `task_checklist_item`, `task`, `collection`, `event`, `import_change`, `import_batch`, `user_preference`, `member`, `two_factor`, `session`, `account`, `verification`, `household` and `user` in that order (truncate rather than delete the file, because a dev server may still hold the handle), signs up `andrew@example.test` and `partner@example.test` with password `test-password-1234`, creates the `Our Nest` household, builds the calendar tree (Household/Chores/Trips, School/Math/Biology, Work/On-call with Work view-only, Health/Gym), then creates both private Inboxes through `ensureInbox` and the four lists through `createCollection`. It seeds ten tasks through the service layer: two undated Andrew Inbox tasks, one scheduled today, one on the end of the household week, a Someday project task (with a two-item checklist), an overdue `dueOn` yesterday, one done, one shared in `Ours`, and two in the private `Journal`. Every task date is derived from `localToday(household.timezone)`, `endOfWeek(today, weekStartsOn)` or `addDaysToDate(today, -1)` — never a hardcoded day. It creates `Math quiz`, `Kyoto trip`, `Weekly class` (weekly on Tuesday) and `On-call shift` on the 15th and 20th of the current month, writes `.playwright/fixtures.json` (`calendars`, `collections` and `tasks` id maps) and prints the counts.
 
 **Gotchas** —
-- The fixtures are relative to "now" (four events on the 15th/20th of the current month). Specs must derive the month/day from the clock — `currentMonthLabel()` and `dayMonthLabel()` in `tests/e2e/helpers.ts` — instead of hardcoding a month literal.
-- The deletion order is load-bearing: foreign keys are on, so truncating `user` before `session`/`account` fails.
+- The fixtures are relative to "now" (events on the 15th/20th of the current month; task dates from `localToday`/`endOfWeek`). Specs must derive the month/day from the clock — `currentMonthLabel()` and `dayMonthLabel()` in `tests/e2e/helpers.ts` — instead of hardcoding a month literal.
+- The seeded tasks mean no task view is empty and no Inbox is "mine": E2E specs must identify their own rows by unique titles/`li[data-task-id]` and assert count deltas, never absolute counts or `locator(...).first()` ownership.
+- On the last day of the household week `endOfWeek(today)` equals `today`, so the seeded "week" task lands in Today (plan ruling R1). That is the honest week-end date; do not move it to the next week to make the bucket distinct.
+- The deletion order is load-bearing: foreign keys are on, so truncating `user` before `session`/`account` fails, `task`/`task_checklist_item` must go before `collection`, and `import_change` before `import_batch`.
 - The secret here must equal the one in `playwright.config.ts`, or `signIn` sets a cookie the server rejects.
-- Every spec shares this one file with `workers: 1`; a spec that mutates seeded rows (renames, deletes, drags) can break a later one, which is why several specs create and delete their own probe events.
+- Every spec shares this one file with `workers: 1`; a spec that mutates seeded rows (renames, deletes, drags) can break a later one, which is why several specs create and delete their own probe events and use prefixed probe names such as `E2E errands`.
 
-**Tests / verified by** — Consumed by all 22 specs in `tests/e2e/` through `.playwright/fixtures.json` and `tests/e2e/helpers.ts`.
+**Tests / verified by** — Consumed by all 27 specs in `tests/e2e/` through `.playwright/fixtures.json` and `tests/e2e/helpers.ts`.
 
 ## Build and tooling config
 

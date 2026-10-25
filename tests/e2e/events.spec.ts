@@ -53,11 +53,19 @@ test("edits and deletes an event through its popover", async ({ page }) => {
 test("task chips join a day's stack without breaking +N more or event drag", async ({ page }) => {
   const today = householdToday();
   // Days 2–5 are never a seeded event day (the 15th/20th) nor a day another spec
-  // pins a task chip on (the 10th–13th), so the four chips below are the only
-  // rows on their day.
+  // pins a task chip on (the 10th–13th). The seed itself schedules a chip on
+  // today and on the end of the household week, so read the already-scheduled
+  // dates from the API instead of assuming the week ends late in the month.
+  const tasksResponse = await page.request.get("/api/tasks?view=all");
+  expect(tasksResponse.ok()).toBeTruthy();
+  const scheduledDays = new Set(
+    ((await tasksResponse.json()) as { tasks: Array<{ scheduledOn: string | null }> }).tasks
+      .map((task) => task.scheduledOn)
+      .filter((date): date is string => date !== null),
+  );
   const quietDays = [2, 3, 4, 5]
     .map((day) => dayInMonth(today, day))
-    .filter((date) => date !== today);
+    .filter((date) => date !== today && !scheduledDays.has(date));
   const [chipDay, dragDay] = quietDays;
   expect(chipDay).toBeTruthy();
   expect(dragDay).toBeTruthy();

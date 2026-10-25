@@ -14,9 +14,11 @@ const { createDb } = await import("../lib/db/client");
 const { migrate } = await import("../lib/db/migrate");
 const { createAuth } = await import("../lib/auth/server");
 const { ensureHousehold, addMember } = await import("../lib/services/household");
-const { createCollection, updateCollection } = await import("../lib/services/collections");
+const { createCollection, ensureInbox } = await import("../lib/services/collections");
+const { createTask, updateTask } = await import("../lib/services/tasks");
 const { createEvent } = await import("../lib/services/events");
-const { localWallTimeToUtc } = await import("../lib/time/zone");
+const { endOfWeek, localToday } = await import("../lib/domain/tasks");
+const { addDaysToDate, localWallTimeToUtc } = await import("../lib/time/zone");
 const schema = await import("../lib/db/schema");
 
 const USERS = [
@@ -33,10 +35,17 @@ async function main(): Promise<void> {
 
   // Clear the previous run's rows instead of deleting the file: a dev server may
   // still hold the SQLite handle, and truncating keeps the run deterministic.
+  // Foreign keys are ON, so children come first: checklist items -> tasks ->
+  // the collections that own them (deleting a collection cascades its events) ->
+  // import history -> per-user/preference/auth rows -> the household and users.
   for (const table of [
-    schema.userPreference,
-    schema.event,
+    schema.taskChecklistItem,
+    schema.task,
     schema.collection,
+    schema.event,
+    schema.importChange,
+    schema.importBatch,
+    schema.userPreference,
     schema.member,
     schema.twoFactor,
     schema.session,
@@ -63,6 +72,16 @@ async function main(): Promise<void> {
   const andrew = { userId: userIds.andrew!, householdId: household.id };
   const partner = { userId: userIds.partner!, householdId: household.id };
 
+  // All calendar dates below derive from the household's "today", never from a
+  // hardcoded day: the E2E suite must stay green in any month.
+  const today = localToday(household.timezone);
+  const weekStartsOn: 0 | 1 = household.weekStartsOn === 1 ? 1 : 0;
+  const weekEnd = endOfWeek(today, weekStartsOn);
+  const yesterday = addDaysToDate(today, -1);
+  const [year, month] = today.split("-") as [string, string];
+  const dayMid = `${year}-${month}-15`;
+  const dayLater = `${year}-${month}-20`;
+
   // Ours
   const householdCollection = createCollection(db, andrew, { name: "Household", hueFamily: "teal" });
   const chores = createCollection(db, andrew, { name: "Chores", parentId: householdCollection.id });
@@ -81,11 +100,30 @@ async function main(): Promise<void> {
   const health = createCollection(db, partner, { name: "Health", hueFamily: "rose", ownerId: partner.userId });
   createCollection(db, partner, { name: "Gym", parentId: health.id });
 
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const dayMid = `${year}-${month}-15`;
-  const dayLater = `${year}-${month}-20`;
+  // Task lists. `ensureInbox` is the same lazy path the app uses, so the seed
+  // proves the per-user private Inbox identity instead of hand-rolling one.
+  const andrewInbox = ensureInbox(db, andrew);
+  const partnerInbox = ensureInbox(db, partner);
+  const ours = createCollection(db, andrew, { name: "Ours", kind: "list", hueFamily: "violet" });
+  const errands = createCollection(db, andrew, {
+    name: "Errands",
+    kind: "list",
+    hueFamily: "amber",
+    ownerId: andrew.userId,
+  });
+  const projects = createCollection(db, partner, {
+    name: "Projects",
+    kind: "list",
+    hueFamily: "rose",
+    ownerId: partner.userId,
+  });
+  const journal = createCollection(db, andrew, {
+    name: "Journal",
+    kind: "list",
+    hueFamily: "slate",
+    ownerId: andrew.userId,
+    visibility: "private",
+  });
 
   const mathQuiz = createEvent(db, andrew, {
     collectionId: math.id,
@@ -117,6 +155,76 @@ async function main(): Promise<void> {
     endAt: localWallTimeToUtc(`${dayMid}T20:00`, household.timezone),
   });
 
+  // Tasks. Every bucket is populated: two undated Inbox captures, a task for
+  // today, one for the end of the household week, a Someday project task, an
+  // overdue deadline, a finished task, a shared-list task and two tasks in
+  // Andrew's private Journal. On the last day of the household week
+  // `weekEnd === today`, so the "week" task lands in Today (plan ruling R1);
+  // that is still the honest week-end date.
+  const inboxOne = createTask(db, andrew, {
+    title: "Call the plumber",
+    collectionId: andrewInbox.id,
+  });
+  const inboxTwo = createTask(db, andrew, {
+    title: "Book a dentist appointment",
+    collectionId: andrewInbox.id,
+  });
+  const todayTask = createTask(db, andrew, {
+    title: "Take out the recycling",
+    collectionId: andrewInbox.id,
+    scheduledOn: today,
+  });
+  const weekTask = createTask(db, andrew, {
+    title: "Plan the weekend groceries",
+    collectionId: andrewInbox.id,
+    scheduledOn: weekEnd,
+  });
+  const somedayTask = createTask(db, andrew, {
+    title: "Draft the garden plan",
+    collectionId: projects.id,
+  });
+  updateTask(db, andrew, somedayTask.id, {
+    checklist: [
+      { title: "Measure the beds", done: true },
+      { title: "Pick a supplier", done: false },
+    ],
+  });
+  const overdueTask = createTask(db, andrew, {
+    title: "Renew the passport",
+    collectionId: errands.id,
+    dueOn: yesterday,
+  });
+  const doneTask = createTask(db, andrew, {
+    title: "Water the plants",
+    collectionId: errands.id,
+  });
+  updateTask(db, andrew, doneTask.id, { status: "done" });
+  const sharedTask = createTask(db, andrew, {
+    title: "Order more coffee beans",
+    collectionId: ours.id,
+  });
+  const privateOne = createTask(db, andrew, {
+    title: "Morning pages",
+    collectionId: journal.id,
+  });
+  const privateTwo = createTask(db, andrew, {
+    title: "Weekly reflection",
+    collectionId: journal.id,
+  });
+
+  const tasks = [
+    inboxOne,
+    inboxTwo,
+    todayTask,
+    weekTask,
+    somedayTask,
+    overdueTask,
+    doneTask,
+    sharedTask,
+    privateOne,
+    privateTwo,
+  ];
+
   const fixtures = {
     householdId: household.id,
     password: PASSWORD,
@@ -132,11 +240,31 @@ async function main(): Promise<void> {
       onCall: onCall.id,
       health: health.id,
     },
+    collections: {
+      ours: ours.id,
+      errands: errands.id,
+      projects: projects.id,
+      journal: journal.id,
+      andrewInbox: andrewInbox.id,
+      partnerInbox: partnerInbox.id,
+    },
     events: { mathQuiz: mathQuiz.id, trip: trip.id, weeklyClass: weeklyClass.id, onCallShift: onCallShift.id },
+    tasks: {
+      inbox: [inboxOne.id, inboxTwo.id],
+      today: todayTask.id,
+      week: weekTask.id,
+      someday: somedayTask.id,
+      overdue: overdueTask.id,
+      done: doneTask.id,
+      shared: sharedTask.id,
+      private: [privateOne.id, privateTwo.id],
+    },
   };
   writeFileSync(".playwright/fixtures.json", JSON.stringify(fixtures, null, 2));
 
-  console.log(`Seeded ${env.DATABASE_URL} with 2 users, 10 collections, 4 events.`);
+  console.log(
+    `Seeded ${env.DATABASE_URL} with 2 users, 10 calendars, 4 events, 6 lists and ${tasks.length} tasks.`,
+  );
   sqlite.close();
 }
 

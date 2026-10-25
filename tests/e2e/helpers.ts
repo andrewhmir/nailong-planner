@@ -16,11 +16,29 @@ export interface Fixtures {
     onCall: string;
     health: string;
   };
+  collections: {
+    ours: string;
+    errands: string;
+    projects: string;
+    journal: string;
+    andrewInbox: string;
+    partnerInbox: string;
+  };
   events: {
     mathQuiz: string;
     trip: string;
     weeklyClass: string;
     onCallShift: string;
+  };
+  tasks: {
+    inbox: string[];
+    today: string;
+    week: string;
+    someday: string;
+    overdue: string;
+    done: string;
+    shared: string;
+    private: string[];
   };
 }
 
