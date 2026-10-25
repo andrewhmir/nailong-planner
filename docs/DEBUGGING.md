@@ -42,7 +42,7 @@ npm run test:e2e                              # Playwright: seeds .playwright/te
 
 ```
 Browser
-  components/{calendar,shell,sidebar,settings,ui}   React UI, FullCalendar adapter
+  components/{calendar,tasks,shell,sidebar,settings,ui}   React UI, task workspace, FullCalendar adapter
   lib/ui/*                                         client state: view, visibility, undo, shortcuts
   lib/query/*                                      TanStack Query hooks + optimistic cache updates
         │ fetch
@@ -222,7 +222,8 @@ The request pipeline in one line:
 **Client cache and database** (`lib/query/*`, `lib/db/*`)
 
 - Query keys: `["collections"]`, `["events", from, to]`,
-  `["events", "search", normalized]`, `["preferences"]`.
+  `["events", "search", normalized]`, `["preferences"]`,
+  `["tasks", view ?? "all", collectionId ?? null]`.
 - Event mutations work on the `["events"]` **prefix**, so optimistic
   `temp-<uuid>` rows also appear in search results and search refetches after
   every event mutation. Rollback is wholesale (`snapshotEvents` /
@@ -231,14 +232,15 @@ The request pipeline in one line:
   the query has `staleTime: Infinity` + server `initialData`, and a
   `latestIssued` sequence guards out-of-order responses. "Setting saved but not
   applied" is a cache/sequence issue, not a service one.
-- Two timestamp conventions: domain tables (`household`, `member`, `calendar`,
-  `event`, `user_preference`) store `integer` epoch **milliseconds** and hydrate
-  as `number`; Better Auth tables use `mode: "timestamp_ms"` and hydrate as
-  `Date`. Mixing them produces `NaN` or `[object Object]`.
-- There are **no foreign keys** from `member.user_id`, `calendar.owner_id`,
-  `event.created_by` or `user_preference.user_id` to `user.id` — the references
-  are logical and validated in services. The two-account cap is a Better Auth
-  `databaseHooks.user.create.before` check, not a DB constraint.
+- Two timestamp conventions: domain tables (`household`, `member`, `collection`,
+  `event`, `task`, `task_checklist_item`, `user_preference`, the import tables)
+  store `integer` epoch **milliseconds** and hydrate as `number`; Better Auth
+  tables use `mode: "timestamp_ms"` and hydrate as `Date`. Mixing them produces
+  `NaN` or `[object Object]`.
+- There are **no foreign keys** from `member.user_id`, `collection.owner_id`,
+  `event.created_by`, `task.created_by` or `user_preference.user_id` to `user.id` —
+  the references are logical and validated in services. The two-account cap is a
+  Better Auth `databaseHooks.user.create.before` check, not a DB constraint.
 - Migrations run **lazily on the first `getDb()`**, not at `next build`, and
   `migrate()` resolves the `drizzle/` folder from `process.cwd()`. WAL allows one
   writer: a dev server and a script writing at the same time block each other.
@@ -302,11 +304,12 @@ any wrapper in the shell/calendar tree.
 | Deleting an occurrence returns 500 | the stored `exdates` JSON is corrupt: the append path parses it strictly, while the read path tolerates it | `lib/services/events.ts` `deleteEvent`, `lib/recurrence/expand.ts` |
 | Recurring events appear outside the requested range | `listEvents` returns **every** recurring row and lets the client expand it; only non-recurring rows are range-filtered. All-day overlap is compared against the local date of the exclusive `to` bound | `lib/services/events.ts` `listEvents` |
 | Event list looks shifted when the client omits `from`/`to` | the handler defaults to the household-timezone **current month**, falling back to `Asia/Taipei` if the household row is missing | `lib/api/handlers/events.ts` |
-| A task marked done or dropped vanishes from every task view | `listTasks` only loads `status = 'open'`; `view: "all"` is still open-only, so finished work is reachable only by its list/calendar, not by a bucket | `lib/services/tasks.ts` `listTasks`, the row's `status`/`completedAt`/`droppedAt` |
+| A task marked done or dropped vanishes from every task view | `listTasks` only loads `status = 'open'`; `view: "all"` and a `collectionId` filter are open-only too, so no list or view returns finished work — only `GET /api/tasks/{id}` still does (the UI has no done-task surface) | `lib/services/tasks.ts` `listTasks`/`getTask`, the row's `status`/`completedAt`/`droppedAt` |
 | Task shows in Today or Week although it is scheduled for later | the bucket anchor is the earliest commitment (`min(scheduledOn, dueOn)`), so an earlier deadline wins over a later schedule | `lib/domain/tasks.ts` `bucketOf`, `lib/services/tasks.ts` `listTasks` |
 | A task scheduled next week is missing from Today/Week/Someday | by design: `bucketOf` returns `null` beyond `endOfWeek(today, weekStartsOn)`; only the calendar's `view=all` includes it | `lib/domain/tasks.ts` `bucketOf`, `lib/services/tasks.ts` `listTasks` |
 | Reorder returns 400 "Send exactly the open tasks of this list." | the payload was not the full open set — partial, duplicate, done/dropped, cross-list or missing id; a stale client must re-fetch instead of patching order | `lib/services/tasks.ts` `reorderTasks` |
 | Task counts stay the same after picking a list or a view | intended: `counts` are global over visible open tasks and ignore `collectionId`/`view` | `lib/services/tasks.ts` `listTasks` |
+| A moved task still shows the source list's name/dot, and its position and counts look stale for a beat | the optimistic PATCH carries `collectionId` only: the nested `collection` summary, the server-computed append position and the counts arrive on the settle refetch | `lib/query/tasks.ts` (`patchTask`, `onSettled`), `lib/query/taskCache.ts` |
 | A deleted task cannot be restored | there is no trash table: `deleteTask` hard-deletes and the checklist cascades, so undo re-creates the task with a new id | `lib/services/tasks.ts` `deleteTask`, `components/tasks/TasksShell.tsx` |
 | A triage key silently does nothing after a row was completed/deleted | the row left the open view on the settle refetch while `selectedTaskId` still named it; the shell's selection-coherence effect must move the selection and focus to the nearest surviving row (or the switcher when none remain) | `components/tasks/TasksShell.tsx` (selection-coherence effect), `data-selected` on the rows |
 | Checklist item ids change on every save | intended: a checklist PATCH is a full replacement (delete all, insert in array order), not a diff | `lib/services/tasks.ts` `replaceChecklist`, `components/tasks/TaskEditorDialog.tsx` |
@@ -348,7 +351,7 @@ any wrapper in the shell/calendar tree.
 | A focused field's ring is clipped on one side inside a dialog | an `overflow-y-auto` scroll area clips at its padding box; the 2px outline sits 2px outside the field, so a field flush with that edge loses 4px of ring. Give the scroll area horizontal padding, never just the side the scrollbar sits on | the scroll area's `px-*` in `components/calendar/EventDialog.tsx`; `tests/e2e/events.spec.ts` "keeps the focused field's ring clear of its scroll edges" |
 | A time typed into the dialog's time field is rejected although it looks valid | `parseTypedTime` is format-aware: a 24-hour household rejects an am/pm suffix such as "8:37 PM" instead of guessing | `parseTypedTime` in `components/calendar/timeSlots.ts`; the household's `timeFormat` preference |
 | The dialog's time field shows 12-hour text while the grid shows 24-hour | the `timeFormat` preference was not threaded from `CalendarShell` into `EventDialog`/`TimeField` | `timeFormat={preferences.timeFormat}` on `<EventDialog>` in `components/calendar/CalendarShell.tsx` |
-| A picker popover appears with no enter animation | the global `popover-in` keyframes are missing from `app/globals.css`, or the content lost its `data-[state=open]:animate-[popover-in_…]` class | `app/globals.css`; the content class in `Toolbar.tsx`, `CalendarPicker.tsx`, `DateField.tsx` and `TimeField.tsx` |
+| A picker popover appears with no enter animation | the global `popover-in` keyframes are missing from `app/globals.css`, or the content lost its `data-[state=open]:animate-[popover-in_…]` class | `app/globals.css`; the content class in `Toolbar.tsx`, `CalendarPicker.tsx`, `DateField.tsx`, `TimeField.tsx`, `TaskPlanPopover.tsx` and `TaskEditorDialog.tsx` |
 | `docs:check` fails | a source file was added/moved/deleted without its `### <path>` section | output names the heading and the doc to edit |
 | Deploy never turns healthy, `/api/health` 503, log says `SQLITE_CANTOPEN` or "database check failed" | the mounted volume is not writable by the `app` user, or `DATABASE_URL` points somewhere unmountable | `docker-entrypoint.sh` chowns `$DATA_DIR` at start; check the Railway volume is at `/data` and `DATA_DIR` matches it |
 | Same `SQLITE_CANTOPEN`, but the logged path starts with a tab/space before `file:` (`could not open "<TAB>file:/data/planner.db"`) | `DATABASE_URL` has leading whitespace, so `resolveDatabasePath` never strips `file:`. The app `mkdir`s a directory whose name *contains* the whitespace, but better-sqlite3 trims the filename before opening (`filenameGiven.trim()`), so it opens a different relative path under `/app` whose parent does not exist | `printenv DATABASE_URL \| od -c` in the Railway console (must start with `f`, no `\t`/`\r`); re-enter the variable exactly as `file:/data/planner.db`, then redeploy — variable edits only reach a new container |

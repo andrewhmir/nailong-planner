@@ -296,7 +296,7 @@ Three thin routes over `lib/api/handlers/tasks.ts`; bucketing (`lib/domain/tasks
 
 **Purpose** — Lists the tasks of one view (or one list) and creates a task, defaulting to the caller's Inbox.
 
-**API** — `GET` query `view` in `inbox | today | week | someday | all` (optional; absent means `all`) and optional `collectionId` → `200 { tasks: TaskView[], counts: TaskCounts }`. `TaskView` is the row plus `checklist: ChecklistItemView[]` and `collection: { id, name, kind, hueFamily, shadeIndex }`; `TaskCounts` is `{ inbox, today, week, someday, overdue }`. An invalid `view` or an empty `collectionId` is `400 VALIDATION` with `fields.view` / `fields.collectionId`; an unknown or invisible `collectionId` is `200` with `tasks: []` while `counts` stays global. `POST` body `createTaskSchema` (`title` required, trimmed, 1-200; optional `notes`, `collectionId`, `scheduledOn`, `dueOn` as `YYYY-MM-DD`) → `201 { task }`. Without `collectionId` the task lands in the caller's private Inbox; a calendar target is `400 VALIDATION` "Tasks live in lists.", a view-only target `403`, and the partner's private list `404`.
+**API** — `GET` query `view` in `inbox | today | week | someday | all` (optional; absent means `all`) and optional `collectionId` → `200 { tasks: TaskView[], counts: TaskCounts }`. `TaskView` is the row plus `checklist: ChecklistItemView[]` and `collection: { id, name, kind, hueFamily, shadeIndex }`; `TaskCounts` is `{ inbox, today, week, someday, overdue }`. An invalid `view` or an empty `collectionId` is `400 VALIDATION` with `fields.view` / `fields.collectionId`; an unknown or invisible `collectionId` is `200` with `tasks: []` while `counts` stays global. `POST` body `createTaskSchema` (`title` required, trimmed, 1-200; optional `notes`, `collectionId`, `scheduledOn`, `dueOn` as `YYYY-MM-DD`) → `201 { task }`. Without `collectionId` the task lands in the caller's private Inbox; a calendar target is `400 VALIDATION` "Tasks live in lists.", a view-only target `403`, and the partner's private list `404` "Calendar not found." (the collection resolver, not the task lookup).
 
 **State & side effects** — `GET` reads the household for `timezone`/`weekStartsOn` (the bucket maths is household-local), may lazily create the caller's Inbox (`ensureInbox`), and returns open visible tasks only: done/dropped tasks are never listed, and a task dated beyond this week appears only under `all`. `POST` inserts one row with a generated UUID, `createdBy` from the session and `sortOrder = max + 1` in the target list. No revalidation.
 
@@ -324,7 +324,7 @@ Three thin routes over `lib/api/handlers/tasks.ts`; bucketing (`lib/domain/tasks
 
 **Purpose** — Rewrites the manual order of one list from the full open-task id set.
 
-**API** — `PATCH` body `reorderTasksSchema` (`collectionId`, `orderedIds` of at least one id) → `200 { tasks: TaskView[] }` in the requested order. Errors: 401/403 from `withViewer`; `400 VALIDATION` with `fields.collectionId`/`fields.orderedIds` for a malformed body, `400` "Send exactly the open tasks of this list." when the ids are partial, duplicated or from another list (a stale client must refetch, never guess), `400` "Tasks live in lists." for a calendar, `403` for a view-only list, and `404` for the partner's private list.
+**API** — `PATCH` body `reorderTasksSchema` (`collectionId`, `orderedIds` of at least one id) → `200 { tasks: TaskView[] }` in the requested order. Errors: 401/403 from `withViewer`; `400 VALIDATION` with `fields.collectionId`/`fields.orderedIds` for a malformed body, `400` "Send exactly the open tasks of this list." when the ids are partial, duplicated or from another list (a stale client must refetch, never guess), `400` "Tasks live in lists." for a calendar, `403` for a view-only list, and `404` "Calendar not found." for the partner's private list.
 
 **State & side effects** — One transaction writes `sortOrder = index` and `updatedAt` for every id, then returns the fresh views in the sent order. No revalidation.
 
@@ -459,7 +459,7 @@ Three one-handler routes over `lib/api/handlers/settings.ts` and `lib/api/handle
 ## Focused verification
 
 ```bash
-npx vitest run tests/integration/auth.test.ts tests/integration/collections-api.test.ts tests/integration/events-api.test.ts tests/integration/search-api.test.ts tests/integration/settings-api.test.ts tests/integration/preferences-api.test.ts
+npx vitest run tests/integration/auth.test.ts tests/integration/collections-api.test.ts tests/integration/events-api.test.ts tests/integration/search-api.test.ts tests/integration/settings-api.test.ts tests/integration/preferences-api.test.ts tests/integration/tasks-api.test.ts
 npx playwright test tests/e2e/auth.spec.ts tests/e2e/shell.spec.ts tests/e2e/viewport-fit.spec.ts tests/e2e/design-tokens.spec.ts
 npm run docs:check && npm run lint && npm run typecheck
 ```

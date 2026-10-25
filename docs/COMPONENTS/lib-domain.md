@@ -213,7 +213,7 @@ shifts by a day, or an API error carries the wrong code or status.
 
 **State & side effects** — None. String comparisons plus `addDaysToDate`/`weekdayOfDate` arithmetic; `localToday` reads the clock only when `now` is omitted.
 
-**Depends on / Used by** — `TaskRow` from `lib/db/schema`; `weekdayOfDate` from `lib/recurrence/rule`; `addDaysToDate`/`utcToLocalDate` from `lib/time/zone`. No callers in this commit: Tasks 5–11 wire it into the task service, the household `today`/`endOfWeek` context and the triage shortcuts. `tests/unit/tasks-buckets.test.ts` is the only consumer today.
+**Depends on / Used by** — `TaskRow` from `lib/db/schema`; `weekdayOfDate` from `lib/recurrence/rule`; `addDaysToDate`/`utcToLocalDate` from `lib/time/zone`. Consumers: `lib/services/tasks.ts` (`bucketOf`, `endOfWeek`, `isOverdue`, `localToday`, the bucket types), `lib/validation/tasks.ts` (`TASK_BUCKETS`), `lib/query/tasks.ts` (`TaskBucket` type), and the UI — `TasksShell` (`endOfWeek`, `localToday`), `TaskCaptureBar` (`localToday`), `TaskViewSwitcher` (`TASK_BUCKETS`) and `TaskRow` (`isOverdue`). `tests/unit/tasks-buckets.test.ts` pins the maths.
 
 **Debugging**
 - A past-due task is missing from Today -> the anchor was read as `scheduledOn ?? dueOn` instead of the earliest date -> `bucketOf`'s `effective` computation.
@@ -359,6 +359,6 @@ shifts by a day, or an API error carries the wrong code or status.
 ## Focused verification
 
 ```bash
-npx vitest run tests/unit/palette.test.ts tests/unit/recurrence.test.ts tests/unit/recurrence-label.test.ts tests/unit/time.test.ts tests/unit/format.test.ts
+npx vitest run tests/unit/palette.test.ts tests/unit/recurrence.test.ts tests/unit/recurrence-label.test.ts tests/unit/time.test.ts tests/unit/format.test.ts tests/unit/tasks-buckets.test.ts
 npm run lint && npm run typecheck
 ```

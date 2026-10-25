@@ -11,6 +11,7 @@ The HTTP boundary: `app/api/*/route.ts` handlers are thin adapters that run thro
 | lib/api/handlers/events.ts | Event range/list, search, create/update/delete handlers plus the default month range |
 | lib/api/handlers/preferences.ts | Per-user preference read/patch handlers |
 | lib/api/handlers/settings.ts | Household and profile patch handlers |
+| lib/api/handlers/tasks.ts | Task list/read/create/patch/delete and manual-order handlers |
 | lib/api/handlers/support.ts | `guarded` error wrapper, JSON body reader, Zod issue to `fields` mapper |
 
 ## Request pipeline
@@ -187,7 +188,7 @@ Private helpers: `pad2`, `currentMonthRange` (household timezone -> first of thi
 - `deleteTaskHandler(db, ctx, id): Promise<Response>` -> empty body, 204.
 - `reorderTasksHandler(db, ctx, request): Promise<Response>` -> `{ tasks: TaskView[] }`, 200.
 
-`GET /api/tasks` reads the household with `getHousehold` and passes its `timezone` and normalized `weekStartsOn` (0 or 1) into `listTasks`, so bucket membership matches the rail. `counts` always covers every visible open task even when `view` or `collectionId` narrows `tasks`; an unknown or invisible `collectionId` is an empty list, never a 404 (the filter does not leak existence). Zod failures become `VALIDATION` 400 with `fields` keyed by the issue path (`fields.view` for an unknown bucket, `fields.collectionId` for an empty one, `fields.orderedIds` for a malformed reorder body). Every other status comes from `lib/services/tasks.ts` unchanged: 404 "Task not found." for a missing id or a private list the caller does not own (the handler never repeats visibility logic), 403 "This collection is view-only." for a non-writable list, 400 "Tasks live in lists." when the target is a calendar, and 400 "Send exactly the open tasks of this list." for a stale reorder set.
+`GET /api/tasks` reads the household with `getHousehold` and passes its `timezone` and normalized `weekStartsOn` (0 or 1) into `listTasks`, so bucket membership matches the rail. `counts` always covers every visible open task even when `view` or `collectionId` narrows `tasks`; an unknown or invisible `collectionId` is an empty list, never a 404 (the filter does not leak existence). Zod failures become `VALIDATION` 400 with `fields` keyed by the issue path (`fields.view` for an unknown bucket, `fields.collectionId` for an empty one, `fields.orderedIds` for a malformed reorder body). Every other status comes from `lib/services/tasks.ts` unchanged: 403 "This collection is view-only." for a non-writable list, 400 "Tasks live in lists." when the target is a calendar, and 400 "Send exactly the open tasks of this list." for a stale reorder set. The 404 **message depends on the path**: a task-by-id read/patch/delete in a private list the caller does not own answers "Task not found." (`taskAccess` rewrites the collection error so it hides existence exactly like a missing id), while `POST` with a `collectionId`, the target of a `PATCH` move and the reorder `collectionId` resolve the collection directly through `getCollectionAccess` and surface its own "Calendar not found.". The handler itself never repeats visibility logic.
 
 **State & side effects** — The only direct read is `getHousehold`; `listTasks` may lazily create the caller's Inbox and builds the `TaskView` rows. `POST`/`PATCH`/`DELETE` delegate all writes to the service (checklist replacement and reorder run in transactions there). `deleteTaskHandler` answers 204 even though the task's checklist rows cascade.
 
@@ -228,6 +229,6 @@ Private helpers: `pad2`, `currentMonthRange` (household timezone -> first of thi
 ## Focused verification
 
 ```bash
-npx vitest run tests/integration/collections-api.test.ts tests/integration/events-api.test.ts tests/integration/preferences-api.test.ts tests/integration/settings-api.test.ts
+npx vitest run tests/integration/collections-api.test.ts tests/integration/events-api.test.ts tests/integration/preferences-api.test.ts tests/integration/settings-api.test.ts tests/integration/tasks-api.test.ts
 npm run lint && npm run typecheck
 ```

@@ -6,22 +6,25 @@ The storage and transport foundation of the planner: the Drizzle/SQLite schema, 
 
 | File | Role |
 |---|---|
-| lib/db/schema.ts | Domain tables (`household`, `member`, `user_preference`, `calendar`, `event`) plus row types; re-exports the auth tables |
+| lib/db/schema.ts | Domain tables (`household`, `member`, `user_preference`, `collection`, `event`, `task`, `task_checklist_item`, `import_batch`, `import_change`) plus row types; re-exports the auth tables |
 | lib/db/auth-schema.ts | Generated Better Auth tables (`user`, `session`, `account`, `verification`, `two_factor`) and their relations |
 | lib/db/client.ts | Opens better-sqlite3 with WAL + foreign keys and wraps it in Drizzle |
 | lib/db/index.ts | Lazy app-wide database singleton that migrates on first use |
 | lib/db/migrate.ts | Applies the committed SQL migrations in `drizzle/` |
-| lib/query/collections.ts | `useCollections` plus create/update/delete calendar mutations |
+| lib/query/collections.ts | `useCollections` plus create/update/delete collection mutations |
 | lib/query/events.ts | Range query, search-compatible cache keys, optimistic create/update/delete with rollback |
 | lib/query/eventCache.ts | Pure array helpers used by the optimistic event cache and the undo path |
 | lib/query/preferences.ts | Preferences query seeded from the server layout, plus a sequence-guarded patch mutation |
 | lib/query/search.ts | Event search query and the "where should a result open" helper |
+| lib/query/tasks.ts | Task view/counts query plus create/update/delete/reorder mutations (only PATCH is optimistic) |
+| lib/query/taskCache.ts | Pure `{ tasks, counts }` payload helper for the optimistic task cache |
 | lib/auth/server.ts | Better Auth factory and lazy app singleton (two-user cap, rate limiting, 2FA/admin plugins) |
 | lib/auth/users.ts | `MAX_USERS` and user-table reads used by the sign-up hook and provisioning |
-| lib/validation/collections.ts | Zod schemas for calendar create/update |
+| lib/validation/collections.ts | Zod schemas for collection create/update |
 | lib/validation/events.ts | Zod schemas for event create/update plus the all-day/timed shape invariant |
 | lib/validation/preferences.ts | Strict Zod schema for the per-user preference PATCH |
 | lib/validation/settings.ts | Zod schemas for household and profile updates |
+| lib/validation/tasks.ts | Zod schemas for task create/update, reorder and the list query |
 
 ## Entity model
 
@@ -285,12 +288,13 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 - Create, delete and reorder never touch the cache: their `onSettled` invalidates `["tasks"]` and the refetch paints the server result, so counts and bucket membership cannot lie optimistically.
 - `counts` is never patched by hand; one row patch cannot change the global badges, and the settle refetch recalculates them.
 
-**Depends on / Used by** — `@tanstack/react-query`, `lib/query/taskCache`, `TaskView`/`TaskCounts`/`TaskBucket` types, and the `lib/validation/tasks.ts` inferred inputs (`CreateTaskInput`, `UpdateTaskInput`, `ReorderTasksInput`). Imported by `components/tasks/TasksShell.tsx` (`useTasks`, `useUpdateTask`, `useDeleteTask`) and `components/tasks/TaskCaptureBar.tsx` (`useCreateTask`); the task editor (Task 10) and the calendar chips (Task 11) consume `useTasks`/`useUpdateTask` too, and `useReorderTasks` is still waiting for its UI.
+**Depends on / Used by** — `@tanstack/react-query`, `lib/query/taskCache`, `TaskView`/`TaskCounts`/`TaskBucket` types, and the `lib/validation/tasks.ts` inferred inputs (`CreateTaskInput`, `UpdateTaskInput`, `ReorderTasksInput`). Imported by `components/tasks/TasksShell.tsx` (`useTasks`, `useUpdateTask`, `useDeleteTask`), `components/tasks/TaskCaptureBar.tsx` and `components/shell/GlobalCapture.tsx` (`useCreateTask`, and `useDeleteTask` for the capture undo), `components/tasks/TaskEditorDialog.tsx` and `lib/ui/useTaskPlanDrop.ts` (`useUpdateTask`), and `components/calendar/CalendarShell.tsx` (`useTasks("all")` for the chips). `useReorderTasks` has no call site yet: the order PATCH is exercised only by the integration tests.
 
 **Debugging** —
 - A row flickers back to its old title -> the PATCH failed and `restoreTasks` replayed the snapshot -> read the thrown `Error` message from `requestJson`.
 - A created or deleted task appears only after a moment -> intended: those hooks refetch instead of writing the cache -> check the invalidated prefix is still `["tasks"]`.
 - The list and the rail disagree mid-edit -> `counts` is untouched by the optimistic patch and refreshes only on settle -> expected; a permanently stale badge means the invalidation was removed.
+- A moved task still shows the source list's name/dot, and its position and counts look stale for a beat -> the optimistic patch carries the raw `collectionId` (and `sortOrder` only when the undo sends one), never the nested `collection` summary, and the server-computed append position plus the counts arrive with the settle refetch -> expected, not a cache bug -> `patchTask` and `onSettled`.
 - Two views show the same edit twice -> `setQueriesData({ queryKey: ["tasks"] })` intentionally patches every cached `(view, collectionId)` pair.
 
 **Tests** — No direct hook test. The pure cache helpers are covered by `tests/unit/task-cache.test.ts`; the endpoints by `tests/integration/tasks-api.test.ts`.
@@ -299,9 +303,9 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 
 **Purpose** — Pure, framework-free helpers for the `{ tasks, counts }` payload held by every `["tasks", …]` query, so the optimistic hook never maps cache shapes inline.
 
-**Public API** — `interface TasksCacheData { tasks: TaskView[]; counts: TaskCounts }`; `updateTaskInData(data, id, patch: Partial<TaskView>): TasksCacheData`; `removeTaskFromData(data, id): TasksCacheData`.
+**Public API** — `interface TasksCacheData { tasks: TaskView[]; counts: TaskCounts }`; `updateTaskInData(data, id, patch: Partial<TaskView>): TasksCacheData`.
 
-**State & side effects** — None: both functions allocate a new payload and a new `tasks` array and never mutate the input. `updateTaskInData` replaces only the row whose id matches (a missing id leaves every row unchanged) and returns `counts` by reference, because one row patch cannot change the global badges; `removeTaskFromData` filters the row out and keeps the order of the rest. The update hook applies `updateTaskInData` to every cached payload; `removeTaskFromData` is the symmetric helper for a caller that already holds a payload — the delete hook itself only invalidates.
+**State & side effects** — None: the helper allocates a new payload and a new `tasks` array and never mutates the input. `updateTaskInData` replaces only the row whose id matches (a missing id leaves every row unchanged) and returns `counts` by reference, because one row patch cannot change the global badges. `useUpdateTask` applies it to every cached payload; create, delete and reorder only invalidate `["tasks"]`, so there is no optimistic removal helper.
 
 **Depends on / Used by** — `TaskView`/`TaskCounts` types. Imported by `lib/query/tasks.ts` (`updateTaskInData`, `TasksCacheData`) and `tests/unit/task-cache.test.ts`.
 
@@ -310,7 +314,7 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 - A patched task disappears -> the patch carried `status: "done"`/`"dropped"` and the settle refetch excluded it from the open list -> expected; do not "fix" it in the cache helper.
 - A checklist edit flashes ids like `temp-0` -> intended optimistic placeholders until the PATCH response/refetch replaces the row -> `patchTask` in `lib/query/tasks.ts`.
 
-**Tests** — `tests/unit/task-cache.test.ts` (patch by id, unknown-id no-op, immutability, counts untouched, removal order).
+**Tests** — `tests/unit/task-cache.test.ts` (patch by id, unknown-id no-op, immutability, counts untouched).
 
 ## Auth
 
@@ -455,13 +459,13 @@ All five modules export plain Zod schemas (no I/O). Handlers parse the JSON body
 
 ## Non-obvious gotchas for `docs/DEBUGGING.md`
 
-- **Two timestamp conventions.** Domain tables (`household`, `member`, `calendar`, `event`, `user_preference`) store `integer` epoch ms filled by `$defaultFn(() => Date.now())` and hydrate as `number`. Better Auth tables use `mode: "timestamp_ms"` and hydrate as `Date`. Any comparison or arithmetic across the two families must convert.
+- **Two timestamp conventions.** Domain tables (`household`, `member`, `collection`, `event`, `task`, `task_checklist_item`, `user_preference`, the two import tables) store `integer` epoch ms filled by `$defaultFn(() => Date.now())` and hydrate as `number`. Better Auth tables use `mode: "timestamp_ms"` and hydrate as `Date`. Any comparison or arithmetic across the two families must convert.
 - **`event.end_date` is inclusive.** All-day rows carry local `YYYY-MM-DD` in `start_date`/`end_date`; `CalendarShell` subtracts one day when a drag produces FullCalendar's exclusive end. Timed rows carry UTC ms in `start_at`/`end_at` and leave both date columns null.
 - **WAL + one writer.** `createDb` sets `journal_mode = WAL`, `foreign_keys = ON` and `busy_timeout = 15000`; there is one connection per server process (`getDb`) but each script opens its own, so a running dev server and a script both writing will block each other (up to 15 s before `database is locked`). `data/planner.db-wal`/`-shm` are expected files; a stale `-wal` after an abrupt kill is not corruption.
 - **Migrations run on the first request, not at build.** `getDb()` creates the directory, opens the database and calls `migrate()` lazily, and the default migrations folder is `resolve(process.cwd(), "drizzle")` — cwd-sensitive for scripts.
 - **Query keys are four families plus a prefix trick.** `["collections"]`, `["events", from, to]`, `["events", "search", normalized]`, `["preferences"]`, `["tasks", view ?? "all", collectionId ?? null]`. Event and task mutations use `setQueriesData`/`invalidateQueries` with the `["events"]` / `["tasks"]` prefix, so event writes also reach search results and task writes reach every `(view, collectionId)` entry. Calendar delete invalidates `["collections"]` and `["events"]`; preferences mutations never invalidate (they `setQueryData` the PATCH response, guarded by a `latestIssued` sequence ref).
 - **Optimistic writes are global, rollback is wholesale.** Every cached `["events"]` range and every cached `["tasks", …]` payload is patched by the respective update hooks, and rollback restores the full snapshot taken in `onMutate` — undo is a separate mechanism (`lib/ui/undo.ts`) that replays the opposite mutation, so an undone create produces a new event id. The task create/delete/reorder hooks are deliberately not optimistic: they only invalidate.
-- **No FK ties domain rows to `user`.** `member.user_id`, `calendar.owner_id` and `event.created_by` are logical references validated in services; `event.created_by` is not indexed. The two-account cap is a `databaseHooks.user.create.before` check in `createAuth`, not a constraint.
+- **No FK ties domain rows to `user`.** `member.user_id`, `collection.owner_id`, `event.created_by` and `task.created_by` are logical references validated in services; neither `created_by` is indexed. The two-account cap is a `databaseHooks.user.create.before` check in `createAuth`, not a constraint.
 - **`updateEventSchema` must never gain an `allDay` default**, and `updateCollectionSchema` intentionally has no `parentId`; both absences are load-bearing.
 
 ## Focused verification
@@ -469,6 +473,8 @@ All five modules export plain Zod schemas (no I/O). Handlers parse the JSON body
 ```bash
 npx vitest run tests/integration/db.test.ts
 npx vitest run tests/unit/event-cache.test.ts
+npx vitest run tests/unit/task-cache.test.ts
+npx vitest run tests/integration/tasks.test.ts tests/integration/tasks-api.test.ts
 npx vitest run tests/integration/auth.test.ts
 npx vitest run tests/integration/preferences-api.test.ts
 npm run docs:check

@@ -22,7 +22,7 @@ never edited.
 |---|---|---|
 | [`app-routes.md`](app-routes.md) | `app/` — layouts, pages, API route handlers, global styles/tokens | Routing, auth guards, HTTP status codes, design tokens, viewport contract |
 | [`api-layer.md`](api-layer.md) | `lib/api/` — request pipeline, error mapping, handlers | A route returns the wrong status/body, auth or validation rejection |
-| [`lib-services.md`](lib-services.md) | `lib/services/` — SQL + business rules | Calendar/event semantics, permissions, shade assignment, recurrence writes |
+| [`lib-services.md`](lib-services.md) | `lib/services/` — SQL + business rules | Collection/event/task semantics, permissions, shade assignment, recurrence writes |
 | [`lib-data.md`](lib-data.md) | `lib/db/`, `lib/query/`, `lib/auth/`, `lib/validation/` | Schema, query keys, optimistic cache updates, auth tables, Zod schemas |
 | [`lib-domain.md`](lib-domain.md) | Colour, recurrence, time, env, errors, utils | Shade maths, RRULE/EXDATE expansion, all-day vs timed, error codes |
 | [`lib-ui.md`](lib-ui.md) | `lib/ui/` — client state hooks and storage | View/visibility preferences, keyboard shortcuts, undo, search bus |
