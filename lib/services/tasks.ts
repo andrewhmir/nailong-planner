@@ -26,6 +26,7 @@ import {
   ensureInbox,
   getCollectionAccess,
   resolveVisibleCollections,
+  type CollectionAccess,
 } from "./collections";
 import type { ViewerContext } from "./permissions";
 
@@ -211,7 +212,21 @@ function nextSortOrder(db: Database, collectionId: string): number {
   return rows.reduce((highest, row) => Math.max(highest, row.sortOrder), -1) + 1;
 }
 
-/** Captures into the caller's Inbox unless an explicit collection is given. */
+/**
+ * A task lives only in a `kind: "list"` collection; a calendar holds events.
+ * Runs after the write check, so a private or view-only calendar keeps
+ * answering 404/403 instead of revealing its kind.
+ */
+function assertTaskList(access: CollectionAccess): void {
+  if (access.collection.kind !== "list") {
+    throw new AppError("VALIDATION", "Tasks live in lists.", 400);
+  }
+}
+
+/**
+ * Captures into the caller's Inbox unless an explicit collection is given. The
+ * target must be a list, so a calendar is a `VALIDATION` 400.
+ */
 export function createTask(
   db: Database,
   ctx: ViewerContext,
@@ -220,6 +235,7 @@ export function createTask(
   const collectionId = input.collectionId ?? ensureInbox(db, ctx).id;
   const access = getCollectionAccess(db, ctx, collectionId);
   assertCollectionWritable(ctx, access);
+  assertTaskList(access);
 
   const now = Date.now();
   const row: TaskRow = {
@@ -266,10 +282,13 @@ function replaceChecklist(
 
 /**
  * Patches only the whitelisted columns. A `collectionId` move needs write
- * access on both ends. `status` owns the audit stamps: done sets
- * `completedAt`, dropped sets `droppedAt`, open clears both, and switching
- * between done and dropped clears the other stamp. A present `checklist`
- * replaces the whole list in the same transaction as the row patch.
+ * access on both ends, must target a list, and appends the task at the end of
+ * that list. `status` owns the audit stamps, and only a real transition moves
+ * them: done sets `completedAt`, dropped sets `droppedAt`, open clears both,
+ * switching between done and dropped clears the other stamp, and a PATCH that
+ * echoes the stored status leaves the row (and its history) untouched. A
+ * present `checklist` replaces the whole list in the same transaction as the
+ * row patch.
  */
 export function updateTask(
   db: Database,
@@ -282,6 +301,7 @@ export function updateTask(
   if (input.collectionId !== undefined && input.collectionId !== row.collectionId) {
     const targetAccess = getCollectionAccess(db, ctx, input.collectionId);
     assertCollectionWritable(ctx, targetAccess);
+    assertTaskList(targetAccess);
   }
 
   const now = Date.now();
@@ -301,10 +321,13 @@ export function updateTask(
   if (input.sortOrder !== undefined) {
     patch.sortOrder = input.sortOrder;
   }
-  if (input.collectionId !== undefined) {
+  if (input.collectionId !== undefined && input.collectionId !== row.collectionId) {
     patch.collectionId = input.collectionId;
+    // A move appends, using the same calculation as a create: it must not carry
+    // the source list's position into the target.
+    patch.sortOrder = nextSortOrder(db, input.collectionId);
   }
-  if (input.status !== undefined) {
+  if (input.status !== undefined && input.status !== row.status) {
     patch.status = input.status;
     if (input.status === "done") {
       patch.completedAt = now;
@@ -347,10 +370,11 @@ export function deleteTask(db: Database, ctx: ViewerContext, id: string): void {
 }
 
 /**
- * Rewrites the manual order of a list. The payload must be exactly the
- * collection's open tasks — same set, no duplicates — so a stale client cannot
- * silently drop a task that another session created; the caller then re-fetches
- * instead of guessing. Returns the reordered views.
+ * Rewrites the manual order of a list (a calendar is not a task home and
+ * answers `VALIDATION` 400 "Tasks live in lists."). The payload must be exactly
+ * the collection's open tasks — same set, no duplicates — so a stale client
+ * cannot silently drop a task that another session created; the caller then
+ * re-fetches instead of guessing. Returns the reordered views.
  */
 export function reorderTasks(
   db: Database,
@@ -359,6 +383,7 @@ export function reorderTasks(
 ): TaskView[] {
   const access = getCollectionAccess(db, ctx, input.collectionId);
   assertCollectionWritable(ctx, access);
+  assertTaskList(access);
 
   const open = db
     .select()

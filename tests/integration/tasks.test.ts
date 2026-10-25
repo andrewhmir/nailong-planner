@@ -57,7 +57,7 @@ function expectAppError(fn: () => unknown, code: string, status: number, message
   throw new Error(`expected AppError ${code}, but call succeeded`);
 }
 
-/** A shared list, the caller's private list, and a caller-owned view-only list. */
+/** A shared list, the caller's private list, a view-only list and a shared calendar. */
 function makeLists(seeded: SeededDb) {
   const shared = createCollection(seeded.db, seeded.ctxA, {
     name: "House",
@@ -78,7 +78,12 @@ function makeLists(seeded: SeededDb) {
     ownerId: "user-a",
     visibility: "view_only",
   });
-  return { shared, privateList, viewOnly };
+  const calendar = createCollection(seeded.db, seeded.ctxA, {
+    name: "Shared calendar",
+    kind: "calendar",
+    hueFamily: "sky",
+  });
+  return { shared, privateList, viewOnly, calendar };
 }
 
 function ids(tasks: TaskView[]): string[] {
@@ -193,6 +198,23 @@ describe("createTask", () => {
         "NOT_FOUND",
         404,
       );
+    } finally {
+      close();
+    }
+  });
+
+  it("refuses a calendar as a task home", async () => {
+    const seeded = await makeSeededDb();
+    const { db, close, ctxA } = seeded;
+    const { calendar } = makeLists(seeded);
+    try {
+      expectAppError(
+        () => createTask(db, ctxA, { title: "Not an event", collectionId: calendar.id }),
+        "VALIDATION",
+        400,
+        "Tasks live in lists.",
+      );
+      expect(db.select().from(task).all()).toEqual([]);
     } finally {
       close();
     }
@@ -410,6 +432,33 @@ describe("updateTask", () => {
     }
   });
 
+  it("moves the audit stamps only on a real status transition", async () => {
+    const seeded = await makeSeededDb();
+    const { db, close, ctxA } = seeded;
+    const { shared } = makeLists(seeded);
+    try {
+      const created = createTask(db, ctxA, { title: "Ship it", collectionId: shared.id });
+      const done = updateTask(db, ctxA, created.id, { status: "done" });
+      expect(done.completedAt).toBe(NOW);
+
+      // A later PATCH that echoes the stored status must not rewrite history.
+      vi.setSystemTime(new Date(NOW + 60_000));
+      const echoed = updateTask(db, ctxA, created.id, { status: "done" });
+      expect(echoed.completedAt).toBe(done.completedAt);
+      expect(echoed.completedAt).toBe(NOW);
+      expect(echoed.updatedAt).toBe(done.updatedAt);
+
+      // done -> open is a real transition and clears both audit stamps.
+      vi.setSystemTime(new Date(NOW + 120_000));
+      const reopened = updateTask(db, ctxA, created.id, { status: "open" });
+      expect(reopened.status).toBe("open");
+      expect(reopened.completedAt).toBeNull();
+      expect(reopened.droppedAt).toBeNull();
+    } finally {
+      close();
+    }
+  });
+
   it("patches whitelisted fields and returning the merged view", async () => {
     const seeded = await makeSeededDb();
     const { db, close, ctxA } = seeded;
@@ -474,6 +523,56 @@ describe("updateTask", () => {
       expect(
         ids(listTasks(db, ctxA, filterInput({ view: "all", collectionId: privateList.id })).tasks),
       ).toEqual([moved.id]);
+    } finally {
+      close();
+    }
+  });
+
+  it("refuses a move into a calendar", async () => {
+    const seeded = await makeSeededDb();
+    const { db, close, ctxA } = seeded;
+    const { shared, calendar } = makeLists(seeded);
+    try {
+      const created = createTask(db, ctxA, { title: "Stay put", collectionId: shared.id });
+
+      expectAppError(
+        () => updateTask(db, ctxA, created.id, { collectionId: calendar.id }),
+        "VALIDATION",
+        400,
+        "Tasks live in lists.",
+      );
+      expect(getTask(db, ctxA, created.id).collectionId).toBe(shared.id);
+    } finally {
+      close();
+    }
+  });
+
+  it("appends a moved task to the end of the target list", async () => {
+    const seeded = await makeSeededDb();
+    const { db, close, ctxA } = seeded;
+    const { shared, privateList } = makeLists(seeded);
+    try {
+      // List A holds orders 0 and 1; list B already has order 5.
+      const first = createTask(db, ctxA, { title: "First", collectionId: shared.id });
+      const second = createTask(db, ctxA, { title: "Second", collectionId: shared.id });
+      const target = createTask(db, ctxA, { title: "Target", collectionId: privateList.id });
+      const positioned = updateTask(db, ctxA, target.id, { sortOrder: 5 });
+      expect([first.sortOrder, second.sortOrder, positioned.sortOrder]).toEqual([0, 1, 5]);
+
+      const moved = updateTask(db, ctxA, first.id, { collectionId: privateList.id });
+      expect(moved.collectionId).toBe(privateList.id);
+      expect(moved.sortOrder).toBe(6);
+
+      const targetTasks = listTasks(
+        db,
+        ctxA,
+        filterInput({ view: "all", collectionId: privateList.id }),
+      );
+      expect(ids(targetTasks.tasks)).toEqual([target.id, moved.id]);
+
+      // The source list keeps its remaining order.
+      const sourceTasks = listTasks(db, ctxA, filterInput({ view: "all", collectionId: shared.id }));
+      expect(ids(sourceTasks.tasks)).toEqual([second.id]);
     } finally {
       close();
     }
@@ -604,6 +703,22 @@ describe("reorderTasks", () => {
         first.id,
         second.id,
       ]);
+    } finally {
+      close();
+    }
+  });
+
+  it("refuses to reorder a calendar", async () => {
+    const seeded = await makeSeededDb();
+    const { db, close, ctxA } = seeded;
+    const { calendar } = makeLists(seeded);
+    try {
+      expectAppError(
+        () => reorderTasks(db, ctxA, { collectionId: calendar.id, orderedIds: ["not-a-task"] }),
+        "VALIDATION",
+        400,
+        "Tasks live in lists.",
+      );
     } finally {
       close();
     }
