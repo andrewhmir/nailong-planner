@@ -1,14 +1,40 @@
 import { describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
+import type { Database } from "@/lib/db/client";
+import { event } from "@/lib/db/schema";
 import { AppError } from "@/lib/errors";
+import { expandOccurrences } from "@/lib/recurrence/expand";
 import { createCalendar } from "@/lib/services/calendars";
-import { createEvent, deleteEvent, listEvents, updateEvent } from "@/lib/services/events";
-import { localWallTimeToUtc } from "@/lib/time/zone";
+import {
+  createEvent,
+  createException,
+  deleteEvent,
+  deleteFollowing,
+  listEvents,
+  moveSeries,
+  splitSeries,
+  updateEvent,
+} from "@/lib/services/events";
+import { localWallTimeToUtc, utcToLocalWallTime } from "@/lib/time/zone";
 import { makeSeededDb } from "../helpers/fixtures";
 
 const TAIPEI = "Asia/Taipei";
+const LONDON = "Europe/London";
 
 function at(wall: string): number {
   return localWallTimeToUtc(wall, TAIPEI);
+}
+
+function atLondon(wall: string): number {
+  return localWallTimeToUtc(wall, LONDON);
+}
+
+function iso(wall: string, zone = TAIPEI): string {
+  return new Date(localWallTimeToUtc(wall, zone)).toISOString();
+}
+
+function storedRow(db: Database, id: string) {
+  return db.select().from(event).where(eq(event.id, id)).get();
 }
 
 function expectAppError(fn: () => unknown, code: string, status: number) {
@@ -273,6 +299,436 @@ describe("event service", () => {
       expect(
         listEvents(db, ctxOther, { from: at("2026-10-01T00:00"), to: at("2026-11-01T00:00") }),
       ).toHaveLength(0);
+    } finally {
+      close();
+    }
+  });
+});
+
+describe("recurring edit scopes", () => {
+  it("moves one occurrence into a linked exception and excludes the slot", async () => {
+    const { db, close, ctxA, child } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: child.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-10-03",
+        endDate: "2026-10-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA",
+      });
+      const exception = createException(db, ctxA, series.id, "2026-10-03", {
+        allDay: true,
+        startDate: "2026-10-04",
+        endDate: "2026-10-04",
+      });
+
+      expect(exception.rrule).toBeNull();
+      expect(exception.recurrenceParentId).toBe(series.id);
+      expect(exception.recurrenceId).toBe("2026-10-03");
+      expect(exception.calendarId).toBe(child.id);
+      expect(exception.title).toBe("Piano");
+
+      const seriesRow = storedRow(db, series.id)!;
+      expect(JSON.parse(seriesRow.exdates ?? "[]")).toEqual(["2026-10-03"]);
+
+      const october = { from: at("2026-10-01T00:00"), to: at("2026-11-01T00:00") };
+      const seriesKeys = expandOccurrences(seriesRow, october, TAIPEI).map((o) => o.startKey);
+      expect(seriesKeys).not.toContain("2026-10-03");
+      expect(seriesKeys).toContain("2026-10-10");
+      expect(
+        expandOccurrences(storedRow(db, exception.id)!, october, TAIPEI).map((o) => o.startKey),
+      ).toEqual(["2026-10-04"]);
+    } finally {
+      close();
+    }
+  });
+
+  it("rejects moving an occurrence that the rule does not generate", async () => {
+    const { db, close, ctxA, child } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: child.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-10-03",
+        endDate: "2026-10-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA",
+      });
+      expectAppError(
+        () =>
+          createException(db, ctxA, series.id, "2026-10-04", {
+            allDay: true,
+            startDate: "2026-10-05",
+            endDate: "2026-10-05",
+          }),
+        "VALIDATION",
+        400,
+      );
+    } finally {
+      close();
+    }
+  });
+
+  it("moves the whole series by the drag delta", async () => {
+    const { db, close, ctxA, child } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: child.id,
+        title: "Swim",
+        allDay: false,
+        startAt: at("2026-10-05T09:00"),
+        endAt: at("2026-10-05T10:00"),
+        rrule: "FREQ=WEEKLY;BYDAY=MO",
+        exdates: [iso("2026-10-19T09:00")],
+      });
+
+      const moved = moveSeries(db, ctxA, series.id, iso("2026-10-05T09:00"), {
+        allDay: false,
+        startAt: at("2026-10-06T10:00"),
+        endAt: at("2026-10-06T11:00"),
+        startDate: null,
+        endDate: null,
+      });
+
+      expect(moved.startAt).toBe(at("2026-10-06T10:00"));
+      expect(moved.endAt).toBe(at("2026-10-06T11:00"));
+      expect(moved.rrule).toContain("BYDAY=TU");
+      expect(JSON.parse(moved.exdates ?? "[]")).toEqual([iso("2026-10-20T10:00")]);
+    } finally {
+      close();
+    }
+  });
+
+  it("refuses an all-events move for a custom rule", async () => {
+    const { db, close, ctxA, child } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: child.id,
+        title: "Custom",
+        allDay: false,
+        startAt: at("2026-10-05T09:00"),
+        endAt: at("2026-10-05T10:00"),
+        rrule: "FREQ=WEEKLY;BYDAY=MO;BYHOUR=9",
+      });
+      expectAppError(
+        () =>
+          moveSeries(db, ctxA, series.id, iso("2026-10-05T09:00"), {
+            allDay: false,
+            startAt: at("2026-10-06T10:00"),
+            endAt: at("2026-10-06T11:00"),
+            startDate: null,
+            endDate: null,
+          }),
+        "VALIDATION",
+        400,
+      );
+    } finally {
+      close();
+    }
+  });
+
+  it("splits a COUNT series and applies the edit to the later segment", async () => {
+    const { db, close, ctxA, child } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: child.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-10-03",
+        endDate: "2026-10-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA;COUNT=8",
+      });
+
+      const result = splitSeries(db, ctxA, series.id, "2026-10-17", {
+        title: "Second half",
+        rrule: "FREQ=WEEKLY;BYDAY=SA;COUNT=8",
+      });
+
+      expect(result.event.title).toBe("Second half");
+      expect(result.event.startDate).toBe("2026-10-17");
+      expect(result.event.rrule).toBe("FREQ=WEEKLY;BYDAY=SA;COUNT=6");
+      expect(result.event.recurrenceParentId ?? null).toBeNull();
+      expect(result.relinked).toEqual([]);
+      expect(result.truncated?.id).toBe(series.id);
+      expect(storedRow(db, series.id)?.rrule).toBe("FREQ=WEEKLY;BYDAY=SA;COUNT=2");
+      expect(
+        listEvents(db, ctxA, { from: at("2026-10-01T00:00"), to: at("2026-12-01T00:00") }),
+      ).toHaveLength(2);
+    } finally {
+      close();
+    }
+  });
+
+  it("removes the old row when the split starts at its first occurrence", async () => {
+    const { db, close, ctxA, child } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: child.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-10-03",
+        endDate: "2026-10-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA;COUNT=8",
+      });
+
+      const result = splitSeries(db, ctxA, series.id, "2026-10-03", {
+        title: "All of it",
+        rrule: "FREQ=WEEKLY;BYDAY=SA;COUNT=8",
+      });
+
+      expect(result.truncated).toBeNull();
+      expect(storedRow(db, series.id)).toBeUndefined();
+      expect(storedRow(db, result.event.id)).toBeDefined();
+    } finally {
+      close();
+    }
+  });
+
+  it("re-links later exceptions to the new segment", async () => {
+    const { db, close, ctxA, child } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: child.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-10-03",
+        endDate: "2026-10-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA;COUNT=8",
+      });
+      const exception = createException(db, ctxA, series.id, "2026-10-24", {
+        allDay: true,
+        startDate: "2026-10-25",
+        endDate: "2026-10-25",
+      });
+
+      const result = splitSeries(db, ctxA, series.id, "2026-10-17", {
+        title: "Second half",
+        rrule: "FREQ=WEEKLY;BYDAY=SA;COUNT=8",
+      });
+
+      expect(result.relinked).toHaveLength(1);
+      expect(result.relinked[0]?.id).toBe(exception.id);
+      expect(result.relinkedPrevious[0]?.recurrenceParentId).toBe(series.id);
+      expect(storedRow(db, exception.id)?.recurrenceParentId).toBe(result.event.id);
+      expect(storedRow(db, exception.id)?.startDate).toBe("2026-10-25");
+    } finally {
+      close();
+    }
+  });
+
+  it("shifts re-linked exceptions when following events move", async () => {
+    const { db, close, ctxA, child } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: child.id,
+        title: "Swim",
+        allDay: false,
+        startAt: at("2026-10-05T09:00"),
+        endAt: at("2026-10-05T10:00"),
+        rrule: "FREQ=WEEKLY;BYDAY=MO",
+      });
+      const exception = createException(db, ctxA, series.id, iso("2026-10-19T09:00"), {
+        allDay: false,
+        startAt: at("2026-10-20T10:00"),
+        endAt: at("2026-10-20T11:00"),
+      });
+
+      splitSeries(db, ctxA, series.id, iso("2026-10-12T09:00"), {
+        allDay: false,
+        startAt: at("2026-10-13T10:00"),
+        endAt: at("2026-10-13T11:00"),
+        startDate: null,
+        endDate: null,
+      });
+
+      const shifted = storedRow(db, exception.id)!;
+      expect(shifted.startAt).toBe(at("2026-10-21T11:00"));
+      expect(shifted.endAt).toBe(at("2026-10-21T12:00"));
+      expect(shifted.recurrenceId).toBe(iso("2026-10-20T10:00"));
+    } finally {
+      close();
+    }
+  });
+
+  it("deletes a series with its linked exceptions and returns them", async () => {
+    const { db, close, ctxA, child } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: child.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-10-03",
+        endDate: "2026-10-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA",
+      });
+      const exception = createException(db, ctxA, series.id, "2026-10-03", {
+        allDay: true,
+        startDate: "2026-10-04",
+        endDate: "2026-10-04",
+      });
+
+      const deleted = deleteEvent(db, ctxA, series.id, { scope: "all" });
+
+      expect(deleted.map((row) => row.id).sort()).toEqual([series.id, exception.id].sort());
+      expect(storedRow(db, series.id)).toBeUndefined();
+      expect(storedRow(db, exception.id)).toBeUndefined();
+    } finally {
+      close();
+    }
+  });
+
+  it("deletes the following occurrences and keeps the earlier segment", async () => {
+    const { db, close, ctxA, child } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: child.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-10-03",
+        endDate: "2026-10-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA;COUNT=8",
+      });
+
+      const result = deleteFollowing(db, ctxA, series.id, "2026-10-17");
+
+      expect(result.truncated?.id).toBe(series.id);
+      expect(result.deleted).toHaveLength(1);
+      expect(result.deleted[0]?.id).not.toBe(series.id);
+      expect(storedRow(db, series.id)?.rrule).toBe("FREQ=WEEKLY;BYDAY=SA;COUNT=2");
+      expect(
+        listEvents(db, ctxA, { from: at("2026-10-01T00:00"), to: at("2026-12-01T00:00") }),
+      ).toHaveLength(1);
+    } finally {
+      close();
+    }
+  });
+
+  it("propagates series text edits to exceptions but keeps their times", async () => {
+    const { db, close, ctxA, child } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: child.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-10-03",
+        endDate: "2026-10-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA",
+      });
+      const exception = createException(db, ctxA, series.id, "2026-10-10", {
+        allDay: true,
+        startDate: "2026-10-11",
+        endDate: "2026-10-11",
+      });
+
+      updateEvent(db, ctxA, series.id, { title: "Piano (renamed)" });
+
+      const after = storedRow(db, exception.id)!;
+      expect(after.title).toBe("Piano (renamed)");
+      expect(after.startDate).toBe("2026-10-11");
+    } finally {
+      close();
+    }
+  });
+
+  it("detaches exceptions when the repeat is removed", async () => {
+    const { db, close, ctxA, child } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: child.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-10-03",
+        endDate: "2026-10-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA",
+      });
+      const exception = createException(db, ctxA, series.id, "2026-10-10", {
+        allDay: true,
+        startDate: "2026-10-11",
+        endDate: "2026-10-11",
+      });
+
+      updateEvent(db, ctxA, series.id, { rrule: null });
+
+      expect(storedRow(db, exception.id)?.recurrenceParentId).toBeNull();
+      expect(storedRow(db, exception.id)?.recurrenceId).toBeNull();
+    } finally {
+      close();
+    }
+  });
+
+  it("keeps a DST series' wall clock across a split", async () => {
+    const { db, close, ctxA, child } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: child.id,
+        title: "London class",
+        allDay: false,
+        startAt: atLondon("2027-03-02T09:00"),
+        endAt: atLondon("2027-03-02T10:00"),
+        rrule: "FREQ=WEEKLY;BYDAY=TU",
+      });
+      db.update(event).set({ tzid: LONDON }).where(eq(event.id, series.id)).run();
+
+      const result = splitSeries(db, ctxA, series.id, new Date(atLondon("2027-03-30T09:00")).toISOString(), {
+        title: "London class",
+        rrule: "FREQ=WEEKLY;BYDAY=TU",
+      });
+
+      expect(result.event.startAt).toBe(atLondon("2027-03-30T09:00"));
+      expect(result.event.tzid).toBe(LONDON);
+      const occurrences = expandOccurrences(
+        storedRow(db, result.event.id)!,
+        { from: atLondon("2027-03-30T00:00"), to: atLondon("2027-05-15T00:00") },
+        TAIPEI,
+      );
+      expect(
+        occurrences.map((occurrence) => utcToLocalWallTime(occurrence.startAt ?? 0, LONDON).slice(11)),
+      ).toEqual(Array(7).fill("09:00"));
+    } finally {
+      close();
+    }
+  });
+
+  it("creates an exception under its series through the create path", async () => {
+    const { db, close, ctxA, child } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        calendarId: child.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-10-03",
+        endDate: "2026-10-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA",
+      });
+
+      const restored = createEvent(db, ctxA, {
+        calendarId: child.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-10-04",
+        endDate: "2026-10-04",
+        recurrenceParentId: series.id,
+        recurrenceId: "2026-10-03",
+      });
+
+      expect(restored.recurrenceParentId).toBe(series.id);
+      expect(restored.recurrenceId).toBe("2026-10-03");
+
+      expectAppError(
+        () =>
+          createEvent(db, ctxA, {
+            calendarId: child.id,
+            title: "Lost",
+            allDay: true,
+            startDate: "2026-10-04",
+            endDate: "2026-10-04",
+            recurrenceParentId: "missing-parent",
+            recurrenceId: "2026-10-03",
+          }),
+        "NOT_FOUND",
+        404,
+      );
     } finally {
       close();
     }
