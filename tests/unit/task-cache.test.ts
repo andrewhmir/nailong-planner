@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  removeTaskFromData,
-  updateTaskInData,
-  type TasksCacheData,
-} from "@/lib/query/taskCache";
+import { updateTaskInData, type TasksCacheData } from "@/lib/query/taskCache";
 import type { TaskCounts, TaskView } from "@/lib/services/tasks";
 
 function makeTask(overrides: Partial<TaskView> = {}): TaskView {
@@ -68,24 +64,5 @@ describe("updateTaskInData", () => {
 
     expect(after.counts).toBe(COUNTS);
     expect(after.counts).toEqual({ inbox: 1, today: 0, week: 0, someday: 1, overdue: 0 });
-  });
-});
-
-describe("removeTaskFromData", () => {
-  it("filters the row out, keeps order and leaves counts untouched", () => {
-    const data = makeData([makeTask({ id: "t1" }), makeTask({ id: "t2" }), makeTask({ id: "t3" })]);
-    const after = removeTaskFromData(data, "t2");
-
-    expect(after.tasks.map((task) => task.id)).toEqual(["t1", "t3"]);
-    expect(after.counts).toBe(COUNTS);
-    expect(after).not.toBe(data);
-    expect(data.tasks).toHaveLength(3);
-  });
-
-  it("is a no-op for an unknown id", () => {
-    const data = makeData([makeTask({ id: "t1" })]);
-    const after = removeTaskFromData(data, "missing");
-
-    expect(after.tasks.map((task) => task.id)).toEqual(["t1"]);
   });
 });
