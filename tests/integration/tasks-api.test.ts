@@ -1,4 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
+import type { NextRequest } from "next/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  DELETE as deleteTaskRoute,
+  GET as getTaskRoute,
+  PATCH as patchTaskRoute,
+} from "@/app/api/tasks/[id]/route";
+import { PATCH as reorderTasksRoute } from "@/app/api/tasks/order/route";
 import { GET as listTasksRoute } from "@/app/api/tasks/route";
 import {
   createTaskHandler,
@@ -8,9 +16,14 @@ import {
   reorderTasksHandler,
   updateTaskHandler,
 } from "@/lib/api/handlers/tasks";
+import { household } from "@/lib/db/schema";
 import { createCollection } from "@/lib/services/collections";
 import { createTask, type TaskCounts, type TaskView } from "@/lib/services/tasks";
 import { makeSeededDb } from "../helpers/fixtures";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function jsonRequest(url: string, method: string, body?: unknown): Request {
   return new Request(`http://localhost:3000${url}`, {
@@ -213,10 +226,79 @@ describe("task API", () => {
     }
   });
 
+  it("buckets with the household's timezone and week start, not handler defaults", async () => {
+    // 2026-10-25T12:00Z is Monday 2026-10-26 02:00 in Kiritimati (UTC+14) but
+    // Sunday 2026-10-25 20:00 in the handler's Asia/Taipei fallback. A handler
+    // that hardcoded the fallback zone (or `weekStartsOn: 0`) puts neither date
+    // in the bucket asserted below.
+    vi.useFakeTimers({ now: new Date("2026-10-25T12:00:00Z"), toFake: ["Date"] });
+    const { db, close, ctxA } = await setup();
+    try {
+      db.update(household)
+        .set({ timezone: "Pacific/Kiritimati", weekStartsOn: 1 })
+        .where(eq(household.id, "h1"))
+        .run();
+      // Household today is Monday the 26th; its Monday-started week ends on
+      // Sunday 2026-11-01, so the 1st is the last day of *this* week.
+      const todayTask = createTask(db, ctxA, { title: "Today", scheduledOn: "2026-10-26" });
+      const weekTask = createTask(db, ctxA, { title: "Week end", scheduledOn: "2026-11-01" });
+
+      const today = await body<{ tasks: TaskView[]; counts: TaskCounts }>(
+        await listTasksHandler(db, ctxA, jsonRequest("/api/tasks?view=today", "GET")),
+      );
+      expect(today.tasks.map((task) => task.id)).toEqual([todayTask.id]);
+      expect(today.counts).toEqual({ inbox: 0, today: 1, week: 1, someday: 0, overdue: 0 });
+
+      const week = await body<{ tasks: TaskView[] }>(
+        await listTasksHandler(db, ctxA, jsonRequest("/api/tasks?view=week", "GET")),
+      );
+      expect(week.tasks.map((task) => task.id)).toEqual([weekTask.id]);
+    } finally {
+      close();
+    }
+  });
+
   it("rejects an unauthenticated request with 401 through the real route", async () => {
     const response = await listTasksRoute(new Request("http://localhost:3000/api/tasks"));
     expect(response.status).toBe(401);
     const payload = await body<{ error: { code: string } }>(response);
     expect(payload.error.code).toBe("UNAUTHENTICATED");
+  });
+
+  it("unwraps the dynamic params through the [id] route and delegates the order PATCH", async () => {
+    // The route modules await `context.params` before delegating; calling them
+    // with a Promise (as Next 16 does) executes that unwrap. Without a session
+    // every verb still stops at `withViewer`'s 401, which is enough to prove the
+    // wiring, and the order route is called the same way without a param.
+    const context = { params: Promise.resolve({ id: "missing-task" }) };
+    const url = "http://localhost:3000/api/tasks/missing-task";
+    const get = await getTaskRoute(
+      new Request(url) as unknown as NextRequest,
+      context,
+    );
+    expect(get.status).toBe(401);
+    const patch = await patchTaskRoute(
+      new Request(url, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "Nope" }),
+      }) as unknown as NextRequest,
+      context,
+    );
+    expect(patch.status).toBe(401);
+    const removed = await deleteTaskRoute(
+      new Request(url, { method: "DELETE" }) as unknown as NextRequest,
+      context,
+    );
+    expect(removed.status).toBe(401);
+
+    const reorder = await reorderTasksRoute(
+      new Request("http://localhost:3000/api/tasks/order", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ collectionId: "c1", orderedIds: ["t1"] }),
+      }) as unknown as NextRequest,
+    );
+    expect(reorder.status).toBe(401);
   });
 });
