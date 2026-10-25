@@ -57,6 +57,18 @@ function endOfWeek(date: string, weekStartsOn: 0 | 1): string {
   return addDaysToDate(date, 6 - offset);
 }
 
+/** The due-date badge text, mirroring `formatWallDate` in `lib/time/format.ts`. */
+function wallDateLabel(date: string): string {
+  const { year, month, day } = partsOf(date);
+  return new Intl.DateTimeFormat("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(year, month - 1, day)));
+}
+
 /** Household zone and week start come from the server, never from a literal. */
 async function householdInfo(page: Page): Promise<HouseholdInfo> {
   const response = await page.request.get("/api/session");
@@ -80,6 +92,9 @@ interface ApiTask {
   id: string;
   title: string;
   status: string;
+  collectionId: string;
+  dueOn: string | null;
+  checklist: Array<{ id: string; title: string; done: boolean }>;
 }
 
 /** The tasks of one view, in the exact order the server sends (and the shell renders). */
@@ -87,6 +102,13 @@ async function tasksInView(page: Page, view: "inbox" | "today"): Promise<ApiTask
   const response = await page.request.get(`/api/tasks?view=${view}`);
   expect(response.ok()).toBeTruthy();
   return ((await response.json()) as { tasks: ApiTask[] }).tasks;
+}
+
+/** One task by id, for the delete-undo assertions (the re-created row has a new id). */
+async function apiTask(page: Page, id: string): Promise<ApiTask> {
+  const response = await page.request.get(`/api/tasks/${id}`);
+  expect(response.ok()).toBeTruthy();
+  return ((await response.json()) as { task: ApiTask }).task;
 }
 
 /** The task row `li`; `data-task-id` makes the locator self-describing. */
@@ -237,15 +259,32 @@ test("Shift+K captures from the calendar and triage keys work without a mouse", 
   await expect(page).toHaveURL(/\/$/);
   await globalCapture(page, undoProbeTitle);
   // A second capture inside the same 10-second toast window reproduces the
-  // shared-LIFO bug: Sonner prepends the newest toast, so `data-index="1"` is the
-  // FIRST capture's toast. Its Undo must delete that task, not the newest one.
+  // shared-LIFO bug: Sonner prepends the newest toast, so the toast with
+  // `data-index="1"` is the FIRST capture's toast. Its Undo must delete that
+  // task, not the newest one.
   await globalCapture(page, title);
   await expect(page).toHaveURL(/\/$/);
+
+  // Sonner keeps the older toast collapsed behind the front one: a non-front
+  // toast is offset by just the 14px gap (`--lift-amount`), scaled, drawn at a
+  // lower `--z-index`, and its children sit at `opacity: 0`. The stack only
+  // expands on hover (`onMouseEnter`/`onMouseMove` on `[data-sonner-toaster]`),
+  // and Playwright checks the hit target at the element's centre *before* it
+  // clicks — that point is covered by the front toast, so clicking the older
+  // Undo directly retries until the actionability timeout. Hovering the front
+  // toast expands the stack (and pauses both dismiss timers), which moves the
+  // older toast clear of the front one; `data-expanded="true"` proves the
+  // expansion landed before the click.
+  const frontToast = page.locator('[data-sonner-toast][data-index="0"]', {
+    hasText: "Task captured",
+  });
+  await expect(frontToast).toBeVisible();
+  await frontToast.hover();
 
   const olderToast = page.locator('[data-sonner-toast][data-index="1"]', {
     hasText: "Task captured",
   });
-  await expect(olderToast).toBeVisible();
+  await expect(olderToast).toHaveAttribute("data-expanded", "true");
   await olderToast.getByRole("button", { name: "Undo" }).click();
   await expect
     .poll(async () => (await tasksInView(page, "inbox")).some((task) => task.title === undoProbeTitle))
@@ -343,6 +382,8 @@ test("Shift+K captures from the calendar and triage keys work without a mouse", 
 });
 
 test("the task editor persists title, notes and checklist, and Escape discards", async ({ page }) => {
+  const { timezone } = await householdInfo(page);
+  const today = householdToday(timezone);
   const stamp = Date.now().toString(36);
   const originalTitle = `E2E editor task ${stamp}`;
   const editedTitle = `E2E edited task ${stamp}`;
@@ -358,11 +399,21 @@ test("the task editor persists title, notes and checklist, and Escape discards",
 
   const taskId = await taskRow(page, originalTitle).getAttribute("data-task-id");
   expect(taskId).toBeTruthy();
+  const editor = page.getByRole("dialog", { name: "Edit task" });
+
+  // The row menu's `Edit task…` action opens the same editor as `Enter`.
+  await taskRow(page, originalTitle)
+    .getByRole("button", { name: `Options for ${originalTitle}` })
+    .click();
+  await page.getByRole("menuitem", { name: /^Edit task/ }).click();
+  await expect(editor).toBeVisible();
+  await expect(editor.getByLabel("Title")).toHaveValue(originalTitle);
+  await editor.getByRole("button", { name: "Cancel" }).click();
+  await expect(editor).toBeHidden();
 
   // Keyboard-only opening: focus selects the row, Enter opens its editor.
   await taskRow(page, originalTitle).focus();
   await page.keyboard.press("Enter");
-  const editor = page.getByRole("dialog", { name: "Edit task" });
   await expect(editor).toBeVisible();
 
   await editor.getByLabel("Title").fill(editedTitle);
@@ -400,6 +451,44 @@ test("the task editor persists title, notes and checklist, and Escape discards",
   expect(body.task.checklist).toHaveLength(2);
   expect(body.task.checklist.find((item) => item.title === itemA)?.done).toBe(true);
   expect(body.task.checklist.find((item) => item.title === itemB)?.done).toBe(false);
+
+  // Due date: the editor's popover sets it, the task re-buckets from Inbox to
+  // Today (D6 anchors on the earliest commitment) and the row paints the badge.
+  const dueLabel = wallDateLabel(today);
+  await taskRow(page, editedTitle).focus();
+  await page.keyboard.press("Enter");
+  await expect(editor).toBeVisible();
+  await editor.getByTestId("task-editor-due-trigger").click();
+  const duePopover = page.getByTestId("task-editor-due-popover");
+  await expect(duePopover).toBeVisible();
+  await duePopover.getByRole("button", { name: "Today", exact: true }).click();
+  await expect(duePopover).toBeHidden();
+  await editor.getByRole("button", { name: "Save" }).click();
+  await expect(editor).toBeHidden();
+  // The optimistic PATCH keeps the row in the cached Inbox list until the
+  // settle refetch re-derives its bucket, so this waits for the move.
+  await expect(page.getByRole("checkbox", { name: editedTitle })).toHaveCount(0);
+  await selectView(page, "Today");
+  const dueRow = taskRow(page, editedTitle);
+  await expect(dueRow).toBeVisible();
+  await expect(dueRow.getByText(dueLabel, { exact: true })).toBeVisible();
+
+  // Clearing it removes the badge and returns the undated task to the Inbox.
+  await dueRow.focus();
+  await page.keyboard.press("Enter");
+  await expect(editor).toBeVisible();
+  await editor.getByTestId("task-editor-due-trigger").click();
+  await expect(duePopover).toBeVisible();
+  await duePopover.getByRole("button", { name: "Clear due date" }).click();
+  await expect(duePopover).toBeHidden();
+  await editor.getByRole("button", { name: "Save" }).click();
+  await expect(editor).toBeHidden();
+  await expect(dueRow).toHaveCount(0);
+  await selectView(page, "Inbox");
+  const inboxRow = taskRow(page, editedTitle);
+  await expect(inboxRow).toBeVisible();
+  await expect(inboxRow.getByText(dueLabel, { exact: true })).toHaveCount(0);
+  expect((await apiTask(page, taskId!)).dueOn).toBeNull();
 
   // Escape closes without saving: the edited title never reaches the server.
   await taskRow(page, editedTitle).focus();
@@ -450,4 +539,87 @@ test("completing a task is undoable from the toast and restores the counts", asy
   const restored = await page.request.get(`/api/tasks/${taskId}`);
   expect(restored.ok()).toBeTruthy();
   expect(((await restored.json()) as { task: ApiTask }).task.status).toBe("open");
+});
+
+test("deleting a task is undoable from the toast and restores its checklist", async ({ page }) => {
+  const stamp = Date.now().toString(36);
+  const title = `E2E undo delete ${stamp}`;
+  const itemA = `Checklist milk ${stamp}`;
+  const itemB = `Checklist bread ${stamp}`;
+
+  await page.goto("/tasks");
+  await expect(page.getByRole("heading", { name: "Tasks", exact: true })).toBeVisible();
+  await page.locator("#task-capture").fill(title);
+  await page.locator("#task-capture").press("Enter");
+  await expect(page.getByRole("checkbox", { name: title })).toBeVisible();
+
+  const captured = (await tasksInView(page, "inbox")).find((task) => task.title === title);
+  expect(captured).toBeTruthy();
+  const deletedId = captured!.id;
+
+  // Give the task a checklist first, so the undo has to restore more than a
+  // title. The editor save itself pushes no undo action.
+  const editor = page.getByRole("dialog", { name: "Edit task" });
+  await taskRow(page, title).focus();
+  await page.keyboard.press("Enter");
+  await expect(editor).toBeVisible();
+  const addField = editor.getByLabel("New checklist item");
+  await addField.fill(itemA);
+  await addField.press("Enter");
+  await addField.fill(itemB);
+  await addField.press("Enter");
+  await expect(editor.getByRole("checkbox", { name: itemA })).toBeVisible();
+  await expect(editor.getByRole("checkbox", { name: itemB })).toBeVisible();
+  await editor.getByRole("checkbox", { name: itemA }).click();
+  await editor.getByRole("button", { name: "Save" }).click();
+  await expect(editor).toBeHidden();
+  // Reload before deleting: the undo captures the row snapshot from the list
+  // query, so the checklist must be in that snapshot, not just on the server.
+  await page.reload();
+  await expect(page.getByRole("checkbox", { name: title })).toBeVisible();
+
+  const before = await apiTask(page, deletedId);
+  expect(before.collectionId).toBeTruthy();
+  expect(before.checklist.map((item) => [item.title, item.done])).toEqual([
+    [itemA, true],
+    [itemB, false],
+  ]);
+
+  // Delete from the row menu, so the shared delete-undo path is exercised.
+  await taskRow(page, title).getByRole("button", { name: `Options for ${title}` }).click();
+  await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
+  await expect(page.getByRole("checkbox", { name: title })).toHaveCount(0);
+  await expect.poll(async () => (await page.request.get(`/api/tasks/${deletedId}`)).status()).toBe(404);
+
+  const toast = page.locator("[data-sonner-toast]", { hasText: "Task deleted" });
+  await expect(toast).toBeVisible();
+  await toast.getByRole("button", { name: "Undo" }).click();
+
+  // There is no trash table, so the undo re-creates the task with a NEW id while
+  // the title, owning list and checklist come back (the checklist and position
+  // arrive in a follow-up PATCH, so poll instead of reading once).
+  await expect(page.getByRole("checkbox", { name: title })).toBeVisible();
+  await expect
+    .poll(async () => (await tasksInView(page, "inbox")).filter((task) => task.title === title).length)
+    .toBe(1);
+  const recreated = (await tasksInView(page, "inbox")).find((task) => task.title === title)!;
+  expect(recreated.id).not.toBe(deletedId);
+  await expect.poll(async () => (await apiTask(page, recreated.id)).checklist.length).toBe(2);
+  const after = await apiTask(page, recreated.id);
+  expect(after.title).toBe(title);
+  expect(after.collectionId).toBe(before.collectionId);
+  expect(after.status).toBe("open");
+  expect(after.checklist.map((item) => [item.title, item.done])).toEqual([
+    [itemA, true],
+    [itemB, false],
+  ]);
+
+  // Asking for the same undo twice must not duplicate the task. Sonner dismisses
+  // a toast as soon as its action runs (`deleteToast`), so the second request is
+  // the `z` hotkey; the consumed handle must be a no-op, not a second re-create.
+  await expect(toast).toHaveCount(0);
+  await page.keyboard.press("z");
+  await expect
+    .poll(async () => (await tasksInView(page, "inbox")).filter((task) => task.title === title).length)
+    .toBe(1);
 });

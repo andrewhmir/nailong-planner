@@ -182,6 +182,11 @@ function TaskEditorBody({
           Due date
         </span>
         <PopoverPrimitive.Root open={dueOpen} onOpenChange={setDueOpen}>
+          {/* Escape belongs to Radix: the highest `DismissableLayer` listens for
+              it on `document` in the capture phase, and while this popover is
+              open it *is* that layer, so Escape dismisses the calendar and the
+              dialog never sees the key. A bubble `stopPropagation` here would be
+              a no-op, so there is deliberately none. */}
           <PopoverPrimitive.Trigger asChild>
             <Button
               type="button"
@@ -207,13 +212,6 @@ function TaskEditorBody({
               collisionPadding={12}
               aria-label="Pick a due date"
               data-testid="task-editor-due-popover"
-              // Portalled content escapes the dialog's subtree, so Escape must
-              // close the calendar without also closing the editor.
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.stopPropagation();
-                }
-              }}
               className="z-50 origin-[var(--radix-popover-content-transform-origin)] rounded-md border border-line-strong bg-surface p-3 shadow-menu outline-none data-[state=open]:animate-[popover-in_140ms_cubic-bezier(0.16,1,0.3,1)]"
             >
               <DatePickerPopover
