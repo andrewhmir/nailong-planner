@@ -56,7 +56,13 @@ export function useUpdateCollection() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(input),
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["collections"] }),
+    onSuccess: () => {
+      // A rename/hue/visibility change is visible on the tree itself and in the
+      // task rows' dots and calendar chips, so those caches are stale too.
+      void queryClient.invalidateQueries({ queryKey: ["collections"] });
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      void queryClient.invalidateQueries({ queryKey: ["events"] });
+    },
   });
 }
 
@@ -73,6 +79,8 @@ export function useDeleteCollection() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["collections"] });
       void queryClient.invalidateQueries({ queryKey: ["events"] });
+      // The list's tasks are cascaded away with it.
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
     },
   });
 }

@@ -363,15 +363,31 @@ export function updateCollection(
       );
     }
     const ownerAfter = patch.ownerId === undefined ? existing.ownerId : patch.ownerId;
-    if (input.visibility === "private" && ownerAfter === null) {
+    // `ownerId: null` hands the collection back to "Ours", which is always
+    // `shared`; the visibility the client echoed in the same payload is stale by
+    // definition and must not turn the un-owning into a 400/403.
+    const visibilityAfter = input.ownerId === null ? "shared" : input.visibility;
+    if (visibilityAfter === "private" && ownerAfter === null) {
       throw new AppError("VALIDATION", "A private collection needs an owner.", 400, {
         ownerId: "Assign the collection to yourself first.",
       });
     }
-    if (ownerAfter !== ctx.userId) {
-      throw new AppError("FORBIDDEN", "Only the owner can change view-only access.", 403);
+    if (visibilityAfter !== "shared" && ownerAfter === null) {
+      throw new AppError("VALIDATION", "Shared calendars cannot be view-only.", 400, {
+        visibility: "Assign the calendar to yourself first.",
+      });
     }
-    patch.visibility = input.visibility;
+    // Ownership is required to change *access*, not to echo it: a rename of an
+    // ownerless ("Ours") or shared collection sends `visibility: "shared"`, and
+    // a partner cannot flip a stored non-shared value back to shared. A claim
+    // plus a restrictive value in one payload is authorised by the requested
+    // owner; giving a row back is authorised by its stored owner.
+    const changesAccess = visibilityAfter !== existing.visibility;
+    const currentOwner = existing.ownerId ?? ownerAfter;
+    if (changesAccess && currentOwner !== ctx.userId) {
+      throw new AppError("FORBIDDEN", "Only the owner can change a collection's visibility.", 403);
+    }
+    patch.visibility = visibilityAfter;
   }
 
   if (Object.keys(patch).length === 0) {

@@ -209,6 +209,109 @@ describe("calendar service", () => {
     }
   });
 
+  it("lets a member rename and recolour an ownerless collection without changing its access", async () => {
+    const { db, close, ctxA, ctxB } = await makeSeededDb();
+    try {
+      const ours = createCollection(db, ctxA, { name: "Ours", hueFamily: "teal" });
+      // The dialog's edit payload always carries the stored owner (null for
+      // "Ours") and visibility (shared); neither is an access change.
+      const updated = updateCollection(db, ctxA, ours.id, {
+        name: "Household",
+        hueFamily: "amber",
+        ownerId: null,
+        visibility: "shared",
+      });
+      expect(updated).toMatchObject({
+        name: "Household",
+        hueFamily: "amber",
+        ownerId: null,
+        visibility: "shared",
+      });
+      expect(getCollection(db, ctxA, ours.id).visibility).toBe("shared");
+      // Any household member may edit an ownerless row; this is the sidebar's
+      // rename path for the seeded shared lists.
+      expect(updateCollection(db, ctxB, ours.id, { name: "Ours again" }).name).toBe("Ours again");
+    } finally {
+      close();
+    }
+  });
+
+  it("lets the owner give a view-only collection back to Ours despite the echoed visibility", async () => {
+    const { db, close, ctxA } = await makeSeededDb();
+    try {
+      const plan = createCollection(db, ctxA, {
+        name: "House plan",
+        kind: "list",
+        hueFamily: "teal",
+        ownerId: "user-a",
+        visibility: "view_only",
+      });
+
+      // The dialog sends the stored visibility alongside `ownerId: null`; the
+      // explicit un-owning wins and resets it to shared.
+      const given = updateCollection(db, ctxA, plan.id, {
+        ownerId: null,
+        visibility: "view_only",
+      });
+      expect(given).toMatchObject({ ownerId: null, visibility: "shared" });
+    } finally {
+      close();
+    }
+  });
+
+  it("still stops the partner un-owning or flipping a view-only collection", async () => {
+    const { db, close, ctxA, ctxB } = await makeSeededDb();
+    try {
+      const plan = createCollection(db, ctxA, {
+        name: "House plan",
+        kind: "list",
+        hueFamily: "teal",
+        ownerId: "user-a",
+        visibility: "view_only",
+      });
+
+      // `assertWritable` rejects every partner write before the owner check.
+      expectAppError(
+        () => updateCollection(db, ctxB, plan.id, { ownerId: null }),
+        "FORBIDDEN",
+        403,
+      );
+      expectAppError(
+        () => updateCollection(db, ctxB, plan.id, { ownerId: null, visibility: "view_only" }),
+        "FORBIDDEN",
+        403,
+      );
+      expectAppError(
+        () => updateCollection(db, ctxB, plan.id, { visibility: "shared" }),
+        "FORBIDDEN",
+        403,
+      );
+      expect(getCollection(db, ctxA, plan.id)).toMatchObject({
+        ownerId: "user-a",
+        visibility: "view_only",
+      });
+    } finally {
+      close();
+    }
+  });
+
+  it("rejects view-only on an ownerless collection with 400, not 403", async () => {
+    const { db, close, ctxA } = await makeSeededDb();
+    try {
+      const shared = createCollection(db, ctxA, { name: "Shared", hueFamily: "teal" });
+      const error = catchAppError(() =>
+        updateCollection(db, ctxA, shared.id, { visibility: "view_only" }),
+      );
+      expect(error.code).toBe("VALIDATION");
+      expect(error.status).toBe(400);
+      expect(error.message).toBe("Shared calendars cannot be view-only.");
+      expect(error.fields?.visibility).toBeTruthy();
+      expect(getCollection(db, ctxA, shared.id).visibility).toBe("shared");
+    } finally {
+      close();
+    }
+  });
+
   it("rejects a private collection without an owner", async () => {
     const { db, close, ctxA } = await makeSeededDb();
     try {
