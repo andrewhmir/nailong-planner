@@ -377,6 +377,43 @@ describe("calendar service", () => {
     }
   });
 
+  it("never adopts a caller-owned shared list named Inbox", async () => {
+    const { db, close, ctxA } = await makeSeededDb();
+    try {
+      const shared = createCollection(db, ctxA, {
+        name: "Inbox",
+        kind: "list",
+        hueFamily: "teal",
+        ownerId: "user-a",
+        visibility: "shared",
+      });
+
+      const inbox = ensureInbox(db, ctxA);
+      expect(inbox.id).not.toBe(shared.id);
+      expect(inbox).toMatchObject({
+        name: "Inbox",
+        kind: "list",
+        ownerId: "user-a",
+        visibility: "private",
+        parentId: null,
+      });
+      expect(listCollectionTree(db, ctxA).filter((node) => node.name === "Inbox")).toHaveLength(2);
+
+      // The shared row keeps its identity: no rename, no privacy change.
+      expect(getCollection(db, ctxA, shared.id)).toMatchObject({
+        name: "Inbox",
+        kind: "list",
+        ownerId: "user-a",
+        visibility: "shared",
+        parentId: null,
+      });
+
+      expect(ensureInbox(db, ctxA).id).toBe(inbox.id);
+    } finally {
+      close();
+    }
+  });
+
   it("never returns another household's calendars", async () => {
     const { db, close, ctxA, ctxOther } = await makeSeededDb();
     try {

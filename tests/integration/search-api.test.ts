@@ -97,11 +97,20 @@ describe("searchEvents", () => {
         ownerId: "user-a",
         visibility: "private",
       });
-      timedEvent(db, ctxA, journal.id, { title: "Kyoto journal" });
+      // A child row is stored `shared`; only the root fold can hide it.
+      const reflections = createCollection(db, ctxA, {
+        name: "Reflections",
+        parentId: journal.id,
+      });
 
-      expect(searchEvents(db, ctxA, "kyoto").map((event) => event.title)).toEqual([
-        "Kyoto journal",
-      ]);
+      timedEvent(db, ctxA, journal.id, { title: "Kyoto journal" });
+      timedEvent(db, ctxA, reflections.id, { title: "Kyoto reflections" });
+
+      expect(
+        searchEvents(db, ctxA, "kyoto")
+          .map((event) => event.title)
+          .sort(),
+      ).toEqual(["Kyoto journal", "Kyoto reflections"]);
       expect(searchEvents(db, ctxB, "kyoto")).toEqual([]);
     } finally {
       close();

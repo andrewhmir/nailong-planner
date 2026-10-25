@@ -428,8 +428,10 @@ function nextRootHueFamily(db: Database, householdId: string): HueFamily {
 
 /**
  * Returns the caller's root Inbox list, creating one the first time it is
- * needed. `name` is the identity: a renamed Inbox is re-created on the next
- * call, until a stored inbox marker exists.
+ * needed. Identity is household + owner + kind list + private visibility +
+ * name: a caller-owned shared or view-only list called "Inbox" is never
+ * adopted, and a renamed Inbox is re-created on the next call, until a stored
+ * inbox marker exists.
  *
  * better-sqlite3 is synchronous and the app runs in one process, so the read and
  * the insert below cannot interleave with another request's `ensureInbox`; there
@@ -445,6 +447,7 @@ export function ensureInbox(db: Database, ctx: ViewerContext): CollectionRow {
         eq(collection.kind, "list"),
         eq(collection.name, INBOX_NAME),
         eq(collection.ownerId, ctx.userId),
+        eq(collection.visibility, "private"),
         isNull(collection.parentId),
       ),
     )
