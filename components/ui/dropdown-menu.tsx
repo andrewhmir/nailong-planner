@@ -63,13 +63,21 @@ export function DropdownMenuSeparator() {
 export function DropdownMenuSubTrigger({
   children,
   disabled = false,
+  title,
+  "aria-describedby": describedBy,
 }: {
   children: React.ReactNode;
   disabled?: boolean;
+  /** Native tooltip, for a submenu whose items are all disabled. */
+  title?: string;
+  /** Id of an `sr-only` explanation rendered by the caller. */
+  "aria-describedby"?: string;
 }) {
   return (
     <DropdownPrimitive.SubTrigger
       disabled={disabled}
+      title={title}
+      aria-describedby={describedBy}
       className={cn(ITEM, "data-[state=open]:bg-line")}
     >
       <span className="min-w-0 flex-1">{children}</span>

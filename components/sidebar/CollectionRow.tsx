@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +26,12 @@ import type {
   CollectionVisibility,
 } from "@/lib/db/schema";
 import { cn } from "@/lib/utils";
+
+const VISIBILITY_LABELS: Record<CollectionVisibility, string> = {
+  shared: "Shared",
+  view_only: "View only",
+  private: "Private",
+};
 
 interface Props {
   collection: CollectionRowType;
@@ -86,6 +93,16 @@ export function CollectionRow({
   const isList = collection.kind === "list";
   const noun = isList ? "list" : "calendar";
   const nounTitle = isList ? "List" : "Calendar";
+  const visibilityHintId = useId();
+  // The submenu always opens so a child can show the value it inherits, which
+  // means a child or non-owned row is a submenu of nothing but disabled radios.
+  // The trigger names the effective value and why it is fixed, for both AT
+  // (`aria-describedby`) and pointer users (`title`).
+  const visibilityHint = canChangeVisibility
+    ? null
+    : isChild
+      ? `Visibility is inherited from the parent ${noun}: ${VISIBILITY_LABELS[visibility]}.`
+      : `Only a ${noun} you own can change visibility; this one is ${VISIBILITY_LABELS[visibility]}.`;
 
   return (
     <li
@@ -138,6 +155,11 @@ export function CollectionRow({
       {/* The visual kind marker is decorative; this gives the row a spoken kind
           without changing the checkbox name or the options button's label. */}
       <span className="sr-only">{nounTitle}</span>
+      {visibilityHint === null ? null : (
+        <span id={visibilityHintId} className="sr-only">
+          {visibilityHint}
+        </span>
+      )}
       {visibility === "private" ? (
         <LockIcon size={14} title="Private" className="shrink-0 text-ink-mute" />
       ) : showViewOnlyBadge ? (
@@ -192,7 +214,12 @@ export function CollectionRow({
               only the options are disabled, because children cannot own a
               visibility of their own. */}
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger>Visibility</DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger
+              aria-describedby={visibilityHint === null ? undefined : visibilityHintId}
+              title={visibilityHint ?? undefined}
+            >
+              Visibility
+            </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               <DropdownMenuRadioGroup
                 value={visibility}
