@@ -108,7 +108,7 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 - Bubble appears off-screen on a phone in landscape -> `CARD_HEIGHT_ESTIMATE` clamp used the wrong assumption -> the phone path should be the dialog; check the media query.
 - The bubble stays up after clicking a toolbar/sidebar control -> the outside-click listener was dropped, or a page-wide element carries `data-dismiss-ignore` -> this file's `pointerdown` effect.
 - Clicking a row in the calendar list dismisses the bubble -> the portalled content lost its `data-dismiss-ignore` marker -> `CalendarPicker`'s `PopoverPrimitive.Content`.
-- The bubble proposes the previous default right after "display only this calendar" changes -> the default was frozen in state instead of derived -> `effectiveCalendarId`, `defaultEventCollectionId` in `CalendarShell`.
+- The bubble proposes the previous default right after "display only this calendar" changes -> the default was frozen in state instead of derived -> `effectiveCollectionId` (`pickedCollectionId ?? defaultCollectionId`), `defaultEventCollectionId` in `CalendarShell`.
 - Bubble stays up after clicking an event / opening the form -> those handlers clear `quickDraft` explicitly in addition to the outside-click dismissal -> `handleEventClick` and `openDialog` in `CalendarShell`.
 - Escape from the calendar list discards the typed title -> a picker Escape was not stopped -> `CalendarPicker`'s `onKeyDown`.
 - New all-day event is one day too long -> exclusive-end subtraction -> `draftPayload`.
