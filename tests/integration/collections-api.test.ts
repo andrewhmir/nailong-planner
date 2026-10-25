@@ -30,19 +30,34 @@ describe("calendar API", () => {
     expect(payload.error.code).toBe("UNAUTHENTICATED");
   });
 
-  it("returns the caller's calendar tree only", async () => {
-    const { db, close, ctxA, ctxOther } = await makeSeededDb();
+  it("returns the caller's calendar tree with a private Inbox only for them", async () => {
+    const { db, close, ctxA, ctxB, ctxOther } = await makeSeededDb();
     try {
       createCollection(db, ctxA, { name: "School", hueFamily: "indigo" });
       createCollection(db, ctxOther, { name: "Theirs", hueFamily: "rose" });
 
       const response = await listCollections(db, ctxA);
       expect(response.status).toBe(200);
-      const payload = await body<{ collections: Array<{ name: string; children: unknown[] }> }>(
-        response,
-      );
-      expect(payload.collections.map((calendar) => calendar.name)).toEqual(["School"]);
+      const payload = await body<{
+        collections: Array<{ id: string; name: string; visibility: string; children: unknown[] }>;
+      }>(response);
+      expect(payload.collections.map((calendar) => calendar.name)).toEqual(["School", "Inbox"]);
       expect(payload.collections[0]?.children).toEqual([]);
+      const inbox = payload.collections.find((collection) => collection.name === "Inbox");
+      expect(inbox?.visibility).toBe("private");
+
+      // The partner gets their own Inbox, never the caller's.
+      const partnerResponse = await listCollections(db, ctxB);
+      const partnerPayload = await body<{
+        collections: Array<{ id: string; name: string }>;
+      }>(partnerResponse);
+      expect(partnerPayload.collections.map((collection) => collection.name)).toEqual([
+        "School",
+        "Inbox",
+      ]);
+      expect(
+        partnerPayload.collections.find((collection) => collection.name === "Inbox")?.id,
+      ).not.toBe(inbox?.id);
     } finally {
       close();
     }

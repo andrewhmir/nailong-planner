@@ -146,16 +146,32 @@ The request pipeline in one line:
 
 **Permissions** (`lib/services/permissions.ts`, `lib/services/collections.ts`)
 
-- `canWriteCollection` is the one write predicate. A collection with
-  `visibility = 'view_only'` (or `'private'`) is writable only by its owner;
-  `shared` ("Ours") collections are always writable — the predicate fails closed
-  if an ownerless non-shared row appears.
-- **Visibility is inherited from the root**: `getCollectionAccess` returns
-  `ownerId = root.ownerId ?? row.ownerId` and the most restrictive of the root's
-  and row's `visibility`. Nesting is capped at two levels; `updateCollection`
-  rejects setting view-only or `hueFamily` on a child, and setting `ownerId: null`
-  also resets `visibility` to `shared`. An ownerless view-only collection
-  therefore has no writer at all.
+- **Effective visibility is computed once, on the server.** `resolveVisibleCollections`
+  (and `getCollectionAccess` for one id) folds the root into every child:
+  `ownerId = root.ownerId ?? row.ownerId`, `visibility` = the most restrictive of
+  root and row. `private` rows are readable only by that effective owner;
+  `shared` and `view_only` by both household members.
+- **The private filter is server-side and lives in one resolver; reads never
+  filter ad hoc.** `listCollectionTree`, `listEvents` and `searchEvents` derive
+  their readable ids from `resolveVisibleCollections`; `getCollection` and
+  `getEvent` run `canReadCollection` and answer `NOT_FOUND` 404 for an invisible
+  id. Do not add a local `visibility !== 'private'` check to a route or service —
+  child rows are stored `shared`, so only the root fold is correct.
+- `assertWritable` is the one write guard: foreign household -> 404; `private`
+  not owned -> 404 (existence hidden, not 403); `view_only` not owned or
+  ownerless -> 403 "This collection is view-only."; `shared` -> writable by both.
+  `assertCollectionWritable` remains as a delegating wrapper. `canWriteCollection`
+  is the pure owner predicate used by the client and fails closed for an
+  ownerless non-shared row.
+- **The Inbox is a real collection**, one per user: a root `kind='list'`,
+  `visibility='private'` row created lazily by `ensureInbox` (called by
+  `GET /api/collections`; task creation calls it too). It never appears in the
+  partner's tree.
+- **Visibility is inherited from the root**: nesting is capped at two levels;
+  `updateCollection` rejects setting `visibility`, `ownerId` or `hueFamily` on a
+  child, and setting `ownerId: null` also resets `visibility` to `shared`.
+  Switching to `private` with an effective owner of `null` is a 400 "A private
+  collection needs an owner.".
 - **Household scoping happens before the permission check**, and out-of-household
   ids surface as `NOT_FOUND` 404 — never 403. A 403 means "your account is not in
   this household" (missing `member` row).
@@ -192,7 +208,8 @@ The request pipeline in one line:
 
 - `groups` (person pills) + `collections` (per-collection overrides, missing =
   visible) + the parent's checkbox must all agree; `only` ("display only this
-  calendar") **outranks everything**. Visibility is never a security boundary.
+  calendar") **outranks everything**. This client copy is a display preference,
+  never a security boundary — the server's `resolveVisibleCollections` is.
 - View/visibility/undo client state is persisted in `localStorage` via
   `lib/ui/view.ts`, `lib/ui/lastView.ts`, `lib/ui/visibleCollections.ts`; the undo
   stack (`lib/ui/undo.ts`) is **session-only** and disappears on reload.
@@ -242,6 +259,9 @@ any wrapper in the shell/calendar tree.
 | Drag/resize/create snaps back | optimistic update rolled back: API rejected (view-only, validation, 4xx) | browser network panel, then `lib/query/eventCache.ts` + `canWriteCollection` |
 | Undo toast does nothing | undo stack is session-only and per-view; failed mutation already rolled back | `lib/ui/undo.ts`, `lib/ui/useUndoHotkey.ts` |
 | Cannot edit a calendar/event | collection `visibility = 'view_only'` or `'private'` and the viewer is not the owner; server re-checks on write | `lib/services/permissions.ts`, `lib/services/events.ts` |
+| The partner can see a private collection or its events | a read path filtered the raw `visibility` column (child rows store `shared`) or skipped the resolver | `lib/services/collections.ts` `resolveVisibleCollections`/`getCollectionAccess`; `lib/services/events.ts` `getEvent`/`listEvents`; `lib/services/search.ts` |
+| A private write returns 404 where 403 was expected | intended: `assertWritable` hides a private-not-owned row's existence | `lib/services/permissions.ts` `assertWritable` |
+| An `Inbox` list appears in every tree after loading | `GET /api/collections` lazily calls `ensureInbox`; each member gets their own private list | `lib/services/collections.ts` `ensureInbox`; `lib/api/handlers/collections.ts` |
 | Calendar row/checkbox does nothing | parent checkbox or `only` mode overriding it | `lib/ui/visibility.ts` `isCollectionVisible` |
 | A sub-calendar renders under a person's heading but its events still vanish with the "Ours" pill | the child row's `owner_id` is NULL (or otherwise disagrees with its root) — an owner move from before the cascade fix; visibility must fold the root | that row's `owner_id` vs its root's; `effectiveOwnerOf`/`groupOf(parent)` in `lib/ui/visibility.ts`, migration `0004`, `updateCollection`'s owner cascade |
 | Sub-calendar has the wrong colour | shade assigned on create from the parent's family; palette exhausted at 7 children | `lib/color/palette.ts`, `lib/services/collections.ts` |

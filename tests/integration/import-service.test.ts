@@ -495,6 +495,36 @@ describe("import service", () => {
     }
   });
 
+  it("creates only shared calendar targets, never a list", async () => {
+    const { db, close, ctxA } = await setup();
+    try {
+      // A list that spoofs an import tree must not capture the import: the
+      // importer only ever creates calendars with shared visibility.
+      const spoof = createCollection(db, ctxA, {
+        name: "From Google",
+        kind: "list",
+        hueFamily: "teal",
+        ownerId: "user-a",
+      });
+      commitImport(db, ctxA, { files: [threeEvents()], mapping: { Family: { mode: "new" } } });
+
+      const target = db
+        .select()
+        .from(collection)
+        .where(and(eq(collection.name, "Family"), eq(collection.kind, "calendar")))
+        .get();
+      expect(target).toBeDefined();
+      expect(target?.ownerId).toBe("user-a");
+      expect(target?.visibility).toBe("shared");
+      expect(db.select().from(event).where(eq(event.collectionId, spoof.id)).all()).toHaveLength(0);
+      expect(db.select().from(collection).where(eq(collection.parentId, spoof.id)).all()).toHaveLength(
+        0,
+      );
+    } finally {
+      close();
+    }
+  });
+
   it("refuses to roll back a batch into a calendar the viewer cannot write", async () => {
     const { db, close, ctxA, ctxB } = await setup();
     try {

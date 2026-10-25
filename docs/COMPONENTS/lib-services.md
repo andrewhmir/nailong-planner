@@ -9,56 +9,69 @@
 | lib/services/collections.ts | Collection tree reads, two-level nesting, shade assignment, effective permissions, colour resolution |
 | lib/services/events.ts | Event CRUD, range queries, RRULE validation, EXDATE mutation, colour attachment |
 | lib/services/household.ts | Single-household bootstrap, membership rows, household settings, member display name |
-| lib/services/permissions.ts | The one write predicate for collections and their events |
+| lib/services/permissions.ts | The one read/write permission pair for collections and their events |
 | lib/services/preferences.ts | Lazy per-user preference row with defaults and enum normalisation |
-| lib/services/search.ts | Household-wide LIKE search with ranking and escaping |
+| lib/services/search.ts | Household-wide LIKE search with ranking, escaping and visibility filtering |
 
 ## Business rules enforced here
 
-**Household scoping.** Every query that serves a request filters `household_id = ctx.householdId`: `getCollection`, `listCollectionTree`, `getEvent`, `listEvents`, and `searchEvents`. A row from another household therefore surfaces as `NOT_FOUND` 404, never `FORBIDDEN` 403 — the caller must not be able to probe for ids. Exceptions that take no `ctx` and are provisioning-scoped: `ensureHousehold`, `addMember`, `listMembers`, and the preference functions (keyed by `userId`, not household). `collections.nextSortOrder` scopes roots by household but children only by `parent_id`, which is safe because the parent was already scoped.
+**Household scoping.** Every query that serves a request filters `household_id = ctx.householdId`: `resolveVisibleCollections`, `ensureInbox`, `getCollection`, `listCollectionTree`, `getEvent`, `listEvents`, and `searchEvents`. A row from another household therefore surfaces as `NOT_FOUND` 404, never `FORBIDDEN` 403 — the caller must not be able to probe for ids. Exceptions that take no `ctx` and are provisioning-scoped: `ensureHousehold`, `addMember`, `listMembers`, and the preference functions (keyed by `userId`, not household). `collections.nextSortOrder` scopes roots by household but children only by `parent_id`, which is safe because the parent was already scoped.
 
-**Visibility inheritance.** `getCollectionAccess` loads a collection and folds the root's flags into it: `ownerId = root.ownerId ?? collection.ownerId` and `visibility` = the more restrictive of the root's and the row's (`VISIBILITY_RANK`: `shared` < `view_only` < `private`). Nesting is capped at two levels — `createCollection` rejects a parent that itself has a `parentId` — so one fold covers the whole tree. Every collection write and every event write calls `assertCollectionWritable` -> `canWriteCollection`:
-- `shared`: both household members may write, regardless of owner;
-- `view_only` or `private`: only the member whose id equals `ownerId` may write;
-- a non-shared collection with `ownerId === null`: fails closed, nobody writes (creation refuses this state, so it only appears from hand-edited data).
+**Effective visibility, one resolver.** `resolveVisibleCollections` loads every household row once, folds each row's root flags (`ownerId = root.ownerId ?? row.ownerId`; `visibility` = the more restrictive of root and row, `VISIBILITY_RANK`: `shared` < `view_only` < `private`) and keeps only rows `canReadCollection` accepts: `shared` and `view_only` are readable by both members, a `private` row only by its effective owner. Nesting is capped at two levels — `createCollection` rejects a parent that itself has a `parentId` — so one fold covers the whole tree, and a hidden private root takes its whole subtree with it. `listCollectionTree`, `listEvents` and `searchEvents` all build their readable set from this resolver; `getCollection`, `getCollectionAccess` and `getEvent` run the same predicate and answer `NOT_FOUND` 404 for an invisible id, so a private collection's existence never leaks.
+
+**Write guard.** `assertWritable` is the one write rule: collection writes call it directly, while the event and import services import `assertCollectionWritable`, which delegates with `access.effective`.
+- foreign household -> `NOT_FOUND` 404;
+- `private` not owned -> `NOT_FOUND` 404 (not 403: existence hidden);
+- `view_only` not owned, including an ownerless row -> `FORBIDDEN` 403 "This collection is view-only.";
+- `shared` -> writable by both members.
+
+`canWriteCollection` remains the pure owner predicate used by the client; it is consulted after visibility, so it fails closed for any non-shared row with `ownerId === null` (creation refuses that state, so it only appears from hand-edited data).
 
 Only the current owner may change `visibility` or reassign `ownerId`. A member may claim an ownerless collection (`ownerId` -> themselves); giving it back to the household (`ownerId: null`) also resets `visibility` to `shared`. A child's `ownerId` is copied from the parent at creation; reassigning a root's `ownerId` writes the new owner to every child in the same transaction, and reassigning a child directly is `VALIDATION` 400, so stored rows match the folded `effective.ownerId` (root first). Migration `0004` backfilled trees written before that rule. `canWriteCollection` deliberately ignores `householdId`: callers must pass a row they already fetched with household scoping. Household settings (`updateHousehold`) and preferences (`updatePreferences`) have no ownership check — either member may patch them.
 
-**Shade assignment.** A root collection renders at `PARENT_SHADE_INDEX` (3) and stores that value; its `hueFamily` is required and stored on the root only. Children store `hueFamily: null` and `shadeIndex` claimed as the first unused entry of `CHILD_SHADE_ORDER` (`[4, 2, 5, 1, 6, 0, 7]`), giving at most `MAX_CHILDREN` (7) children; the eighth create raises `CONFLICT` 409. Shade choice is computed per request from the current siblings, not enforced by a unique index, and deleting a child frees its shade for the next one. `resolveShade` always resolves colour through the root, so changing the root's `hueFamily` recolours every child with no child row being written; an unknown or missing family falls back to `slate`. Children inherit `ownerId` and `kind` from the parent (an owner move on the root cascades) and always start with `visibility: "shared"`; `updateCollection` refuses `hueFamily`, `visibility` and `ownerId` on a child, so protection and ownership can only be set on the root.
+**Shade assignment.** A root collection renders at `PARENT_SHADE_INDEX` (3) and stores that value; its `hueFamily` is required and stored on the root only. Children store `hueFamily: null` and `shadeIndex` claimed as the first unused entry of `CHILD_SHADE_ORDER` (`[4, 2, 5, 1, 6, 0, 7]`), giving at most `MAX_CHILDREN` (7) children; the eighth create raises `CONFLICT` 409. Shade choice is computed per request from the current siblings, not enforced by a unique index, and deleting a child frees its shade for the next one. `resolveShade` always resolves colour through the root, so changing the root's `hueFamily` recolours every child with no child row being written; an unknown or missing family falls back to `slate`. An Inbox created by `ensureInbox` takes the palette's next unused root hue family. Children inherit `ownerId` and `kind` from the parent (an owner move on the root cascades) and always start with `visibility: "shared"`; `updateCollection` refuses `hueFamily`, `visibility` and `ownerId` on a child, so protection and ownership can only be set on the root.
+
+**Inbox.** `ensureInbox` lazily creates the caller's root `kind="list"`, `name="Inbox"`, `ownerId = ctx.userId`, `visibility="private"` collection (parent `null`, next unused root hue) and returns the same row on every later call. `GET /api/collections` calls it before building the tree, so every member's tree contains their own Inbox and never the partner's. Identity is the name: a renamed Inbox is re-created on the next call. better-sqlite3 is synchronous and the app is single-process, so the read-then-insert has no creation race.
 
 **EXDATE on single-occurrence delete.** `deleteEvent(db, ctx, id, { scope: "this", occurrenceStart })` never deletes a recurring row: it parses the `exdates` JSON array, appends `occurrenceStart` if absent, and writes the array back with a fresh `updatedAt`. The operation is idempotent, and `occurrenceStart` is stored verbatim — the service does not normalise it against `startAt` or the timezone, so the client must send the same string format it uses to expand occurrences. `{ scope: "all" }`, or `scope: "this"` on an event with no `rrule`, hard-deletes the row.
 
-**Search matching.** `searchEvents` trims the query, returns `[]` below two characters, escapes `\`, `%` and `_`, and runs `LIKE '%term%' ESCAPE '\'` over `title`, `location` and `description` for the caller's household only. SQLite `LIKE` is ASCII-case-insensitive; ranking is done in JavaScript: exact lowercase title (0), title prefix (1), title substring (2), location (3), description (4), otherwise 5, then title `localeCompare`, then id. At most 200 matching rows are fetched and only those are ranked; the result is capped at `min(limit, 50)` with a floor of 1. One row per stored event — recurring series are not expanded, and search is not range-scoped, so it can return events outside the visible calendar range.
+**Search matching.** `searchEvents` trims the query, returns `[]` below two characters, escapes `\`, `%` and `_`, and runs `LIKE '%term%' ESCAPE '\'` over `title`, `location` and `description` for the caller's household only. The candidate query also intersects `event.collection_id` with `resolveVisibleCollections`, so an event in a private collection the caller does not own never matches. SQLite `LIKE` is ASCII-case-insensitive; ranking is done in JavaScript: exact lowercase title (0), title prefix (1), title substring (2), location (3), description (4), otherwise 5, then title `localeCompare`, then id. At most 200 matching rows are fetched and only those are ranked; the result is capped at `min(limit, 50)` with a floor of 1. One row per stored event — recurring series are not expanded, and search is not range-scoped, so it can return events outside the visible calendar range.
 
 **Dates and units.** Timed events store UTC epoch milliseconds in `startAt`/`endAt`; all-day events store household-local `YYYY-MM-DD` in `startDate`/`endDate` with `endDate` inclusive. `listEvents` converts the range's epoch bounds to household-local dates with `utcToLocalDate` and compares all-day rows as `startDate <= toDate AND endDate >= fromDate`, so an all-day event beginning on the exclusive upper bound's date is still returned. Transactions are the exception: only the importer (`commitImport`/`rollbackImportBatch`) and `updateCollection`'s root-owner-plus-children cascade wrap several statements in one `db.transaction`; every other function is a sequence of synchronous Drizzle statements, so its multi-statement writes are not atomic.
 
 ### lib/services/collections.ts
 
-**Purpose** — Owns the collection tree: creating roots and sub-collections, patching them under permission checks, deleting them, resolving the flags that effectively apply, and resolving the shade tokens the UI paints.
+**Purpose** — Owns the collection tree: resolving the rows a viewer may read, creating roots and sub-collections, patching them under permission checks, deleting them, lazily creating the per-user Inbox, resolving the flags that effectively apply, and resolving the shade tokens the UI paints.
 
-**Public API** — Interfaces `CollectionNode extends CollectionRow { children: CollectionRow[] }` and `CollectionAccess { collection: CollectionRow; root: CollectionRow | null; effective: Pick<CollectionRow, "ownerId" | "visibility"> }`.
-- `getCollection(db, ctx, id): CollectionRow` — `NOT_FOUND` 404 "Calendar not found." when missing or in another household.
-- `getCollectionAccess(db, ctx, id): CollectionAccess` — `NOT_FOUND` via `getCollection`.
-- `assertCollectionWritable(ctx, access): void` — `FORBIDDEN` 403 "This calendar is view-only.".
-- `listCollectionTree(db, ctx): CollectionNode[]` — roots sorted by `sortOrder`, `createdAt`; children sorted by `shadeIndex`.
-- `createCollection(db, ctx, input: CreateCollectionInput): CollectionRow` — `VALIDATION` 400 for a grandchild parent, a root without `hueFamily`, or a non-shared `visibility` without an owner; `FORBIDDEN` 403 when `ownerId` is not the caller; `CONFLICT` 409 at seven children. A root defaults `kind` to `"calendar"`; a sub-collection inherits its parent's `kind`.
-- `updateCollection(db, ctx, id, input: UpdateCollectionInput): CollectionRow` — `FORBIDDEN` 403 when not writable, when reassigning someone else's collection, or when setting a non-shared `visibility` without owning it; `VALIDATION` 400 for `hueFamily`, `visibility` or `ownerId` on a child (all three live on the root). An accepted `ownerId` change on a root is copied to its children in the same transaction, so a re-owned parent never leaves them in the wrong group.
-- `deleteCollection(db, ctx, id): void` — `FORBIDDEN` when not writable; `NOT_FOUND` when out of scope.
+**Public API** — Interfaces `CollectionNode extends CollectionRow { children: CollectionRow[] }` and `CollectionAccess { collection: CollectionRow; root: CollectionRow | null; effective: EffectiveCollection }`, where `EffectiveCollection = Pick<CollectionRow, "ownerId" | "visibility" | "householdId">`; constant `INBOX_NAME = "Inbox"`.
+- `resolveVisibleCollections(db, ctx): CollectionRow[]` — every household row `canReadCollection` accepts, root-folded; ordered by `sortOrder`, `createdAt`. The one private filter behind every read path.
+- `getCollection(db, ctx, id): CollectionRow` — `NOT_FOUND` 404 "Calendar not found." when missing, in another household, or private and not owned.
+- `assertCollectionVisible(db, ctx, id): CollectionRow` — the named read guard; same result as `getCollection`.
+- `getCollectionAccess(db, ctx, id): CollectionAccess` — `NOT_FOUND` via the same guard; folds the root's owner and visibility into `effective`.
+- `listCollectionTree(db, ctx): CollectionNode[]` — built from `resolveVisibleCollections`: roots ordered by `sortOrder`, `createdAt`, children by `shadeIndex`; a hidden root drops its subtree with it.
+- `createCollection(db, ctx, input: CreateCollectionInput): CollectionRow` — `VALIDATION` 400 for a grandchild parent, a root without `hueFamily`, a private collection without an owner ("A private collection needs an owner.", `fields.ownerId`), a non-shared `visibility` without an owner (view-only message), or a child whose explicit `kind` disagrees with its parent; `FORBIDDEN` 403 when `ownerId` is not the caller; `CONFLICT` 409 at seven children. A root defaults `kind` to `"calendar"` and `visibility` to `"shared"`; a sub-collection inherits its parent's `kind` and `ownerId` and starts `visibility: "shared"`.
+- `updateCollection(db, ctx, id, input: UpdateCollectionInput): CollectionRow` — `NOT_FOUND` 404 when invisible; `FORBIDDEN` 403 when not writable, when reassigning someone else's collection, or when setting a non-shared `visibility` without owning it; `VALIDATION` 400 for `hueFamily`, `visibility` or `ownerId` on a child (all three live on the root) and for switching to `private` while the effective owner stays `null` ("A private collection needs an owner.", `fields.ownerId`, checked before the owner-only 403). An accepted `ownerId` change on a root is copied to its children in the same transaction, so a re-owned parent never leaves them in the wrong group.
+- `deleteCollection(db, ctx, id): void` — `NOT_FOUND` when out of scope or private and not owned; `FORBIDDEN` when visible but not writable.
+- `ensureInbox(db, ctx): CollectionRow` — idempotent lazy Inbox (see Business rules); inserts it on the first call.
+- `assertCollectionWritable(ctx, access): void` — delegates to `assertWritable(access.effective, ctx)`; kept for the event and import services.
 - `resolveShade(db, target: CollectionRow): ShadeTokens` — no throws; may raise `RangeError` only if a stored `shadeIndex` is outside 0-7.
 
-**State & side effects** — Reads `collection`; writes `collection` insert/update/delete. `deleteCollection` issues a single `DELETE`: children and their events disappear through the schema's `onDelete: "cascade"` FKs (`foreign_keys = ON` in `lib/db/client.ts`). New ids are `crypto.randomUUID()`; timestamps are `Date.now()`; an empty `updateCollection` patch returns the existing row without touching the DB. An owner move on a root is a two-statement `db.transaction` (root, then `WHERE parent_id = id` for the children); no cache invalidation (the client owns query invalidation).
+**State & side effects** — Reads `collection`; writes `collection` insert/update/delete. `listCollectionTree` is read-only through `resolveVisibleCollections`; `ensureInbox` inserts one private list row when the caller has no `Inbox` yet, using the palette's next unused root hue family. `deleteCollection` issues a single `DELETE`: children and their events disappear through the schema's `onDelete: "cascade"` FKs (`foreign_keys = ON` in `lib/db/client.ts`). New ids are `crypto.randomUUID()`; timestamps are `Date.now()`; an empty `updateCollection` patch returns the existing row without touching the DB. An owner move on a root is a two-statement `db.transaction` (root, then `WHERE parent_id = id` for the children); no cache invalidation (the client owns query invalidation).
 
-**Depends on / Used by** — `drizzle-orm` (`and`, `asc`, `eq`, `isNull`), `collection`/`CollectionRow`, `AppError`, `lib/color/palette` (`CHILD_SHADE_ORDER`, `MAX_CHILDREN`, `PARENT_SHADE_INDEX`, `isHueFamily`, `shadeTokens`), `CreateCollectionInput`/`UpdateCollectionInput`, `canWriteCollection`/`ViewerContext`. Used by `lib/api/handlers/collections.ts`; `lib/services/events.ts` imports `getCollectionAccess`, `assertCollectionWritable` and `resolveShade`; `CollectionNode` is a client type across `components/sidebar/*`, `components/calendar/*`, `lib/ui/*` and `lib/query/collections.ts`.
+**Depends on / Used by** — `drizzle-orm` (`and`, `asc`, `eq`, `isNull`), `collection`/`CollectionRow`, `AppError`, `lib/color/palette` (`CHILD_SHADE_ORDER`, `HUE_FAMILIES`, `MAX_CHILDREN`, `PARENT_SHADE_INDEX`, `isHueFamily`, `shadeTokens`, `HueFamily`), `CreateCollectionInput`/`UpdateCollectionInput`, and `./permissions` (`assertWritable`, `canReadCollection`, `EffectiveCollection`, `ViewerContext`). Used by `lib/api/handlers/collections.ts` (`ensureInbox`, tree, CRUD); `lib/services/events.ts` imports `assertCollectionVisible`, `assertCollectionWritable`, `getCollectionAccess`, `resolveShade` and `resolveVisibleCollections`; `lib/services/search.ts` imports `resolveVisibleCollections`; `lib/services/import.ts` imports `createCollection`, `getCollectionAccess` and `assertCollectionWritable`; `CollectionNode` is a client type across `components/sidebar/*`, `components/calendar/*`, `lib/ui/*` and `lib/query/collections.ts`.
 
 **Debugging**
+- The partner can see a private collection or its events -> a read path filtered the raw row (`visibility` is always `"shared"` on children) or skipped `resolveVisibleCollections` -> the resolver / `getCollectionAccess`.
+- A write returns 404 where 403 was expected -> the collection is `private` and not owned; that is deliberate existence hiding -> `assertWritable`.
+- `GET /api/collections` gains an `Inbox` row for each member -> intended lazy creation; renaming the list and reloading creates another, because `name` is the identity -> `ensureInbox`.
 - Two sub-calendars end up with the same shade -> the "first unused index" rule is recomputed per request and not backed by a constraint, so concurrent creates race -> `createCollection` (`usedShades` / `CHILD_SHADE_ORDER.find`).
 - A child renders in the parent's colour even though it looks like it has its own family -> by design; `hueFamily` is always `null` on children and `resolveShade` reads the root -> `resolveShade`.
 - A PATCH changing `hueFamily` on a child returns 400 -> only roots own a colour; the UI must edit the root -> `updateCollection`.
-- A PATCH changing `ownerId` on a child returns 400 -> sub-calendars inherit their root's owner; re-own the parent (which cascades) -> `updateCollection`.
+- A PATCH changing `ownerId` on a child returns 400 -> sub-collections inherit their root's owner; re-own the parent (which cascades) -> `updateCollection`.
 - A re-owned root's children still sit in the old group -> the cascade was skipped (direct SQL, or a pre-`0004` row) -> `updateCollection` / `drizzle/0004_normalise_subcalendar_owners.sql`.
-- A sub-calendar is missing from `GET /api/collections` -> `listCollectionTree` only maps rows whose `parentId` is a root; a second-level row is dropped silently -> `listCollectionTree`.
+- A sub-calendar is missing from `GET /api/collections` -> the read tree only attaches children under a visible root; a second-level row is dropped silently -> `listCollectionTree`.
 
-**Tests** — `tests/integration/collections.test.ts` (shade order, reuse after delete, seven-child limit, nesting, ownership and the owner cascade to children, child-owner rejection, view-only, hue re-derivation, tree scoping) and `tests/integration/regressions.test.ts` (inherited protection, ownership claim, cascade).
+**Tests** — `tests/integration/collections.test.ts` (shade order, reuse after delete, seven-child limit, nesting, ownership and the owner cascade to children, child-owner rejection, view-only write, private tree/get/update/delete hiding with the subtree, private-without-owner validation, kind mismatch, Inbox idempotence and per-viewer privacy, hue re-derivation, tree scoping) and `tests/integration/regressions.test.ts` (inherited protection, ownership claim, cascade).
 
 ### lib/services/events.ts
 
@@ -66,24 +79,25 @@ Only the current owner may change `visibility` or reassign `ownerId`. A member m
 
 **Public API** — Interface `EventView extends EventRow { color: ShadeTokens }`; `EventRange { from: number; to: number }` (inclusive `from`, exclusive `to`, UTC ms).
 - `toView(db, row: EventRow): EventView` — joins the owning calendar's shade; falls back to `shadeTokens("slate", 3)` if the calendar row is gone.
-- `getEvent(db, ctx, id): EventRow` — `NOT_FOUND` 404 "Event not found.".
-- `listEvents(db, ctx, range: EventRange): EventView[]` — every recurring row plus timed rows overlapping the range plus all-day rows touching it.
-- `createEvent(db, ctx, input: CreateEventInput): EventView` — `FORBIDDEN` 403 on a view-only calendar; `VALIDATION` 400 from `assertEventShape` or an invalid `rrule`.
-- `updateEvent(db, ctx, id, input: UpdateEventInput): EventView` — `NOT_FOUND` 404, `FORBIDDEN` 403 for the current calendar or for a view-only move target, `VALIDATION` 400 on the merged shape or `rrule`.
+- `getEvent(db, ctx, id): EventRow` — `NOT_FOUND` 404 "Event not found."; also 404 when the event's collection is private and the caller does not own it (existence hidden).
+- `listEvents(db, ctx, range: EventRange): EventView[]` — every recurring row plus timed rows overlapping the range plus all-day rows touching it, restricted to the collections `resolveVisibleCollections` returns.
+- `createEvent(db, ctx, input: CreateEventInput): EventView` — `NOT_FOUND` 404 when the target collection is invisible to the caller; `FORBIDDEN` 403 on a view-only collection; `VALIDATION` 400 from `assertEventShape` or an invalid `rrule`.
+- `updateEvent(db, ctx, id, input: UpdateEventInput): EventView` — `NOT_FOUND` 404 for an invisible event or move target, `FORBIDDEN` 403 for the current collection or for a view-only move target, `VALIDATION` 400 on the merged shape or `rrule`.
 - `deleteEvent(db, ctx, id, options: { scope: "all" } | { scope: "this"; occurrenceStart: string }): void` — `NOT_FOUND`, `FORBIDDEN`, `VALIDATION` 400 when `occurrenceStart` is empty.
 
-**State & side effects** — Reads `event`, `collection` (colour and permissions), `household` (timezone, defaulting to `Asia/Taipei` when the row is absent); writes `event` insert/update/delete. `createEvent` sets `createdBy = ctx.userId` and nulls the unused date columns (`allDay` rows clear `startAt`/`endAt`, timed rows clear `startDate`/`endDate`). `exdates` is stored as a JSON string only when non-empty. `deleteEvent` with `scope: "this"` rewrites `exdates` and `updatedAt`; every other delete removes the row. No transactions.
+**State & side effects** — Reads `event`, `collection` (visibility, colour and permissions), `household` (timezone, defaulting to `Asia/Taipei` when the row is absent); writes `event` insert/update/delete. Every read and write resolves the collection through `assertCollectionVisible`/`getCollectionAccess`, so a private collection not owned by the caller behaves like a missing event/collection. `createEvent` sets `createdBy = ctx.userId` and nulls the unused date columns (`allDay` rows clear `startAt`/`endAt`, timed rows clear `startDate`/`endDate`). `exdates` is stored as a JSON string only when non-empty. `deleteEvent` with `scope: "this"` rewrites `exdates` and `updatedAt`; every other delete removes the row. No transactions.
 
-**Depends on / Used by** — `rrule` (`RRule.fromString` validation), `lib/color/palette`, `collection`/`event`/`household`, `AppError`, `utcToLocalDate`, `assertEventShape` + input types, and `./collections` (`getCollectionAccess`, `resolveShade`, `assertCollectionWritable`). Used by `lib/api/handlers/events.ts`; `lib/services/search.ts` imports `toView`; `EventView` is the client type in `lib/query/*`, `components/calendar/*`, `lib/time/format.ts` and `lib/query/eventCache.ts`.
+**Depends on / Used by** — `rrule` (`RRule.fromString` validation), `lib/color/palette`, `collection`/`event`/`household`, `AppError`, `utcToLocalDate`, `assertEventShape` + input types, and `./collections` (`assertCollectionVisible`, `assertCollectionWritable`, `getCollectionAccess`, `resolveShade`, `resolveVisibleCollections`). Used by `lib/api/handlers/events.ts`; `lib/services/search.ts` imports `toView`; `EventView` is the client type in `lib/query/*`, `components/calendar/*`, `lib/time/format.ts` and `lib/query/eventCache.ts`.
 
 **Debugging**
+- The partner can see an event in a private collection -> a read path bypassed `resolveVisibleCollections` (lists/search) or `getCollectionAccess` (by-id) -> `getEvent` / `listEvents`.
 - A "skipped" occurrence still renders -> the service only appended to `exdates`; the client's expansion must filter on it -> `deleteEvent`.
 - `[api] unhandled error` with a `SyntaxError` -> the `exdates` column holds invalid JSON (hand-edited row) -> `deleteEvent`'s `JSON.parse`.
 - Patching only the title of an all-day event 400s "Timed events need a start and end time." -> the merged shape came out timed because `allDay` was not carried over -> `updateEvent`'s `candidate`.
 - Events render in the wrong order in a raw API consumer -> `listEvents` sorts by string: timed rows use a 15-digit zero-padded `startAt`, all-day rows use `startDate`, so all timed rows sort before all-day rows -> the sort in `listEvents`.
 - A series moves calendar but keeps the old colour -> `toView` reads the calendar at read time, so check the written `collectionId` -> `updateEvent`.
 
-**Tests** — `tests/integration/events.test.ts` (shape validation, storage units, recurring vs range, colour, EXDATE idempotence, series delete, view-only, household scoping), `tests/integration/events-api.test.ts`, `tests/integration/regressions.test.ts` (all-day patch, calendar move).
+**Tests** — `tests/integration/events.test.ts` (shape validation, storage units, recurring vs range, colour, EXDATE idempotence, series delete, view-only, private-read/write 404s including a child of a private root, household scoping), `tests/integration/events-api.test.ts`, `tests/integration/regressions.test.ts` (all-day patch, calendar move).
 
 ### lib/services/household.ts
 
@@ -111,22 +125,35 @@ Only the current owner may change `visibility` or reassign `ownerId`. A member m
 
 ### lib/services/permissions.ts
 
-**Purpose** — The single write predicate shared by the collection and event services, the API layer and the client components.
+**Purpose** — The one read/write permission pair for collections and the events inside them: `canReadCollection` decides effective visibility, `assertWritable` guards every write, and the pure `canWriteCollection` owner predicate is also used by the client.
 
-**Public API** — Interface `ViewerContext { userId: string; householdId: string }`; `canWriteCollection(viewer: ViewerContext, collection: Pick<CollectionRow, "ownerId" | "visibility">): boolean`. No throws, no I/O.
+**Public API** — `ViewerContext { userId: string; householdId: string }`; `EffectiveCollection = Pick<CollectionRow, "ownerId" | "visibility" | "householdId">` (the root-folded columns produced by `getCollectionAccess` and `resolveVisibleCollections`).
+- `canReadCollection(viewer, effective): boolean` — `false` for a foreign household; otherwise `false` only when `visibility === "private"` and `ownerId !== viewer.userId`. `shared` and `view_only` read as `true`.
+- `assertWritable(effective, ctx): void` — throws `AppError`: foreign household -> `NOT_FOUND` 404; `private` not owned -> `NOT_FOUND` 404 (existence hidden); `view_only` not owned, including an ownerless row -> `FORBIDDEN` 403 "This collection is view-only."; `shared` -> returns.
+- `canWriteCollection(viewer, collection: Pick<CollectionRow, "ownerId" | "visibility">): boolean` — pure predicate: `shared` -> `true`; `view_only`/`private` and `ownerId === viewer.userId` -> `true`; otherwise `false` (an ownerless non-shared row fails closed).
 
-Truth table: `shared` -> `true` for any viewer; `view_only`/`private` and `ownerId === viewer.userId` -> `true`; `view_only`/`private` with another owner -> `false`; any non-shared row with `ownerId === null` -> `false` (fails closed).
+Truth table for viewer A (the owner) over the effective columns:
 
-**State & side effects** — None. The function does not read the database, does not verify that the collection belongs to `viewer.householdId`, and does not check roles; callers must pass a row fetched with household scoping (`getCollection` does that).
+| visibility | owner = A | owner = B | owner = null |
+|---|---|---|---|
+| `shared` | read + write | read + write | read + write |
+| `view_only` | read + write | read, 403 on write | read, 403 on write |
+| `private` | read + write | 404 on read and write | 404 on read and write |
 
-**Depends on / Used by** — Only the `CollectionRow` type. Used by `lib/services/collections.ts` (`assertCollectionWritable`), `lib/services/events.ts`, `lib/api/route.ts` (type), `components/calendar/CalendarShell.tsx`, `components/settings/CalendarPreferencesCard.tsx`, `tests/unit/permissions.test.ts` and `tests/helpers/fixtures.ts`.
+A foreign `householdId` is 404 and invisible even when the row is `shared`.
+
+**State & side effects** — None: no database reads and no role checks. `canWriteCollection` deliberately ignores `householdId`, so callers must pass household-scoped rows. `assertWritable` only sees the effective columns, so callers must have folded the root first (`getCollectionAccess(...).effective` or the resolver's fold).
+
+**Depends on / Used by** — `CollectionRow` and `AppError`. Used by `lib/services/collections.ts` (`resolveVisibleCollections`, `getCollectionAccess`, every write, and the `assertCollectionWritable` delegation), `lib/services/events.ts` (type only), `lib/api/route.ts` (type), `components/calendar/CalendarShell.tsx`, `components/settings/CalendarPreferencesCard.tsx`, `components/import/ImportWizard.tsx`, `tests/unit/permissions.test.ts` and `tests/helpers/fixtures.ts`.
 
 **Debugging**
-- The partner can still edit a collection that is supposed to be locked -> the restriction sits on the root while the child row carries `visibility: "shared"`, so the caller passed the child's raw flags instead of `getCollectionAccess(...).effective` -> `canWriteCollection`.
+- The partner can read a private collection -> the caller passed the raw child row (`visibility` is always `"shared"` on children) instead of `getCollectionAccess(...).effective` or the resolver's fold -> `canReadCollection`.
+- A write returns 404 where 403 was expected -> the row is `private` and not owned; 404 is deliberate existence hiding -> `assertWritable`.
+- The partner can still edit a collection that is supposed to be locked -> the restriction sits on the root while the child row carries `visibility: "shared"`, so the caller passed the child's raw flags instead of the effective columns -> `canWriteCollection`.
 - The UI looks read-only but the API accepts the write (or the reverse) -> the API folds the root flags through `getCollectionAccess`; `CalendarShell.readOnlyCollectionIds` repeats the same fold client-side with a placeholder `householdId: ""` -> compare both folds.
 - A non-shared collection with no owner is editable after a manual DB edit -> it is not; the predicate returns `false` for everyone -> `canWriteCollection`.
 
-**Tests** — `tests/unit/permissions.test.ts` (shared, partner-owned, owner view-only, partner view-only, ownerless view-only).
+**Tests** — `tests/unit/permissions.test.ts` (truth table over `{shared, view_only, private} × {owner me, owner partner, owner null}` for both predicates, plus the foreign-household 404), exercised end to end by `tests/integration/collections.test.ts` and `tests/integration/events.test.ts`.
 
 ### lib/services/preferences.ts
 
@@ -151,17 +178,18 @@ Truth table: `shared` -> `true` for any viewer; `view_only`/`private` and `owner
 
 **Public API** — `searchEvents(db, ctx, rawQuery: string, limit: number = RESULT_LIMIT): EventView[]` (`RESULT_LIMIT` 50). Throws nothing of its own; a query shorter than 2 characters after trimming returns `[]`. The effective cap is `Math.max(1, Math.min(Math.trunc(limit) || 50, 50))`, so `0`, `NaN` and negatives collapse to a small positive cap rather than an error.
 
-**State & side effects** — Read-only: one `event` query (household-scoped, `LIMIT 200`), then `toView` per result, which issues one `collection` query each. Wildcards in the user's text are escaped (`escapeLike`) and matched with `ESCAPE '\'` so `100%` matches literally. Ranking: exact title 0, title prefix 1, title substring 2, location 3, description 4, other 5; ties by `title.localeCompare` then `id`. No RRULE expansion — a series is one hit.
+**State & side effects** — Read-only: one `resolveVisibleCollections` query, one `event` query (household-scoped, intersected with the resolver's ids, `LIMIT 200`), then `toView` per result, which issues one `collection` query each. Wildcards in the user's text are escaped (`escapeLike`) and matched with `ESCAPE '\'` so `100%` matches literally. Ranking: exact title 0, title prefix 1, title substring 2, location 3, description 4, other 5; ties by `title.localeCompare` then `id`. No RRULE expansion — a series is one hit.
 
-**Depends on / Used by** — `drizzle-orm` (`and`, `eq`, `or`, `sql`, `AnySQLiteColumn`), `event`/`EventRow`, `toView`/`EventView` from `./events`, `ViewerContext`. Used by `lib/api/handlers/events.ts` (`searchEventsHandler`); the client reaches it through `lib/query/search.ts` -> `GET /api/events/search`.
+**Depends on / Used by** — `drizzle-orm` (`and`, `eq`, `inArray`, `or`, `sql`, `AnySQLiteColumn`), `event`/`EventRow`, `resolveVisibleCollections` from `./collections`, `toView`/`EventView` from `./events`, `ViewerContext`. Used by `lib/api/handlers/events.ts` (`searchEventsHandler`); the client reaches it through `lib/query/search.ts` -> `GET /api/events/search`.
 
 **Debugging**
 - A known event is not found -> only the first 200 matching rows (unordered, no range filter) are ranked -> `CANDIDATE_LIMIT` in `searchEvents`.
 - A search for `%` returns everything -> regression in `escapeLike` or the `ESCAPE '\'` clause -> `searchEvents`.
+- An event in a private collection shows up in the partner's results -> the `inArray(event.collectionId, resolveVisibleCollections(...))` predicate was dropped or bypassed -> `searchEvents`.
 - One-character queries return nothing -> `MIN_QUERY_LENGTH` is 2 by design -> `searchEvents`.
 - Results look unordered compared with the UI list -> ranking is exact/prefix/substring on the title before location and description, not chronological -> `rank`.
 
-**Tests** — `tests/integration/search-api.test.ts` (fields, casing, minimum length, household isolation, one row per series, wildcard escaping, ranking and limit); `tests/e2e/search.spec.ts` covers the endpoint through the UI.
+**Tests** — `tests/integration/search-api.test.ts` (fields, casing, minimum length, household isolation, one row per series, wildcard escaping, ranking and limit, private-collection exclusion); `tests/e2e/search.spec.ts` covers the endpoint through the UI.
 
 ### lib/services/import.ts
 
@@ -179,7 +207,7 @@ Truth table: `shared` -> `true` for any viewer; `view_only`/`private` and `owner
 **State & side effects**
 - Writes only inside `commitImport` and `rollbackImportBatch`, each one `db.transaction`.
 - Commit resolves targets: `{ mode: "new" }` reuses an existing child of an import root by name (still passing the same `getCollectionAccess`/`assertCollectionWritable` check as an explicit mapping), otherwise creates the root (`From Google`, then `From Google 2`… with the next unused hue family) and the child; `{ mode: "existing" }` goes through the same permission pair, so a view-only target is refused with 403 and nothing is written.
-- New import calendars are **personal to the importer**: `ensureImportRoot` creates the root with `ownerId = ctx.userId`, and both reuse helpers (`ownedImportRoots`/`findImportChild`) search only that person's own roots, so a partner's `From Google` tree is never reused or written. Imported events therefore land in the importer's person group in the sidebar instead of "Ours"; map to an existing shared calendar for a deliberately shared import.
+- New import calendars are **personal to the importer and always calendars**: `ensureImportRoot` creates the root with `kind: "calendar"`, `visibility: "shared"` and `ownerId = ctx.userId`, and both reuse helpers (`ownedImportRoots`/`findImportChild`) search only that person's own roots. `isImportRoot` additionally requires `kind === "calendar"`, so a list that happens to be named `From Google` can never capture an import or be reused as a target. Imported events therefore land in the importer's person group in the sidebar instead of "Ours"; map to an existing shared calendar for a deliberately shared import. Import never creates a list or a private collection.
 - Idempotency is `(household_id, external_key)`: an unknown key inserts; a matching `externalContentHash` **and the same target calendar** counts `unchanged` and writes nothing; a different hash **or a different mapped calendar** updates the imported fields (including `collectionId`) and records an `update` change whose `before_json` is the previous row.
 - Ledger: one `import_batch` (`status: committed`, JSON `mapping`/`report` include `createdCalendarIds` for the undo) plus one `import_change` per inserted/updated event.
 - Rollback deletes `create` rows and restores `update` rows from `before_json` (including the row's previous `updatedAt`, so restoring an earlier batch does not look like a user edit), **skipping any event whose `updatedAt` is newer than the batch** (the user edited it after the import) and reporting it as `skipped`; then deletes the empty calendars it created, children before the root. Before mutating anything it re-checks `assertCollectionWritable` for every calendar the rollback would touch (the current row's calendar and the `before_json` calendar), so the partner cannot undo an import that targeted the owner's view-only calendar — a refusal rolls the whole transaction back and leaves the batch `committed`. A second rollback is a 409.
@@ -194,7 +222,7 @@ Truth table: `shared` -> `true` for any viewer; `view_only`/`private` and `owner
 - Undo left `From Google` behind -> it still holds events from another batch -> `calendarsCreated` cleanup only removes empty calendars.
 - Imported events appear under "Ours" and hide with the Ours pill -> the calendar is a legacy import tree with `owner_id` NULL -> re-import (creates the importer's own tree and moves the rows) or move the calendar to its owner in the calendar dialog.
 
-**Tests** — `tests/integration/import-service.test.ts` (preview counts, commit, idempotent re-import, update isolation, view-only refusal, per-member separation — each importer gets their own tree and never reuses the partner's, unknown timezone, size limit, rollback and skip rule, rollback permission check, batch history).
+**Tests** — `tests/integration/import-service.test.ts` (preview counts, commit, idempotent re-import, update isolation, view-only refusal, per-member separation — each importer gets their own tree and never reuses the partner's, a spoofing list named `From Google` is ignored and only shared calendars are created, unknown timezone, size limit, rollback and skip rule, rollback permission check, batch history).
 
 ## Focused verification
 

@@ -88,6 +88,26 @@ describe("searchEvents", () => {
     }
   });
 
+  it("never returns an event from a private collection the viewer does not own", async () => {
+    const { db, close, ctxA, ctxB } = await makeSeededDb();
+    try {
+      const journal = createCollection(db, ctxA, {
+        name: "Journal",
+        hueFamily: "rose",
+        ownerId: "user-a",
+        visibility: "private",
+      });
+      timedEvent(db, ctxA, journal.id, { title: "Kyoto journal" });
+
+      expect(searchEvents(db, ctxA, "kyoto").map((event) => event.title)).toEqual([
+        "Kyoto journal",
+      ]);
+      expect(searchEvents(db, ctxB, "kyoto")).toEqual([]);
+    } finally {
+      close();
+    }
+  });
+
   it("ranks title matches above description matches and honours the limit", async () => {
     const { db, close, ctxA } = await makeSeededDb();
     try {

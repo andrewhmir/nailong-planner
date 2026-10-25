@@ -1,7 +1,8 @@
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { Database } from "@/lib/db/client";
 import { event, type EventRow } from "@/lib/db/schema";
+import { resolveVisibleCollections } from "./collections";
 import { toView } from "./events";
 import type { ViewerContext } from "./permissions";
 import type { EventView } from "./events";
@@ -55,12 +56,20 @@ export function searchEvents(
   const matches = (column: AnySQLiteColumn) =>
     sql`${column} LIKE ${pattern} ESCAPE '\\'`;
 
+  // Search is a read path: it must run through the one visibility resolver, or
+  // an event in the partner's private collection would match by title.
+  const visibleCollectionIds = resolveVisibleCollections(db, ctx).map((row) => row.id);
+  if (visibleCollectionIds.length === 0) {
+    return [];
+  }
+
   const rows = db
     .select()
     .from(event)
     .where(
       and(
         eq(event.householdId, ctx.householdId),
+        inArray(event.collectionId, visibleCollectionIds),
         or(matches(event.title), matches(event.location), matches(event.description)),
       ),
     )

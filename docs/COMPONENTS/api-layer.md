@@ -69,24 +69,25 @@ app/api/events/route.ts        GET/POST = withViewer(({ db, ctx, request }) => h
 
 ### lib/api/handlers/collections.ts
 
-**Purpose** — The four collection verbs: list the caller's tree, create a collection or sub-collection, patch one, delete one.
+**Purpose** — The four collection verbs: list the caller's tree (ensuring their Inbox exists), create a collection or sub-collection, patch one, delete one.
 
 **Public API** — All four are `guarded`, so each returns `Promise<Response>`.
 
-- `listCollections(db: Database, ctx: ViewerContext): Promise<Response>` -> `{ collections: CollectionNode[] }`, 200.
+- `listCollections(db: Database, ctx: ViewerContext): Promise<Response>` -> `{ collections: CollectionNode[] }`, 200; calls `ensureInbox` first.
 - `createCollectionHandler(db, ctx, request: Request): Promise<Response>` -> `{ collection: CollectionRow }`, 201.
 - `updateCollectionHandler(db, ctx, id: string, request: Request): Promise<Response>` -> `{ collection: CollectionRow }`, 200.
 - `deleteCollectionHandler(db, ctx, id: string): Promise<Response>` -> empty body, 204.
 
-Validation: `createCollectionSchema` / `updateCollectionSchema` (`lib/validation/collections.ts`). Any Zod failure becomes `VALIDATION` 400 with `fields` keyed by the issue path. Everything else (409 eighth child, 403 view-only, 400 colour-on-child, 404 foreign id) is thrown by `lib/services/collections.ts` and passes through unchanged.
+Validation: `createCollectionSchema` / `updateCollectionSchema` (`lib/validation/collections.ts`). Any Zod failure becomes `VALIDATION` 400 with `fields` keyed by the issue path. Everything else (409 eighth child, 403 view-only, 400 colour-on-child, 400 private-without-owner, 404 private-not-owned or foreign id) is thrown by `lib/services/collections.ts` and passes through unchanged.
 
-**State & side effects** — No direct DB access; writes happen inside `createCollection` / `updateCollection` / `deleteCollection`. `deleteCollectionHandler` returns 204 even though the service cascades to sub-collections and their events (FK `onDelete: "cascade"`).
+**State & side effects** — `listCollections` calls `ensureInbox`, which may insert the caller's private Inbox row; otherwise there is no direct DB access and writes happen inside `createCollection` / `updateCollection` / `deleteCollection`. `deleteCollectionHandler` returns 204 even though the service cascades to sub-collections and their events (FK `onDelete: "cascade"`).
 
-**Depends on / Used by** — `lib/services/collections.ts`, `lib/validation/collections.ts`, `ViewerContext`, `NextResponse`, and `fieldErrors`/`guarded`/`readJson` from `./support`. Called by `app/api/collections/route.ts` (`GET`, `POST`) and `app/api/collections/[id]/route.ts` (`PATCH`, `DELETE`); called directly by `tests/integration/collections-api.test.ts`; the client side is `lib/query/collections.ts`.
+**Depends on / Used by** — `lib/services/collections.ts` (`ensureInbox`, `listCollectionTree`, CRUD), `lib/validation/collections.ts`, `ViewerContext`, `NextResponse`, and `fieldErrors`/`guarded`/`readJson` from `./support`. Called by `app/api/collections/route.ts` (`GET`, `POST`) and `app/api/collections/[id]/route.ts` (`PATCH`, `DELETE`); called directly by `tests/integration/collections-api.test.ts`; the client side is `lib/query/collections.ts`.
 
 **Debugging**
+- A new `Inbox` row shows up after the first tree load -> intended lazy creation by `ensureInbox`, one per member -> `lib/services/collections.ts` `ensureInbox`.
 - 400 with `fields.name` -> the Zod schema trims and rejects empty names over 60 characters -> `createCollectionSchema` / `updateCollectionSchema`.
-- 404 instead of 403 for another household's id -> `getCollection` is household-scoped before any permission check -> `getCollection`.
+- 404 instead of 403 for another household's id or a partner's private collection -> visibility/household checks run before the permission check and hide existence -> `getCollection`, `assertWritable`.
 - 409 on create -> the parent already has seven children -> `createCollection`'s `MAX_CHILDREN` guard.
 - Client shows a stale tree after a mutation -> invalidation lives in `lib/query/collections.ts`, not here.
 

@@ -3,6 +3,8 @@ import { AppError } from "@/lib/errors";
 import {
   createCollection,
   deleteCollection,
+  ensureInbox,
+  getCollection,
   getCollectionAccess,
   listCollectionTree,
   resolveShade,
@@ -20,6 +22,18 @@ function expectAppError(fn: () => unknown, code: string, status: number) {
     return;
   }
   throw new Error(`expected AppError ${code}, but call succeeded`);
+}
+
+function catchAppError(fn: () => unknown): AppError {
+  try {
+    fn();
+  } catch (error) {
+    if (error instanceof AppError) {
+      return error;
+    }
+    throw error;
+  }
+  throw new Error("expected AppError, but call succeeded");
 }
 
 describe("calendar service", () => {
@@ -130,6 +144,115 @@ describe("calendar service", () => {
     }
   });
 
+  it("hides a private list and its subtree from the partner on every path", async () => {
+    const { db, close, ctxA, ctxB } = await makeSeededDb();
+    try {
+      const journal = createCollection(db, ctxA, {
+        name: "Journal",
+        kind: "list",
+        hueFamily: "rose",
+        ownerId: "user-a",
+        visibility: "private",
+      });
+      const entries = createCollection(db, ctxA, { name: "Entries", parentId: journal.id });
+      expect(entries.kind).toBe("list");
+
+      const mine = listCollectionTree(db, ctxA).find((node) => node.id === journal.id);
+      expect(mine?.children.map((child) => child.id)).toEqual([entries.id]);
+
+      const theirs = listCollectionTree(db, ctxB);
+      expect(theirs.map((node) => node.name)).not.toContain("Journal");
+      expect(theirs.flatMap((node) => node.children).map((child) => child.id)).not.toContain(
+        entries.id,
+      );
+
+      expectAppError(() => getCollection(db, ctxB, journal.id), "NOT_FOUND", 404);
+      expectAppError(() => getCollectionAccess(db, ctxB, journal.id), "NOT_FOUND", 404);
+      expectAppError(() => getCollection(db, ctxB, entries.id), "NOT_FOUND", 404);
+      expectAppError(
+        () => updateCollection(db, ctxB, journal.id, { name: "Mine now" }),
+        "NOT_FOUND",
+        404,
+      );
+      expectAppError(() => deleteCollection(db, ctxB, journal.id), "NOT_FOUND", 404);
+
+      expect(getCollection(db, ctxA, journal.id).name).toBe("Journal");
+      expect(updateCollection(db, ctxA, journal.id, { name: "Journal 2026" }).name).toBe(
+        "Journal 2026",
+      );
+    } finally {
+      close();
+    }
+  });
+
+  it("keeps a view-only list readable for the partner but blocks every write", async () => {
+    const { db, close, ctxA, ctxB } = await makeSeededDb();
+    try {
+      const plan = createCollection(db, ctxA, {
+        name: "House plan",
+        kind: "list",
+        hueFamily: "teal",
+        ownerId: "user-a",
+        visibility: "view_only",
+      });
+
+      expect(listCollectionTree(db, ctxB).map((node) => node.id)).toEqual([plan.id]);
+      expect(getCollection(db, ctxB, plan.id).id).toBe(plan.id);
+      expectAppError(
+        () => updateCollection(db, ctxB, plan.id, { name: "Hacked" }),
+        "FORBIDDEN",
+        403,
+      );
+      expectAppError(() => deleteCollection(db, ctxB, plan.id), "FORBIDDEN", 403);
+    } finally {
+      close();
+    }
+  });
+
+  it("rejects a private collection without an owner", async () => {
+    const { db, close, ctxA } = await makeSeededDb();
+    try {
+      const createError = catchAppError(() =>
+        createCollection(db, ctxA, { name: "Secret", hueFamily: "slate", visibility: "private" }),
+      );
+      expect(createError.code).toBe("VALIDATION");
+      expect(createError.status).toBe(400);
+      expect(createError.message).toBe("A private collection needs an owner.");
+      expect(createError.fields?.ownerId).toBeTruthy();
+
+      const shared = createCollection(db, ctxA, { name: "Shared", hueFamily: "teal" });
+      const updateError = catchAppError(() =>
+        updateCollection(db, ctxA, shared.id, { visibility: "private" }),
+      );
+      expect(updateError.code).toBe("VALIDATION");
+      expect(updateError.status).toBe(400);
+      expect(updateError.message).toBe("A private collection needs an owner.");
+      expect(updateError.fields?.ownerId).toBeTruthy();
+
+      const claimed = updateCollection(db, ctxA, shared.id, {
+        ownerId: "user-a",
+        visibility: "private",
+      });
+      expect(claimed).toMatchObject({ ownerId: "user-a", visibility: "private" });
+    } finally {
+      close();
+    }
+  });
+
+  it("rejects a sub-collection whose kind disagrees with its parent", async () => {
+    const { db, close, ctxA } = await makeSeededDb();
+    try {
+      const root = createCollection(db, ctxA, { name: "School", hueFamily: "indigo" });
+      expectAppError(
+        () => createCollection(db, ctxA, { name: "Errands", parentId: root.id, kind: "list" }),
+        "VALIDATION",
+        400,
+      );
+    } finally {
+      close();
+    }
+  });
+
   it("lets the owner mark their calendar view-only and blocks the partner from writing it", async () => {
     const { db, close, ctxA, ctxB } = await makeSeededDb();
     try {
@@ -220,6 +343,35 @@ describe("calendar service", () => {
 
       deleteCollection(db, ctxA, root.id);
       expect(listCollectionTree(db, ctxA)).toHaveLength(0);
+    } finally {
+      close();
+    }
+  });
+
+  it("creates the caller's private Inbox exactly once", async () => {
+    const { db, close, ctxA, ctxB } = await makeSeededDb();
+    try {
+      const first = ensureInbox(db, ctxA);
+      const second = ensureInbox(db, ctxA);
+      expect(second.id).toBe(first.id);
+      expect(first).toMatchObject({
+        name: "Inbox",
+        kind: "list",
+        ownerId: "user-a",
+        visibility: "private",
+        parentId: null,
+      });
+      expect(first.hueFamily).toBeTruthy();
+
+      expect(listCollectionTree(db, ctxA).filter((node) => node.name === "Inbox")).toHaveLength(1);
+      expect(listCollectionTree(db, ctxA).map((node) => node.id)).toContain(first.id);
+      expect(listCollectionTree(db, ctxB).map((node) => node.id)).not.toContain(first.id);
+
+      const theirs = ensureInbox(db, ctxB);
+      expect(theirs.id).not.toBe(first.id);
+      expect(theirs.ownerId).toBe("user-b");
+      expect(listCollectionTree(db, ctxB).map((node) => node.id)).toEqual([theirs.id]);
+      expect(listCollectionTree(db, ctxA).map((node) => node.id)).not.toContain(theirs.id);
     } finally {
       close();
     }

@@ -1,4 +1,4 @@
-import { and, eq, gt, gte, isNotNull, lt, lte, or } from "drizzle-orm";
+import { and, eq, gt, gte, inArray, isNotNull, lt, lte, or } from "drizzle-orm";
 import { RRule } from "rrule";
 import { shadeTokens, type ShadeTokens } from "@/lib/color/palette";
 import type { Database } from "@/lib/db/client";
@@ -10,8 +10,14 @@ import {
   type UpdateEventInput,
   assertEventShape,
 } from "@/lib/validation/events";
-import { getCollectionAccess, resolveShade, assertCollectionWritable } from "./collections";
-import { canWriteCollection, type ViewerContext } from "./permissions";
+import {
+  assertCollectionVisible,
+  assertCollectionWritable,
+  getCollectionAccess,
+  resolveShade,
+  resolveVisibleCollections,
+} from "./collections";
+import { type ViewerContext } from "./permissions";
 
 export interface EventView extends EventRow {
   color: ShadeTokens;
@@ -63,6 +69,16 @@ export function getEvent(db: Database, ctx: ViewerContext, id: string): EventRow
   if (!row) {
     throw new AppError("NOT_FOUND", "Event not found.", 404);
   }
+  // Reads consult the collection's effective visibility. A private collection
+  // the viewer does not own answers exactly like a missing event.
+  try {
+    assertCollectionVisible(db, ctx, row.collectionId);
+  } catch (error) {
+    if (error instanceof AppError && error.code === "NOT_FOUND") {
+      throw new AppError("NOT_FOUND", "Event not found.", 404);
+    }
+    throw error;
+  }
   return row;
 }
 
@@ -82,6 +98,10 @@ export function listEvents(db: Database, ctx: ViewerContext, range: EventRange):
   const timezone = householdTimezone(db, ctx);
   const fromDate = utcToLocalDate(range.from, timezone);
   const toDate = utcToLocalDate(range.to, timezone);
+  const visibleCollectionIds = resolveVisibleCollections(db, ctx).map((row) => row.id);
+  if (visibleCollectionIds.length === 0) {
+    return [];
+  }
 
   const rows = db
     .select()
@@ -89,6 +109,7 @@ export function listEvents(db: Database, ctx: ViewerContext, range: EventRange):
     .where(
       and(
         eq(event.householdId, ctx.householdId),
+        inArray(event.collectionId, visibleCollectionIds),
         or(
           isNotNull(event.rrule),
           and(eq(event.allDay, 0), lt(event.startAt, range.to), gt(event.endAt, range.from)),

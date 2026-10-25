@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AppError } from "@/lib/errors";
 import { createCollection } from "@/lib/services/collections";
-import { createEvent, deleteEvent, listEvents, updateEvent } from "@/lib/services/events";
+import { createEvent, deleteEvent, getEvent, listEvents, updateEvent } from "@/lib/services/events";
 import { localWallTimeToUtc } from "@/lib/time/zone";
 import { makeSeededDb } from "../helpers/fixtures";
 
@@ -253,6 +253,60 @@ describe("event service", () => {
           }),
         "VALIDATION",
         400,
+      );
+    } finally {
+      close();
+    }
+  });
+
+  it("hides a private calendar's events from the partner on every path", async () => {
+    const { db, close, ctxA, ctxB } = await setup();
+    try {
+      const journal = createCollection(db, ctxA, {
+        name: "Journal",
+        hueFamily: "rose",
+        ownerId: "user-a",
+        visibility: "private",
+      });
+      const event = createEvent(db, ctxA, {
+        collectionId: journal.id,
+        title: "Secret plan",
+        allDay: false,
+        startAt: at("2026-10-20T09:00"),
+        endAt: at("2026-10-20T10:00"),
+      });
+      const child = createCollection(db, ctxA, { name: "Entries", parentId: journal.id });
+      const childEvent = createEvent(db, ctxA, {
+        collectionId: child.id,
+        title: "Secret entry",
+        allDay: true,
+        startDate: "2026-10-21",
+        endDate: "2026-10-21",
+      });
+
+      const range = { from: at("2026-10-01T00:00"), to: at("2026-11-01T00:00") };
+      expect(listEvents(db, ctxA, range).map((row) => row.title)).toEqual([
+        "Secret plan",
+        "Secret entry",
+      ]);
+      expect(listEvents(db, ctxB, range)).toEqual([]);
+
+      expect(getEvent(db, ctxA, event.id).title).toBe("Secret plan");
+      expectAppError(() => getEvent(db, ctxB, event.id), "NOT_FOUND", 404);
+      expectAppError(() => getEvent(db, ctxB, childEvent.id), "NOT_FOUND", 404);
+      expectAppError(() => updateEvent(db, ctxB, event.id, { title: "Hacked" }), "NOT_FOUND", 404);
+      expectAppError(() => deleteEvent(db, ctxB, event.id, { scope: "all" }), "NOT_FOUND", 404);
+      expectAppError(
+        () =>
+          createEvent(db, ctxB, {
+            collectionId: journal.id,
+            title: "Sneaky",
+            allDay: false,
+            startAt: at("2026-10-22T09:00"),
+            endAt: at("2026-10-22T10:00"),
+          }),
+        "NOT_FOUND",
+        404,
       );
     } finally {
       close();

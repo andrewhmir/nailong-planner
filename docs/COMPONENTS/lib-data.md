@@ -333,7 +333,8 @@ All four modules export plain Zod schemas (no I/O). Handlers parse the JSON body
 **Depends on / Used by** — `zod`, `@/lib/color/palette`. `createCollectionSchema`/`updateCollectionSchema` are parsed in `lib/api/handlers/collections.ts`; the inferred types are imported by `lib/services/collections.ts` (`createCollection`, `updateCollection`).
 
 **Debugging** —
-- Creating a sub-calendar is rejected although `parentId` was sent -> the create schema accepts it but the service rejects nesting depth or ownership -> look at `lib/services/collections.ts`, not here.
+- Creating a sub-calendar is rejected although `parentId` was sent -> the create schema accepts it but the service rejects nesting depth, a kind mismatch, or ownership -> look at `lib/services/collections.ts`, not here.
+- A `private` collection without an owner is a 400 "A private collection needs an owner." from the service, not from these schemas -> the update rule has to read the stored owner, so create and update both validate it in `lib/services/collections.ts` (`fields.ownerId`).
 - A PATCH renaming to 61 characters returns 400 with a custom message -> `max(60)` after `trim()`; the message is the second `max` argument.
 - Colour family silently ignored -> the value was not in `HUE_FAMILIES` and the key got stripped instead of throwing (schemas are not strict) -> check `lib/color/palette.ts`.
 

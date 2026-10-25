@@ -227,7 +227,12 @@ function existingByKey(
 }
 
 function isImportRoot(row: CollectionRow): boolean {
-  return row.name === IMPORT_ROOT_NAME || row.name.startsWith(`${IMPORT_ROOT_NAME} `);
+  // Import targets are calendars only: a list that happens to carry the import
+  // name must never capture events or be reused as an import tree.
+  return (
+    row.kind === "calendar" &&
+    (row.name === IMPORT_ROOT_NAME || row.name.startsWith(`${IMPORT_ROOT_NAME} `))
+  );
 }
 
 function importRoots(db: Database, householdId: string): CollectionRow[] {
@@ -291,8 +296,10 @@ function ensureImportRoot(
   const suffix = roots.length === 0 ? "" : ` ${roots.length + 1}`;
   const root = createCollection(db, ctx, {
     name: `${IMPORT_ROOT_NAME}${suffix}`,
+    kind: "calendar",
     hueFamily: nextHueFamily(db, ctx.householdId),
     ownerId: ctx.userId,
+    visibility: "shared",
   });
   createdNames.push(root.name);
   createdIds.push(root.id);
@@ -354,7 +361,7 @@ function resolveTargets(
     }
 
     const root = ensureImportRoot(db, ctx, createdNames, createdIds);
-    const child = createCollection(db, ctx, { name, parentId: root.id });
+    const child = createCollection(db, ctx, { name, parentId: root.id, kind: "calendar" });
     byName.set(name, child.id);
     createdNames.push(child.name);
     createdIds.push(child.id);
