@@ -14,6 +14,7 @@ shifts by a day, or an API error carries the wrong code or status.
 | lib/recurrence/label.ts | Human summary of an RFC 5545 repeat rule |
 | lib/time/format.ts | Every human-facing time/date string in the app |
 | lib/time/zone.ts | Wall-clock/locale-date <-> UTC instant conversion; the all-day contract |
+| lib/domain/tasks.ts | Read-time Inbox/Today/Week/Someday buckets and the overdue badge; pure date-string math |
 | lib/env.ts | Zod-validated `process.env`, parsed once at import |
 | lib/errors.ts | `AppError` and the five error codes services throw |
 | lib/roadmap.ts | Rail destinations, `APP_VERSION` and the promised-version policy |
@@ -192,6 +193,35 @@ shifts by a day, or an API error carries the wrong code or status.
 - Local date-times come back mangled from ical.js (`2026--1-1-...`) -> the raw ICS used jCal separators instead of RFC 5545 compact values (`20261103T090000`); Google exports are correct, hand-written fixtures must be too.
 
 **Tests** — `tests/unit/ics-parse.test.ts` (timed, all-day, recurring, overrides, edge cases), fixtures in `tests/fixtures/ics/`.
+
+## Tasks
+
+### lib/domain/tasks.ts
+
+**Purpose** — Derives a task's Inbox/Today/Week/Someday triage bucket and its overdue badge from date-only columns every time they are read, so no bucket is stored and none can go stale at midnight. Pure string date math: no clock read except `localToday`'s default, no SQL, no React.
+
+**Public API**
+- `type TaskBucket = "inbox" | "today" | "week" | "someday"`; `TASK_BUCKETS: readonly TaskBucket[]` — the four triage views in rail order.
+- `interface BucketContext { today: string; endOfWeek: string; inboxId: string }` — household-local `YYYY-MM-DD` dates plus the household's Inbox list id.
+- `endOfWeek(date: string, weekStartsOn: 0 | 1): string` — last day (inclusive) of the seven-day week containing `date`; 0 = Sunday start, 1 = Monday start.
+- `bucketOf(task: Pick<TaskRow, "status" | "scheduledOn" | "dueOn" | "collectionId">, ctx: BucketContext): TaskBucket | null` — `null` for a task that is not `open`, or whose anchor is dated after `ctx.endOfWeek`.
+- `isOverdue(task: Pick<TaskRow, "status" | "dueOn">, today: string): boolean` — `status === "open" && dueOn !== null && dueOn < today`; a deadline of today is not overdue.
+- `localToday(timeZone: string, now = Date.now()): string` — the household-local calendar date of an instant; `now` (epoch ms) is injectable for tests.
+
+**The bucket rule** — The anchor is the earliest commitment: the earlier of `scheduledOn` and `dueOn`, with `null` meaning absent. A task scheduled for next week but already past due is therefore in Today (the overdue badge comes from `isOverdue`, independent of the bucket), and a due-only task in a project list reaches Today/Week instead of being stranded in Someday. With both dates absent, the task is Inbox when `collectionId === ctx.inboxId` and Someday otherwise. An anchor `<= ctx.today` is Today, `<= ctx.endOfWeek` is Week, and anything later is **no bucket at all** — it stays on the calendar month grid until its week arrives. Done and dropped tasks are in no bucket.
+
+**State & side effects** — None. String comparisons plus `addDaysToDate`/`weekdayOfDate` arithmetic; `localToday` reads the clock only when `now` is omitted.
+
+**Depends on / Used by** — `TaskRow` from `lib/db/schema`; `weekdayOfDate` from `lib/recurrence/rule`; `addDaysToDate`/`utcToLocalDate` from `lib/time/zone`. No callers in this commit: Tasks 5–11 wire it into the task service, the household `today`/`endOfWeek` context and the triage shortcuts. `tests/unit/tasks-buckets.test.ts` is the only consumer today.
+
+**Debugging**
+- A past-due task is missing from Today -> the anchor was read as `scheduledOn ?? dueOn` instead of the earliest date -> `bucketOf`'s `effective` computation.
+- A task is in none of the four views -> it is dated after `ctx.endOfWeek`; that is intended, and the calendar month grid is where to find it -> check the dates and `ctx.endOfWeek`.
+- Buckets change a day late or early -> `ctx.today` came from the device clock, UTC, or a stored bucket instead of `localToday(household.timezone)` -> check the caller.
+- A Sunday task shows a week late with a Monday-start household -> `weekStartsOn` was inverted, or the week was assumed to end on Saturday -> `endOfWeek` and `household.weekStartsOn`.
+- A task created just before midnight changes bucket with no edit -> expected: buckets are derived, not stored -> nothing to fix.
+
+**Tests** — `tests/unit/tasks-buckets.test.ts` pins both week-start conventions to real 2026 dates, the earliest-date anchor, the Inbox/Someday split, done/dropped, the overdue boundary and the Taipei-vs-UTC `localToday` regression.
 
 ## Time and timezone
 

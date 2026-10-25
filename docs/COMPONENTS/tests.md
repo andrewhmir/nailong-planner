@@ -47,6 +47,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 | `tests/unit/env.test.ts` | `assertProductionEnv`: no-op outside production, complete env, missing/short `BETTER_AUTH_SECRET`, implicit `DATABASE_URL`, non-absolute `BETTER_AUTH_URL`, http/localhost warning | `npx vitest run tests/unit/env.test.ts` |
 | `tests/unit/route-origin.test.ts` | `assertSameOrigin`: same-origin write allowed, no-Origin callers allowed, foreign `Origin` rejected, `Sec-Fetch-Site: cross-site` rejected, reads unrestricted | `npx vitest run tests/unit/route-origin.test.ts` |
 | `tests/unit/wheelNav.test.ts` | Wheel-to-navigate gesture maths: mouse-sized deltas step immediately, trackpad deltas accumulate to the 40 threshold, horizontal swipes and ctrl/meta pinch-zoom ignored, and one navigation per 500 ms cooldown | `npx vitest run tests/unit/wheelNav.test.ts` |
+| `tests/unit/tasks-buckets.test.ts` | `endOfWeek` for Sunday- and Monday-started weeks pinned to real 2026 dates; `bucketOf`'s earliest-date anchor (past-due + later schedule → today, later-only → null), Inbox/Someday split, done/dropped → null; `isOverdue` boundary; `localToday` Taipei vs UTC | `npx vitest run tests/unit/tasks-buckets.test.ts` |
 
 ## Integration tests
 

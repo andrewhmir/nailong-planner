@@ -338,6 +338,7 @@ any wrapper in the shell/calendar tree.
 | `npm run backup` prints success but the archive is tiny/empty | `DATABASE_URL` was wrong, so the script created a new empty database | the empty-database guard now exits 1; check `DATABASE_URL`, or pass `--allow-empty` deliberately |
 | E2E fails only in some months | a spec hardcoded a month/day instead of deriving it (the October 2026 literals were removed) | use `currentMonthLabel()`/`dayMonthLabel()` from `tests/e2e/helpers.ts`; CI pins `TZ=Asia/Taipei` for the runner |
 | A large import makes a concurrent write fail with `database is locked` | one transaction longer than `busy_timeout` blocks the next writer; 2000 events take ~4.8 s | `lib/db/client.ts` sets 15 s; keep single-batch imports under the 50 000-event cap and avoid parallel writers |
+| A task shows in the wrong triage bucket, or a past-due task is missing from Today | buckets are derived at read time, never stored (a stored bucket goes stale at midnight); task dates are date-only strings, not event epochs; the earliest of scheduledOn/dueOn anchors a task, so a past-due task is never stranded | `lib/domain/tasks.ts` `bucketOf`'s `effective` anchor; `ctx.today`/`ctx.endOfWeek`/`ctx.inboxId` at the call site |
 
 ## 5. Adding a feature — the touch list
 
