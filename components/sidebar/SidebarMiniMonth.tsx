@@ -14,6 +14,12 @@ import { visibleCollectionIds } from "@/lib/ui/visibleCollections";
 interface Props {
   currentUserId: string;
   timezone: string;
+  /**
+   * Task-row drop handler (the sidebar mini month is the month grid that exists
+   * on `/tasks`, so it is the practical target for a row drag). Omit it and the
+   * grid is navigation-only.
+   */
+  onTaskDrop?: (taskId: string, date: string) => void;
 }
 
 function pad(value: number): string {
@@ -35,9 +41,11 @@ function monthRange(anchorDate: string, timezone: string): { from: number; to: n
 
 /**
  * Sidebar mini calendar: neutral dots for days with visible events, click to
- * navigate via `/?date=`. The grid itself listens for that param.
+ * navigate via `/?date=`. The grid itself listens for that param. When a task
+ * drop handler is supplied it also accepts a dragged task row on a day button;
+ * clicking a day still navigates exactly as before.
  */
-export function SidebarMiniMonth({ currentUserId, timezone }: Props) {
+export function SidebarMiniMonth({ currentUserId, timezone, onTaskDrop }: Props) {
   const router = useRouter();
   const visibility = useVisibilityApi();
   const { data: collections } = useCollections();
@@ -76,6 +84,7 @@ export function SidebarMiniMonth({ currentUserId, timezone }: Props) {
         eventDates={eventDates}
         onAnchorChange={setAnchorDate}
         onSelectDate={(date) => router.push(`/?date=${date}`)}
+        onTaskDrop={onTaskDrop}
       />
     </div>
   );

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { MenuIcon } from "@/components/ui/icons";
 import { LIVE_ENTRIES, ROADMAP, gateLabel, type RoadmapEntry } from "@/lib/roadmap";
 import type { UserPreferences } from "@/lib/services/preferences";
+import { useTaskPlanDrop } from "@/lib/ui/useTaskPlanDrop";
 import { useTreeFold } from "@/lib/ui/useTreeFold";
 import { useVisibility } from "@/lib/ui/useVisibility";
 import { Brand } from "./Brand";
@@ -61,6 +62,10 @@ export function AppShell({
   const comingSoonTrigger = useRef<HTMLElement | null>(null);
   const visibility = useVisibility(currentUser.id);
   const fold = useTreeFold(currentUser.id);
+  // Task rows live on `/tasks` and the full grid lives on `/`, so a row cannot
+  // be dragged across routes. The sidebar mini month is the month grid both
+  // pages share, so it is the practical drop target for planning a task.
+  const planTaskDrop = useTaskPlanDrop();
   const partnerName = members.find((member) => !member.isSelf)?.name ?? "Partner";
   const activeCrumb = ROUTE_CRUMBS[pathname] ?? FALLBACK_CRUMB;
 
@@ -140,7 +145,11 @@ export function AppShell({
           <div className="flex min-h-0 flex-1">
             <aside className="hidden min-h-0 w-56 shrink-0 flex-col border-r border-line bg-surface lg:flex">
               <div className="shrink-0 overflow-y-auto">
-                <SidebarMiniMonth currentUserId={currentUser.id} timezone={timezone} />
+                <SidebarMiniMonth
+                  currentUserId={currentUser.id}
+                  timezone={timezone}
+                  onTaskDrop={planTaskDrop}
+                />
               </div>
               <nav
                 className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
@@ -202,7 +211,11 @@ export function AppShell({
                 )}
               </nav>
               <nav className="min-h-0 flex-1 overflow-y-auto" aria-label="Collection tree">
-                <SidebarMiniMonth currentUserId={currentUser.id} timezone={timezone} />
+                <SidebarMiniMonth
+                  currentUserId={currentUser.id}
+                  timezone={timezone}
+                  onTaskDrop={planTaskDrop}
+                />
                 {tree}
               </nav>
             </div>

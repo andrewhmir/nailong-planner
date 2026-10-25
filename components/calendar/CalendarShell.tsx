@@ -32,6 +32,7 @@ import {
   type EventRange,
 } from "@/lib/query/events";
 import { usePreferences } from "@/lib/query/preferences";
+import { useTasks } from "@/lib/query/tasks";
 import { expandOccurrences } from "@/lib/recurrence/expand";
 import type { CollectionNode } from "@/lib/services/collections";
 import type { EventView } from "@/lib/services/events";
@@ -45,6 +46,7 @@ import { pushUndo } from "@/lib/ui/undo";
 import { undoToast } from "@/lib/ui/undoToast";
 import { useKeyboardShortcuts } from "@/lib/ui/useKeyboardShortcuts";
 import { useMediaQuery } from "@/lib/ui/useMediaQuery";
+import { useTaskPlanDrop } from "@/lib/ui/useTaskPlanDrop";
 import { useUndoHotkey } from "@/lib/ui/useUndoHotkey";
 import { stepWheel, wheelNavAllowed } from "@/lib/ui/wheelNav";
 import { resolveInitialView } from "@/lib/ui/view";
@@ -311,6 +313,10 @@ export function CalendarShell({
   }, []);
 
   const { data: events } = useEvents(range);
+  // The month grid draws every open scheduled task the viewer may see; the
+  // global list is also the cache the drop handler reads its previous date from.
+  const { data: taskData } = useTasks("all");
+  const planTaskDrop = useTaskPlanDrop();
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
@@ -329,6 +335,24 @@ export function CalendarShell({
     () => (events ?? []).filter((event) => visibleIds.has(event.collectionId)),
     [events, visibleIds],
   );
+
+  // Task chips cover the visible grid window (the month view's cells, including
+  // the adjacent-month days it paints) and only visible collections. A date
+  // compare on `YYYY-MM-DD` strings avoids any timezone round-trip.
+  const visibleTasks = useMemo(() => {
+    if (!range) {
+      return [];
+    }
+    const from = utcToLocalDate(range.from, timezone);
+    const to = utcToLocalDate(range.to, timezone);
+    return (taskData?.tasks ?? []).filter(
+      (task) =>
+        task.scheduledOn !== null &&
+        task.scheduledOn >= from &&
+        task.scheduledOn < to &&
+        visibleIds.has(task.collectionId),
+    );
+  }, [range, taskData, timezone, visibleIds]);
 
   const collectionNames = useMemo(() => {
     const names = new Map<string, string>();
@@ -701,6 +725,16 @@ export function CalendarShell({
   }
 
   function handleEventClick(info: EventClickInfo) {
+    const extended = info.event.extendedProps as { kind?: string; taskId?: string };
+    if (extended.kind === "task" && extended.taskId) {
+      // A chip is a task, not an event: route to its editor and never open the
+      // event details popover or the event edit form.
+      overlaySeqRef.current += 1;
+      setQuickDraft(null);
+      setSelection(null);
+      router.push(`/tasks?task=${encodeURIComponent(extended.taskId)}`);
+      return;
+    }
     const parsed = parseOccurrenceFcId(info.event.id);
     if (!parsed) {
       return;
@@ -973,6 +1007,7 @@ export function CalendarShell({
         scrollTime={scrollTime}
         firstDay={weekStartsOn}
         occurrences={occurrences}
+        tasks={visibleTasks}
         collectionNames={collectionNames}
         readOnlyCollectionIds={readOnlyCollectionIds}
         onDatesSet={handleDatesSet as (info: DatesSetInfo) => void}
@@ -980,6 +1015,7 @@ export function CalendarShell({
         onSelect={handleSelect as (info: DateSelectInfo) => void}
         onEventClick={handleEventClick}
         onEventMove={handleEventMove as never}
+        onTaskDrop={planTaskDrop}
       />
 
       {/* Phones create from here: the toolbar's + Event is md-and-up. */}

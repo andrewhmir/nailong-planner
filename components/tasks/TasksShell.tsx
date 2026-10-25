@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,10 @@ const STATUS_COPY: Record<TaskStatus, { label: string; message: string }> = {
  * consume the shared stack LIFO, exactly as on the calendar.
  */
 export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUserId }: Props) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // Same one-shot contract for an absent and an empty `?task=`.
+  const taskParam = searchParams.get("task") || null;
   const [view, setView] = useState<TaskBucket>("inbox");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [editorTask, setEditorTask] = useState<TaskView | null>(null);
@@ -67,6 +72,10 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   // The last rendered rows, so a vanished selection can be located even though
   // the fetch that removed it has already painted.
   const previousTasksRef = useRef<TaskView[]>([]);
+  // The deep link is a one-shot: it must not reopen the editor after the user
+  // closes it and the task list re-renders underneath.
+  const deepLinkHandledRef = useRef<string | null>(null);
+  const tasksRef = useRef<TaskView[]>([]);
   const today = useMemo(() => localToday(timezone), [timezone]);
   const tasksQuery = useTasks(view);
   const collectionsQuery = useCollections();
@@ -85,6 +94,57 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   // while loading or after an error instead of lying with a row of zeros.
   const counts = tasksQuery.data?.counts;
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
+
+  // The deep-link effect runs once per param and must not re-run when rows
+  // arrive, so it reads the latest rows through a ref instead of a dependency.
+  useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
+
+  // A calendar task chip navigates to `/tasks?task=<id>`: open that task's
+  // editor. The current view's rows are preferred (they are the live snapshot
+  // the editor expects); otherwise one GET covers a task that is not in the
+  // open bucket yet. A missing/unreadable task toasts and drops the param.
+  useEffect(() => {
+    if (taskParam === null) {
+      deepLinkHandledRef.current = null;
+      return;
+    }
+    if (deepLinkHandledRef.current === taskParam) {
+      return;
+    }
+    deepLinkHandledRef.current = taskParam;
+    const known = tasksRef.current.find((task) => task.id === taskParam);
+    if (known) {
+      setEditorTask(known);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/tasks/${taskParam}`);
+        const payload = (await response.json().catch(() => null)) as {
+          task?: TaskView;
+          error?: { message?: string };
+        } | null;
+        if (!response.ok || !payload?.task) {
+          throw new Error(payload?.error?.message ?? "Could not open the task.");
+        }
+        if (!cancelled) {
+          setEditorTask(payload.task);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          toast.error(error instanceof Error ? error.message : "Could not open the task.");
+          router.replace("/tasks");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [router, taskParam]);
 
   // Selection coherence: complete/drop/delete/plan/move all end with the row
   // leaving the open view after the settle refetch. The stale id would then name
@@ -287,6 +347,11 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
 
   function closeEditor(): void {
     setEditorTask(null);
+    // A deep-linked editor leaves the URL clean on close; otherwise a reload
+    // (or a back navigation) would reopen a dialog the user already dismissed.
+    if (taskParam !== null) {
+      router.replace("/tasks");
+    }
     // Radix restores focus to the opener on close, but that opener can be a row
     // that a save just removed from the view. Focus the live selection on the
     // next paint instead (the rows have re-rendered by then).

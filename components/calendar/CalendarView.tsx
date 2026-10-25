@@ -20,7 +20,11 @@ import type { RefObject } from "react";
 import type { Occurrence } from "@/lib/recurrence/expand";
 import type { EventView } from "@/lib/services/events";
 import type { TimeFormat } from "@/lib/services/preferences";
+import type { TaskView } from "@/lib/services/tasks";
 import { fcEventTimeFormat, formatInstant } from "@/lib/time/format";
+import { utcToLocalDate } from "@/lib/time/zone";
+import { isTaskDrag, readTaskDrag } from "@/lib/ui/taskDrag";
+import { taskChip, type TaskChip } from "./taskChip";
 import { occurrenceToFcEvent } from "./toFcEvent";
 
 import "@fullcalendar/react/skeleton.css";
@@ -42,6 +46,12 @@ interface Props {
   scrollTime: string;
   firstDay: number;
   occurrences: RenderableOccurrence[];
+  /**
+   * Scheduled tasks to draw as read-only chips. Mapped here through
+   * `taskChip` (not by the shell) so the chip contract has one owner; the shell
+   * only filters by visibility and the visible range.
+   */
+  tasks?: TaskView[];
   collectionNames: ReadonlyMap<string, string>;
   readOnlyCollectionIds: ReadonlySet<string>;
   onDatesSet: (info: DatesSetInfo) => void;
@@ -49,6 +59,11 @@ interface Props {
   onSelect: (info: DateSelectInfo) => void;
   onEventClick: (info: EventClickInfo) => void;
   onEventMove: (info: EventDropInfo | EventResizeDoneInfo) => void;
+  /**
+   * A task row was dropped on a day cell. `date` is the household-local
+   * `YYYY-MM-DD`. Only month-view day cells are drop zones.
+   */
+  onTaskDrop?: (taskId: string, date: string) => void;
 }
 
 export function CalendarView({
@@ -59,6 +74,7 @@ export function CalendarView({
   scrollTime,
   firstDay,
   occurrences,
+  tasks,
   collectionNames,
   readOnlyCollectionIds,
   onDatesSet,
@@ -66,11 +82,18 @@ export function CalendarView({
   onSelect,
   onEventClick,
   onEventMove,
+  onTaskDrop,
 }: Props) {
   const fcEvents = occurrences.map(({ occurrence, event }) => ({
     ...occurrenceToFcEvent(occurrence, event, collectionNames.get(event.collectionId) ?? ""),
     editable: !readOnlyCollectionIds.has(event.collectionId),
   })) as EventInput[];
+
+  // Task chips are ordinary all-day events on the same calendar; their ids are
+  // `task:`-prefixed so they can never collide with an occurrence id.
+  const taskEvents = (tasks ?? [])
+    .map(taskChip)
+    .filter((chip): chip is TaskChip => chip !== null);
 
   // `min-h-0 flex-1` gives FullCalendar a definite height to fill; the shell
   // owns the page frame, so the panel never scrolls the document.
@@ -102,8 +125,49 @@ export function CalendarView({
         rowMoreLinkClass="fc-more-link"
         columnMoreLinkClass="fc-more-link"
         slotHeaderClass="fc-timegrid-slot-label"
+        dayCellDidMount={(info) => {
+          if (!onTaskDrop) {
+            return;
+          }
+          // Month-view day cells accept a dragged task row. `preventDefault`
+          // only for the task MIME type keeps event drags, files and text out.
+          // The date is household-local, exactly like `dateClick`'s.
+          const element = info.el;
+          const date = utcToLocalDate(info.date.getTime(), timezone);
+          element.addEventListener("dragover", (event) => {
+            if (!isTaskDrag(event.dataTransfer)) {
+              return;
+            }
+            event.preventDefault();
+            if (event.dataTransfer) {
+              event.dataTransfer.dropEffect = "move";
+            }
+            element.dataset.taskDropActive = "true";
+          });
+          element.addEventListener("dragleave", (event) => {
+            const next = event.relatedTarget;
+            if (next instanceof Node && element.contains(next)) {
+              return;
+            }
+            delete element.dataset.taskDropActive;
+          });
+          element.addEventListener("drop", (event) => {
+            const taskId = readTaskDrag(event.dataTransfer);
+            delete element.dataset.taskDropActive;
+            if (!isTaskDrag(event.dataTransfer)) {
+              return;
+            }
+            event.preventDefault();
+            if (taskId) {
+              onTaskDrop(taskId, date);
+            }
+          });
+        }}
         eventDidMount={(info) => {
           const extended = info.event.extendedProps as {
+            kind?: string;
+            taskId?: string;
+            ariaLabel?: string;
             accent?: string;
             calendarName?: string;
             eventId?: string;
@@ -111,6 +175,18 @@ export function CalendarView({
           };
           // v7 dropped `borderColor`; the saturated bar is painted directly.
           info.el.style.borderLeftColor = String(extended.accent ?? "transparent");
+          // Task chips are calendar citizens but NOT events: they carry their
+          // own data hook and label, and a click routes to the task editor.
+          if (extended.kind === "task") {
+            if (extended.taskId) {
+              info.el.setAttribute("data-task-id", extended.taskId);
+            }
+            info.el.setAttribute(
+              "aria-label",
+              extended.ariaLabel ?? `Task: ${info.event.title}`,
+            );
+            return;
+          }
           // Deep links and notification links find the clicked block by these.
           if (extended.eventId) {
             info.el.setAttribute("data-event-id", extended.eventId);
@@ -158,7 +234,7 @@ export function CalendarView({
         selectMirror
         editable
         eventResizableFromStart
-        events={fcEvents}
+        events={[...fcEvents, ...taskEvents]}
         datesSet={onDatesSet}
         dateClick={onDateClick}
         select={onSelect}

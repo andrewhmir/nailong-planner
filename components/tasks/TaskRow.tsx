@@ -16,6 +16,7 @@ import { isHueFamily, shadeTokens } from "@/lib/color/palette";
 import { isOverdue } from "@/lib/domain/tasks";
 import type { TaskView } from "@/lib/services/tasks";
 import { formatWallDate } from "@/lib/time/format";
+import { setTaskDragPayload } from "@/lib/ui/taskDrag";
 import { cn } from "@/lib/utils";
 import { TaskPlanPopover } from "./TaskPlanPopover";
 
@@ -76,10 +77,7 @@ export function TaskRow({
       aria-current={selected ? "true" : undefined}
       aria-label={task.title}
       onFocus={onFocus}
-      onDragStart={(event) => {
-        event.dataTransfer.setData("text/x-nailong-task", task.id);
-        event.dataTransfer.effectAllowed = "move";
-      }}
+      onDragStart={(event) => setTaskDragPayload(event.dataTransfer, task.id)}
       className={cn(
         "group relative flex items-center gap-3 border-b border-line px-2 py-1.5 outline-none last:border-b-0 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
         selected && "bg-well",

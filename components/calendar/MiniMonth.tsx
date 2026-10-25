@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/components/ui/icons";
+import { isTaskDrag, readTaskDrag } from "@/lib/ui/taskDrag";
 import { addDaysToDate } from "@/lib/time/zone";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +16,12 @@ export interface MiniMonthProps {
   onSelectDate: (date: string) => void;
   /** First of the newly shown month. */
   onAnchorChange: (date: string) => void;
+  /**
+   * Optional task-row drop target. Supplying it turns each in-month day button
+   * into an HTML5 drop zone for the `text/x-nailong-task` payload; the callback
+   * owns the PATCH. Without it the grid is navigation-only, exactly as before.
+   */
+  onTaskDrop?: (taskId: string, date: string) => void;
   labelledBy?: string;
 }
 
@@ -100,6 +107,7 @@ export function MiniMonth({
   eventDates,
   onSelectDate,
   onAnchorChange,
+  onTaskDrop,
   labelledBy,
 }: MiniMonthProps) {
   const { year, month } = parts(anchorDate);
@@ -180,6 +188,47 @@ export function MiniMonth({
     moveFocus(next);
   }
 
+  /**
+   * The mini month is the drop target that is present on `/tasks` (a task row
+   * cannot be dragged across routes onto the full grid). `preventDefault` only
+   * for the task MIME type keeps every other drag — an event fragment, a file,
+   * selected text — out of the zone. `data-task-drop-active` is the visual
+   * affordance while a task hovers a day.
+   */
+  function taskDropProps(date: string): React.DOMAttributes<HTMLButtonElement> {
+    if (!onTaskDrop) {
+      return {};
+    }
+    return {
+      onDragOver: (event) => {
+        if (!isTaskDrag(event.dataTransfer)) {
+          return;
+        }
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        event.currentTarget.dataset.taskDropActive = "true";
+      },
+      onDragLeave: (event) => {
+        const next = event.relatedTarget;
+        if (next instanceof Node && event.currentTarget.contains(next)) {
+          return;
+        }
+        delete event.currentTarget.dataset.taskDropActive;
+      },
+      onDrop: (event) => {
+        const taskId = readTaskDrag(event.dataTransfer);
+        delete event.currentTarget.dataset.taskDropActive;
+        if (!isTaskDrag(event.dataTransfer)) {
+          return;
+        }
+        event.preventDefault();
+        if (taskId) {
+          onTaskDrop(taskId, date);
+        }
+      },
+    };
+  }
+
   return (
     <div
       ref={containerRef}
@@ -251,13 +300,14 @@ export function MiniMonth({
                 aria-selected={selected}
                 aria-current={isToday ? "date" : undefined}
                 tabIndex={date === focusDate ? 0 : -1}
+                {...taskDropProps(date)}
                 onClick={() => {
                   setFocusDate(date);
                   onSelectDate(date);
                 }}
                 onKeyDown={(event) => onDayKeyDown(event, date)}
                 className={cn(
-                  "relative mx-auto my-0.5 flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm text-xs transition-[color,background-color,transform,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-link active:scale-95",
+                  "relative mx-auto my-0.5 flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm text-xs transition-[color,background-color,transform,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-link active:scale-95 data-[task-drop-active=true]:bg-info-soft data-[task-drop-active=true]:ring-2 data-[task-drop-active=true]:ring-inset data-[task-drop-active=true]:ring-accent",
                   selected
                     ? "bg-accent font-medium text-white shadow-sm active:bg-accent-hover"
                     : isToday

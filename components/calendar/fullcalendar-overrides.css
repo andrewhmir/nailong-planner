@@ -120,6 +120,28 @@ html .fc {
   white-space: nowrap;
 }
 
+/* Scheduled tasks use the same left-bar language as an event — the collection
+   accent is written by `eventDidMount` — but a smaller, muted fill keeps a task
+   readable as a task, not an event. They still take part in the grid's normal
+   stacking and the built-in "+N more" affordance. */
+.fc .fc-event.fc-task-chip {
+  background-color: var(--color-well);
+  color: var(--color-ink-soft);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.fc .fc-task-chip .fc-event-title {
+  font-size: 12px;
+}
+
+/* Month-view day cell under a dragged task row. `CalendarView` sets and clears
+   the attribute in its dragover/dragleave/drop listeners. */
+.fc .fc-daygrid-day[data-task-drop-active="true"] {
+  background-color: var(--color-info-soft);
+  box-shadow: inset 0 0 0 2px var(--color-accent);
+}
+
 .fc .fc-more-link {
   color: var(--color-link);
   font-size: 13px;

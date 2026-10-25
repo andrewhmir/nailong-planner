@@ -22,6 +22,8 @@ calendar still draws, or an undo action does nothing.
 | lib/ui/searchBus.ts | Custom-event bus for "focus the search field" |
 | lib/ui/undo.ts | In-memory undo stack: targeted handles for toasts, LIFO for the hotkeys |
 | lib/ui/undoToast.ts | Success toast whose Undo action reverts exactly the change the toast names |
+| lib/ui/taskDrag.ts | The `text/x-nailong-task` drag payload contract shared by task rows and their drop targets |
+| lib/ui/useTaskPlanDrop.ts | Drop→PATCH `scheduledOn` handler with a targeted undo and the `Task planned` toast |
 
 ## View and persistence
 
@@ -416,7 +418,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 **State & side effects** — Module-level mutable `stack`, capped at 20; one `sonner` `toast.error` on failure. No storage, no listeners, not shared across tabs or users on the same browser tab.
 
-**Depends on / Used by** — `toast` from `sonner`. Used by `lib/ui/undoToast.ts`, `lib/ui/useUndoHotkey.ts`, `components/calendar/CalendarShell.tsx` (event move, delete, series delete and skip-occurrence pushes), `components/calendar/EventDialog.tsx` and `QuickCreatePopover.tsx` (event create), `components/shell/GlobalCapture.tsx` (capture) and `components/tasks/TasksShell.tsx` (task mutations).
+**Depends on / Used by** — `toast` from `sonner`. Used by `lib/ui/undoToast.ts`, `lib/ui/useUndoHotkey.ts`, `components/calendar/CalendarShell.tsx` (event move, delete, series delete and skip-occurrence pushes), `components/calendar/EventDialog.tsx` and `QuickCreatePopover.tsx` (event create), `components/shell/GlobalCapture.tsx` (capture) and `components/tasks/TasksShell.tsx` (task mutations), plus `lib/ui/useTaskPlanDrop.ts` (a dropped task's plan).
 
 **Debugging**
 - The Undo toast button does nothing -> the action was already undone (a second click), was dropped by the 20-action cap, or the mutation path never pushed it -> log `peekUndo()` at the call site and check the handle passed to `undoToast`.
@@ -434,7 +436,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 **State & side effects** — Calls `toast.success(message, { action: { label: "Undo", onClick: () => void undoAction(handle) }, duration: 10_000 })`; the handler is fire-and-forget (Sonner dismisses the toast on click) and `undoAction` reports failures through its own `toast.error`. No storage, no query work, no state.
 
-**Depends on / Used by** — `sonner` (`toast`) and `./undo` (`undoAction`, `UndoHandle`). Call sites: `components/calendar/CalendarShell.tsx` ("Event moved to …", "Event deleted", "Series deleted", "Occurrence skipped"), `components/calendar/EventDialog.tsx` and `QuickCreatePopover.tsx` ("Event created"), `components/shell/GlobalCapture.tsx` ("Task captured") and `components/tasks/TasksShell.tsx` (task complete/drop/delete/schedule/move).
+**Depends on / Used by** — `sonner` (`toast`) and `./undo` (`undoAction`, `UndoHandle`). Call sites: `components/calendar/CalendarShell.tsx` ("Event moved to …", "Event deleted", "Series deleted", "Occurrence skipped"), `components/calendar/EventDialog.tsx` and `QuickCreatePopover.tsx` ("Event created"), `components/shell/GlobalCapture.tsx` ("Task captured") and `components/tasks/TasksShell.tsx` (task complete/drop/delete/schedule/move), plus `lib/ui/useTaskPlanDrop.ts` ("Task planned").
 
 **Debugging**
 - The toast's Undo reverts the wrong change -> the call site showed the toast without the handle from its own `pushUndo`, or reused another action's handle -> check the `undoToast(message, handle)` argument.
@@ -443,9 +445,44 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 **Tests** — No direct unit test (a thin Sonner wrapper); `tests/e2e/undo.spec.ts` and `tests/e2e/tasks.spec.ts` scenario 2 exercise it end to end.
 
+### lib/ui/taskDrag.ts
+
+**Purpose** — One place for the HTML5 drag contract that lets a task row be dragged onto a day: the custom MIME type, the source-side payload write and the target-side read/guard. Sharing it keeps the row, the month grid and the sidebar mini month from drifting apart on a string literal.
+
+**Public API** — `export const TASK_DRAG_TYPE = "text/x-nailong-task"`; `export interface DragTransfer` (the structural subset of `DataTransfer` the helpers need: `types`, `getData`, `setData`, `effectAllowed`, `dropEffect`); `isTaskDrag(transfer: Pick<DragTransfer, "types"> | null | undefined): boolean`; `setTaskDragPayload(transfer: DragTransfer, taskId: string): void` (writes the id and sets `effectAllowed = "move"`); `readTaskDrag(transfer: DragTransfer | null | undefined): string | null` (null for a non-task drag or an empty payload).
+
+**State & side effects** — None; pure and DOM-free. The caller owns the actual `DataTransfer`; only `dragover`/`drop` listeners call `preventDefault`, and only after `isTaskDrag` is true.
+
+**Depends on / Used by** — No imports. Used by `components/tasks/TaskRow.tsx` (`setTaskDragPayload`), `components/calendar/CalendarView.tsx` and `components/calendar/MiniMonth.tsx` (`isTaskDrag`, `readTaskDrag`).
+
+**Debugging**
+- A drag of an event, file or text is accepted by a day cell -> the `preventDefault` moved outside the `isTaskDrag` guard -> this file's callers.
+- A task row drops nothing -> the source and target disagree on the MIME type (one hardcoded it) -> this file's `TASK_DRAG_TYPE`.
+- `readTaskDrag` returns null on a real drop -> the browser does not expose the custom type on `dragover`; check the payload is set in `dragstart` via `setTaskDragPayload` -> this file.
+
+**Tests** — `tests/unit/task-drag.test.ts` (source stamp + move effect, type recognition, read/empty/other-drag rejection).
+
+### lib/ui/useTaskPlanDrop.ts
+
+**Purpose** — The shared "a task was dropped on a day" handler. Both month-grid drop surfaces use it: the sidebar mini month (the practical target on `/tasks`, where the rows are) and the full month grid's day cells. It PATCHes `scheduledOn`, toasts `Task planned` with a targeted Undo that restores the exact previous date, and toasts `Could not schedule the task.` on failure.
+
+**Public API** — `useTaskPlanDrop(): (taskId: string, date: string) => void`. No other exports.
+
+**State & side effects** — `useQueryClient()` + `useUpdateTask()` (the optimistic PATCH hook); it starts no query of its own. On a drop it looks the row up across every cached `["tasks", …]` payload (`getQueriesData`); if this tab never loaded it, it does one `GET /api/tasks/{id}` so the undo closure has a real previous `scheduledOn` instead of guessing. A drop that does not change the date is a silent no-op (the server echo guard also skips the toast when the row is unchanged). Otherwise it pushes `{ label: "Schedule task", undo: PATCH scheduledOn back }` and calls `undoToast("Task planned", handle)`; failures toast `Could not schedule the task.`.
+
+**Depends on / Used by** — `@tanstack/react-query` (`useQueryClient`), `react` (`useCallback`), `sonner`, `lib/query/taskCache` (`TasksCacheData`), `lib/query/tasks` (`useUpdateTask`), `lib/services/tasks` (`TaskView`), `./undo` (`pushUndo`), `./undoToast`. Used by `components/calendar/CalendarShell.tsx` (`onTaskDrop` for the full grid) and `components/shell/AppShell.tsx` (passed to both `SidebarMiniMonth` instances).
+
+**Debugging**
+- The Undo restores `null` instead of the previous day -> the row was not in any cached `["tasks", …]` payload and the `GET /api/tasks/{id}` fallback was removed -> this file's `cached()` path.
+- A drop toasts but the row does not move -> the PATCH failed (view-only list, 404) -> read the network response; the optimistic patch rolls back.
+- A drop on the same day shows a toast -> the `task.scheduledOn === date` no-op guard was dropped -> this file.
+- Two drops in one toast window undo the wrong plan -> the toast was shown without `pushUndo`'s handle -> this file plus `lib/ui/undoToast.ts`.
+
+**Tests** — No direct unit test (a TanStack mutation hook; the repo has no hook-test harness). `tests/e2e/tasks.spec.ts` scenario 6 drives the row→mini-month drop and asserts `scheduledOn` through `GET /api/tasks/{id}`; the full-grid drop listener is covered structurally by `CalendarView` and the shared handler.
+
 ## Focused verification
 
 ```bash
-npx vitest run tests/unit/calendarPicker.test.ts tests/unit/view.test.ts tests/unit/visibility.test.ts tests/unit/visibleCollections.test.ts tests/unit/treeFold.test.ts tests/unit/shortcut-guards.test.ts tests/unit/use-task-shortcuts.test.ts tests/unit/undo.test.ts
+npx vitest run tests/unit/calendarPicker.test.ts tests/unit/view.test.ts tests/unit/visibility.test.ts tests/unit/visibleCollections.test.ts tests/unit/treeFold.test.ts tests/unit/shortcut-guards.test.ts tests/unit/use-task-shortcuts.test.ts tests/unit/undo.test.ts tests/unit/task-drag.test.ts
 npm run lint && npm run typecheck
 ```

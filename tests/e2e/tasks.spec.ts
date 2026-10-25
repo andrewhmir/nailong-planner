@@ -51,6 +51,12 @@ function addDaysToDate(date: string, days: number): string {
   return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
 }
 
+/** One day of the month `date` belongs to, as a `YYYY-MM-DD` string. */
+function dayInMonth(date: string, day: number): string {
+  const { year, month } = partsOf(date);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 /** Last day of the household week, mirroring `endOfWeek` in `lib/domain/tasks.ts`. */
 function endOfWeek(date: string, weekStartsOn: 0 | 1): string {
   const offset = (weekdayOf(date) - weekStartsOn + 7) % 7;
@@ -93,6 +99,7 @@ interface ApiTask {
   title: string;
   status: string;
   collectionId: string;
+  scheduledOn: string | null;
   dueOn: string | null;
   checklist: Array<{ id: string; title: string; done: boolean }>;
 }
@@ -622,4 +629,63 @@ test("deleting a task is undoable from the toast and restores its checklist", as
   await expect
     .poll(async () => (await tasksInView(page, "inbox")).filter((task) => task.title === title).length)
     .toBe(1);
+});
+
+test("dropping a task on a day plans it, and its chip opens the task editor", async ({ page }) => {
+  const { timezone, weekStartsOn } = await householdInfo(page);
+  const today = householdToday(timezone);
+  const weekTarget = endOfWeek(today, weekStartsOn);
+  const stamp = Date.now().toString(36);
+  const title = `E2E chip task ${stamp}`;
+  // Days 10–13 are never one of the seeded event days (the 15th and 20th) and
+  // are not where earlier scenarios plan tasks (Today / end of week), so the
+  // chip cannot be pushed behind a full day's "+N more".
+  const chipDay = [10, 11, 12, 13]
+    .map((day) => dayInMonth(today, day))
+    .find((date) => date !== today && date !== weekTarget);
+  expect(chipDay).toBeTruthy();
+
+  await page.goto("/tasks");
+  await expect(page.getByRole("heading", { name: "Tasks", exact: true })).toBeVisible();
+  await page.locator("#task-capture").fill(title);
+  await page.locator("#task-capture").press("Enter");
+  await expect(page.getByRole("checkbox", { name: title })).toBeVisible();
+  const taskId = await taskRow(page, title).getAttribute("data-task-id");
+  expect(taskId).toBeTruthy();
+
+  // The task row lives on /tasks and the full grid lives on /, so the row is
+  // dragged onto the sidebar mini month — the month grid both pages share.
+  await taskRow(page, title).dragTo(page.locator(`[data-mini-date="${today}"]`));
+  await expect.poll(async () => (await apiTask(page, taskId!)).scheduledOn).toBe(today);
+  await expect(
+    page.locator("[data-sonner-toast]", { hasText: "Task planned" }),
+  ).toBeVisible();
+  // The Today bucket is the visible consequence of the drop.
+  await selectView(page, "Today");
+  await expect(taskRow(page, title)).toBeVisible();
+
+  // Move it to a quiet day through the row's Plan popover; the month grid must
+  // draw the chip on exactly that day.
+  await planTask(page, title, chipDay!, today);
+  await expect.poll(async () => (await apiTask(page, taskId!)).scheduledOn).toBe(chipDay);
+
+  await page.goto("/");
+  const chip = page.locator(`[data-date="${chipDay}"] .fc-task-chip`, { hasText: title });
+  await expect(chip).toBeVisible();
+  await expect(chip).toHaveAttribute("data-task-id", taskId!);
+  await expect(chip).toHaveAttribute("aria-label", `Task: ${title}`);
+
+  // A chip is a task, not an event: click opens the task editor, never the
+  // event details popover or the event form.
+  await chip.click();
+  await expect(page).toHaveURL(new RegExp(`/tasks\\?task=${taskId}$`));
+  const editor = page.getByRole("dialog", { name: "Edit task" });
+  await expect(editor).toBeVisible();
+  await expect(editor.getByLabel("Title")).toHaveValue(title);
+  await expect(page.getByText("Edit event")).toHaveCount(0);
+
+  // Closing the editor drops the deep-link param, so a reload stays on /tasks.
+  await editor.getByRole("button", { name: "Cancel" }).click();
+  await expect(editor).toBeHidden();
+  await expect(page).toHaveURL(/\/tasks$/);
 });
