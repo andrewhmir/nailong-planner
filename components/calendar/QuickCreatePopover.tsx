@@ -16,7 +16,8 @@ import { calendarSwatch } from "@/lib/ui/calendarPicker";
 import { formatWallDate, formatWallTime } from "@/lib/time/format";
 import { addDaysToDate, localWallTimeToUtc } from "@/lib/time/zone";
 import { useMediaQuery } from "@/lib/ui/useMediaQuery";
-import { pushUndo, undoLast } from "@/lib/ui/undo";
+import { pushUndo } from "@/lib/ui/undo";
+import { undoToast } from "@/lib/ui/undoToast";
 import { CalendarPicker } from "./CalendarPicker";
 import type { QuickCreateRange } from "./quickCreateDefaults";
 
@@ -145,16 +146,13 @@ export function QuickCreatePopover({
     }
     createEvent.mutate(draftPayload(draft, trimmed, effectiveCollectionId, timezone), {
       onSuccess: ({ event }) => {
-        pushUndo({
+        const handle = pushUndo({
           label: "Create event",
           undo: async () => {
             await deleteEvent.mutateAsync({ id: event.id, scope: "all" });
           },
         });
-        toast.success("Event created", {
-          action: { label: "Undo", onClick: () => void undoLast() },
-          duration: 10_000,
-        });
+        undoToast("Event created", handle);
         // Remember the calendar for next time (spec D3).
         updatePreferences.mutate({ lastEventCalendarId: effectiveCollectionId });
         onClose();

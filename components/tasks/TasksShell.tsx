@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { endOfWeek, localToday, type TaskBucket } from "@/lib/domain/tasks";
@@ -55,17 +55,55 @@ export function TasksShell({
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const listRef = useRef<HTMLUListElement | null>(null);
+  const switcherRef = useRef<HTMLButtonElement | null>(null);
+  // The last rendered rows, so a vanished selection can be located even though
+  // the fetch that removed it has already painted.
+  const previousTasksRef = useRef<TaskView[]>([]);
   const today = useMemo(() => localToday(timezone), [timezone]);
   const tasksQuery = useTasks(view);
   const collectionsQuery = useCollections();
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
 
-  const tasks = tasksQuery.data?.tasks ?? [];
+  // Stable identity so the selection-coherence effect depends on the rows, not
+  // on a fresh `[]` from every render.
+  const tasks = useMemo(() => tasksQuery.data?.tasks ?? [], [tasksQuery.data]);
   // Counts stay undefined until the first payload: the switcher shows no badges
   // while loading or after an error instead of lying with a row of zeros.
   const counts = tasksQuery.data?.counts;
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
+
+  // Selection coherence: complete/drop/delete/plan/move all end with the row
+  // leaving the open view after the settle refetch. The stale id would then name
+  // no row, so the next triage key would silently no-op; move the selection (and
+  // focus, because focus follows selection) to the row that took its place, or
+  // hand focus to the view switcher when the view is now empty. Runs only after
+  // a painted list change, never during load or a view switch.
+  useEffect(() => {
+    const previous = previousTasksRef.current;
+    previousTasksRef.current = tasks;
+    if (selectedTaskId === null || tasksQuery.isPending) {
+      return;
+    }
+    if (tasks.some((task) => task.id === selectedTaskId)) {
+      return;
+    }
+    const staleIndex = previous.findIndex((task) => task.id === selectedTaskId);
+    const next = staleIndex === -1 ? tasks[0] : tasks[Math.min(staleIndex, tasks.length - 1)];
+    // The selection must follow the fetched list, not the other way round: this
+    // is a reconciliation with data that arrived after the mutation, so it
+    // cannot move into the mutation callback or a render-time derivation.
+    setSelectedTaskId(next ? next.id : null);
+    if (next) {
+      // Focus follows selection: the next triage key acts on this row. The
+      // effect runs after commit, so the row is already in the DOM.
+      focusRow(next.id);
+    } else {
+      // No rows left: the switcher is a real keyboard stop, so `j` still means
+      // "next row" from here (focusing the capture input would type the letter).
+      switcherRef.current?.focus();
+    }
+  }, [tasks, tasksQuery.isPending, selectedTaskId]);
 
   // Move targets are the viewer's writable lists, labelled by their parent when
   // nested. The server stays authoritative: a stale tree still gets a 403.
@@ -200,7 +238,12 @@ export function TasksShell({
       <TaskCaptureBar timezone={timezone} />
 
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <TaskViewSwitcher view={view} counts={counts} onChange={changeView} />
+        <TaskViewSwitcher
+          view={view}
+          counts={counts}
+          onChange={changeView}
+          activeRef={switcherRef}
+        />
         <Button
           size="sm"
           variant="ghost"

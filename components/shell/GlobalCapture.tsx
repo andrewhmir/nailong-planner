@@ -8,7 +8,8 @@ import { useCreateTask, useDeleteTask } from "@/lib/query/tasks";
 import { usePreferences } from "@/lib/query/preferences";
 import type { UserPreferences } from "@/lib/services/preferences";
 import { hasOpenOverlay, isTextEntryTarget } from "@/lib/ui/shortcutGuards";
-import { pushUndo, undoLast } from "@/lib/ui/undo";
+import { pushUndo } from "@/lib/ui/undo";
+import { undoToast } from "@/lib/ui/undoToast";
 
 interface Props {
   /**
@@ -28,9 +29,12 @@ const FIELD =
 /**
  * Global quick capture: `Shift+K` anywhere in the app opens a one-field dialog
  * and `Enter` files the title in the caller's Inbox without navigating. The
- * success toast carries the only undo path for a capture (the delete of the row
- * just created); closing the dialog returns focus to whatever was focused when
- * it opened.
+ * success toast's Undo is bound to this capture's own stack handle, so it deletes
+ * exactly this task even if another undoable change lands inside the 10-second
+ * window (`z`/`Ctrl+Z` still undo the shared stack LIFO). Closing the dialog
+ * returns focus to whatever was focused when it opened — except while the create
+ * is in flight, when the dialog holds still because a dismissal could not stop
+ * the POST and would leave a task the user tried to cancel.
  *
  * Mounted once by `AppShell`, so it works on `/` and `/tasks` alike. The gesture
  * is gated on the same `shortcutsEnabled` preference as the page-scoped
@@ -69,7 +73,15 @@ export function GlobalCapture({ initialPreferences }: Props) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [preferences.shortcutsEnabled]);
 
-  function close(): void {
+  /**
+   * `force` is only for the success path. A dismissal while the POST is pending
+   * is ignored: the request cannot be aborted, so closing the dialog would still
+   * create the task the user meant to cancel.
+   */
+  function close(force = false): void {
+    if (!force && createTask.isPending) {
+      return;
+    }
     setOpen(false);
     const target = returnFocusRef.current;
     returnFocusRef.current = null;
@@ -91,17 +103,14 @@ export function GlobalCapture({ initialPreferences }: Props) {
       {
         onSuccess: ({ task }) => {
           setTitle("");
-          close();
-          pushUndo({
+          close(true);
+          const handle = pushUndo({
             label: "Capture task",
             undo: async () => {
               await deleteTask.mutateAsync(task.id);
             },
           });
-          toast.success("Task captured", {
-            action: { label: "Undo", onClick: () => void undoLast() },
-            duration: 10_000,
-          });
+          undoToast("Task captured", handle);
         },
         onError: () => toast.error("Could not add the task."),
       },
@@ -142,7 +151,11 @@ export function GlobalCapture({ initialPreferences }: Props) {
             className={`mt-1 ${FIELD}`}
           />
           <div className="mt-4 flex justify-end gap-3">
-            <Button onClick={close} className="[@media(pointer:coarse)]:min-h-11">
+            <Button
+              onClick={() => close()}
+              disabled={createTask.isPending}
+              className="[@media(pointer:coarse)]:min-h-11"
+            >
               Cancel
             </Button>
             <Button

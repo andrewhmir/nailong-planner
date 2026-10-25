@@ -103,6 +103,20 @@ async function capture(page: Page, title: string): Promise<void> {
   await expect(page.locator("#task-capture")).toHaveValue("");
 }
 
+/** Capture a task from anywhere with `Shift+K`; asserts the dialog/toast lifecycle. */
+async function globalCapture(page: Page, title: string): Promise<void> {
+  await page.keyboard.press("Shift+K");
+  const dialog = page.getByRole("dialog", { name: "Capture a task" });
+  await expect(dialog).toBeVisible();
+  await dialog.locator("#global-capture-title").fill(title);
+  await dialog.locator("#global-capture-title").press("Enter");
+  await expect(dialog).toBeHidden();
+  // Several captures can be on screen at once, so existence is enough here.
+  await expect(
+    page.locator("[data-sonner-toast]", { hasText: "Task captured" }).first(),
+  ).toBeVisible();
+}
+
 /** Pick a date in the row's Plan popover, navigating a month when needed. */
 async function planTask(
   page: Page,
@@ -215,19 +229,28 @@ test("captured and planned tasks keep their buckets across a reload", async ({ p
 
 test("Shift+K captures from the calendar and triage keys work without a mouse", async ({ page }) => {
   const stamp = Date.now().toString(36);
+  const undoProbeTitle = `E2E undo probe ${stamp}`;
   const title = `E2E global capture ${stamp}`;
   const neighbourTitle = `E2E triage neighbour ${stamp}`;
 
   // Global capture starts on the calendar and must not navigate there.
   await expect(page).toHaveURL(/\/$/);
-  await page.keyboard.press("Shift+K");
-  const captureDialog = page.getByRole("dialog", { name: "Capture a task" });
-  await expect(captureDialog).toBeVisible();
-  await captureDialog.locator("#global-capture-title").fill(title);
-  await captureDialog.locator("#global-capture-title").press("Enter");
-  await expect(page.locator("[data-sonner-toast]", { hasText: "Task captured" })).toBeVisible();
-  await expect(captureDialog).toBeHidden();
+  await globalCapture(page, undoProbeTitle);
+  // A second capture inside the same 10-second toast window reproduces the
+  // shared-LIFO bug: Sonner prepends the newest toast, so `data-index="1"` is the
+  // FIRST capture's toast. Its Undo must delete that task, not the newest one.
+  await globalCapture(page, title);
   await expect(page).toHaveURL(/\/$/);
+
+  const olderToast = page.locator('[data-sonner-toast][data-index="1"]', {
+    hasText: "Task captured",
+  });
+  await expect(olderToast).toBeVisible();
+  await olderToast.getByRole("button", { name: "Undo" }).click();
+  await expect
+    .poll(async () => (await tasksInView(page, "inbox")).some((task) => task.title === undoProbeTitle))
+    .toBe(false);
+  expect((await tasksInView(page, "inbox")).some((task) => task.title === title)).toBe(true);
 
   await page.goto("/tasks");
   await expect(page.getByRole("heading", { name: "Tasks", exact: true })).toBeVisible();

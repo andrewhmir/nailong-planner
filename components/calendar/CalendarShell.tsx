@@ -41,7 +41,8 @@ import { formatOccurrenceWhen } from "@/lib/time/format";
 import { addDaysToDate, utcToLocalDate, utcToLocalWallTime } from "@/lib/time/zone";
 import { readLastView, writeLastView } from "@/lib/ui/lastView";
 import { focusSearch, onEventLink } from "@/lib/ui/searchBus";
-import { pushUndo, undoLast } from "@/lib/ui/undo";
+import { pushUndo } from "@/lib/ui/undo";
+import { undoToast } from "@/lib/ui/undoToast";
 import { useKeyboardShortcuts } from "@/lib/ui/useKeyboardShortcuts";
 import { useMediaQuery } from "@/lib/ui/useMediaQuery";
 import { useUndoHotkey } from "@/lib/ui/useUndoHotkey";
@@ -143,13 +144,6 @@ function occurrenceKey(event: EventView): string {
   return event.allDay === 1
     ? (event.startDate ?? "")
     : new Date(event.startAt ?? Date.now()).toISOString();
-}
-
-function undoToast(message: string): void {
-  toast.success(message, {
-    action: { label: "Undo", onClick: () => void undoLast() },
-    duration: 10_000,
-  });
 }
 
 export function CalendarShell({
@@ -776,7 +770,7 @@ export function CalendarShell({
       { id: base.id, ...payload },
       {
         onSuccess: (result) => {
-          pushUndo({
+          const handle = pushUndo({
             label: "Move event",
             undo: async () => {
               await updateEvent.mutateAsync({ id: base.id, ...previous });
@@ -789,6 +783,7 @@ export function CalendarShell({
               timezone,
               preferences.timeFormat,
             )}`,
+            handle,
           );
         },
         onError: (error) => {
@@ -833,13 +828,13 @@ export function CalendarShell({
       { id: event.id, scope: "all" },
       {
         onSuccess: () => {
-          pushUndo({
+          const handle = pushUndo({
             label: "Delete event",
             undo: async () => {
               await createEvent.mutateAsync(eventToPayload(event));
             },
           });
-          undoToast("Event deleted");
+          undoToast("Event deleted", handle);
           setAnnouncement("Event deleted, press z to undo");
           setSelection(null);
         },
@@ -869,24 +864,24 @@ export function CalendarShell({
       {
         onSuccess: () => {
           if (scope === "all") {
-            pushUndo({
+            const handle = pushUndo({
               label: "Delete series",
               undo: async () => {
                 await createEvent.mutateAsync(eventToPayload(event));
               },
             });
-            undoToast("Series deleted");
+            undoToast("Series deleted", handle);
           } else {
             const remaining = parseExdates(event.exdates).filter(
               (key) => key !== occurrenceStart,
             );
-            pushUndo({
+            const handle = pushUndo({
               label: "Skip occurrence",
               undo: async () => {
                 await updateEvent.mutateAsync({ id: event.id, exdates: remaining });
               },
             });
-            undoToast("Occurrence skipped");
+            undoToast("Occurrence skipped", handle);
           }
           setPendingDelete(null);
           setSelection(null);

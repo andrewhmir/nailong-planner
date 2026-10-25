@@ -20,7 +20,8 @@ calendar still draws, or an undo action does nothing.
 | lib/ui/useMediaQuery.ts | Reactive `matchMedia` subscription |
 | lib/ui/useUndoHotkey.ts | Binds `z` and `Ctrl/Cmd+Z` to the undo stack |
 | lib/ui/searchBus.ts | Custom-event bus for "focus the search field" |
-| lib/ui/undo.ts | In-memory LIFO undo stack that the Sonner toasts call into |
+| lib/ui/undo.ts | In-memory undo stack: targeted handles for toasts, LIFO for the hotkeys |
+| lib/ui/undoToast.ts | Success toast whose Undo action reverts exactly the change the toast names |
 
 ## View and persistence
 
@@ -400,32 +401,51 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 ### lib/ui/undo.ts
 
-**Purpose** — A session-scoped LIFO undo stack (`spec D5`). The UI pushes an action after a mutation succeeds, and the Sonner "Undo" toast action plus the `z`/`Ctrl+Z` hotkeys call `undoLast`.
+**Purpose** — A session-scoped undo stack (`spec D5`). The UI pushes an action after a mutation succeeds and gets an opaque handle back; the toast helper (`lib/ui/undoToast.ts`) uses that handle to undo exactly the change its toast names, while the `z`/`Ctrl+Z` hotkeys call `undoLast` (newest first).
 
 **Public API**
 - `interface UndoAction { label: string; undo: () => Promise<void> | void }`.
-- `pushUndo(action: UndoAction): void` — appends, then `shift()`s from the front while the stack exceeds `MAX_UNDO = 20`.
+- `type UndoHandle = UndoAction` — an opaque token: the action object itself, matched by identity, so a structurally equal copy is not a handle.
+- `pushUndo(action: UndoAction): UndoHandle` — appends and returns the handle, then `shift()`s from the front while the stack exceeds `MAX_UNDO = 20` (a dropped action's handle stops matching).
 - `peekUndo(): string | null` — the top action's `label`, or `null` when empty.
-- `undoLast(): Promise<boolean>` — pops the top action and awaits `action.undo()`; returns `true` on success, and on a thrown error shows `toast.error(error.message ?? "Could not undo that change.")` and returns `false`. `false` also means "stack was empty".
+- `undoLast(): Promise<boolean>` — pops the newest action and runs it; `true` on success, `false` when the stack was empty or the closure threw (after `toast.error`).
+- `undoAction(handle: UndoHandle): Promise<boolean>` — removes and runs that exact action if it is still on the stack; `false` and nothing run for an action already undone, dropped by the cap or never pushed. A thrown closure still shows `toast.error` and returns `false`.
 - `clearUndo(): void` — empties the stack (test seam).
 
-**Stack shape and toast integration** — The stack is a module-level `UndoAction[]` (newest last, consumed from the end), holding closures — not serialisable payloads — so it cannot be persisted and a reload clears it. This module creates no success toast: each call site pushes and then shows its own Sonner toast with `action: { label: "Undo", onClick: () => void undoLast() }` and a 10-second duration (`undoToast` in `components/calendar/CalendarShell.tsx`, plus the same pattern in `EventDialog.tsx` and `QuickCreatePopover.tsx`). `toast` is imported here only for the error path. The undo closures typically replay the inverse mutation through the TanStack Query hooks.
+**Stack shape and toast integration** — The stack is a module-level `UndoAction[]` (newest last, consumed from the end), holding closures — not serialisable payloads — so it cannot be persisted and a reload clears it. This module creates no success toast: call sites push, keep the returned handle and call `undoToast(message, handle)` from `lib/ui/undoToast.ts`. `toast` is imported here only for the error path. The undo closures typically replay the inverse mutation through the TanStack Query hooks. Toast Undo is **targeted** (it reverts its own action even when newer actions landed inside the toast window); `undoLast` (the hotkeys) is LIFO across the whole session.
 
 **State & side effects** — Module-level mutable `stack`, capped at 20; one `sonner` `toast.error` on failure. No storage, no listeners, not shared across tabs or users on the same browser tab.
 
-**Depends on / Used by** — `toast` from `sonner`. Used by `components/calendar/CalendarShell.tsx` (four push sites plus the toast helper), `components/calendar/EventDialog.tsx`, `components/calendar/QuickCreatePopover.tsx`, and `lib/ui/useUndoHotkey.ts`.
+**Depends on / Used by** — `toast` from `sonner`. Used by `lib/ui/undoToast.ts`, `lib/ui/useUndoHotkey.ts`, `components/calendar/CalendarShell.tsx` (event move, delete, series delete and skip-occurrence pushes), `components/calendar/EventDialog.tsx` and `QuickCreatePopover.tsx` (event create), `components/shell/GlobalCapture.tsx` (capture) and `components/tasks/TasksShell.tsx` (task mutations).
 
 **Debugging**
-- The Undo toast button does nothing -> the stack is empty because the mutation path never called `pushUndo` (a drag or a delete that bypasses it), or a reload cleared it -> log `peekUndo()` at the call site.
-- Undo restores the wrong item -> the stack is global LIFO across every entity and every calendar, not per event -> check the `pushUndo` call order in `CalendarShell`.
-- A failed undo loses the action -> `undoLast` pops **before** running the closure, so a thrown error cannot be retried -> check the error toast and re-push if retry matters.
-- Undo appears twice -> both the toast action and the hotkey ran; the second call pops the next action or returns `false` -> expected for a double trigger, so look for two triggers.
+- The Undo toast button does nothing -> the action was already undone (a second click), was dropped by the 20-action cap, or the mutation path never pushed it -> log `peekUndo()` at the call site and check the handle passed to `undoToast`.
+- Undo restores the wrong item -> the toast still calls `undoLast()` instead of its own handle, or a no-op PATCH pushed an action -> check `undoToast(message, handle)` at the call site.
+- A failed undo loses the action -> both `undoLast` and `undoAction` remove the entry **before** running it, so a thrown error cannot be retried -> check the error toast and re-push if retry matters.
+- `z` reverts a newer change than the toast you clicked -> intended: the toast is targeted, the hotkey is LIFO.
 
-**Tests** — No direct unit test; `tests/e2e/undo.spec.ts` covers the toast, `Ctrl+Z`, plain `z`, `z` after the toast is dismissed, and typing `z` in a title field.
+**Tests** — `tests/unit/undo.test.ts` covers push/handle identity, `undoLast` LIFO, targeted `undoAction`, never-pushed/already-undone/structural-copy handles, the thrown-closure error path and the `MAX_UNDO` cap; `tests/e2e/undo.spec.ts` covers the toast button, `Ctrl+Z`, plain `z`, `z` after the toast is dismissed and `z` in a title field; `tests/e2e/tasks.spec.ts` scenario 2 covers two captures in one toast window with the older toast's Undo.
+
+### lib/ui/undoToast.ts
+
+**Purpose** — The single success-toast-with-Undo helper: a 10-second Sonner success toast whose "Undo" action reverts exactly the action that produced the message.
+
+**Public API** — `undoToast(message: string, handle: UndoHandle): void`. No other exports.
+
+**State & side effects** — Calls `toast.success(message, { action: { label: "Undo", onClick: () => void undoAction(handle) }, duration: 10_000 })`; the handler is fire-and-forget (Sonner dismisses the toast on click) and `undoAction` reports failures through its own `toast.error`. No storage, no query work, no state.
+
+**Depends on / Used by** — `sonner` (`toast`) and `./undo` (`undoAction`, `UndoHandle`). Call sites: `components/calendar/CalendarShell.tsx` ("Event moved to …", "Event deleted", "Series deleted", "Occurrence skipped"), `components/calendar/EventDialog.tsx` and `QuickCreatePopover.tsx` ("Event created"), `components/shell/GlobalCapture.tsx` ("Task captured") and `components/tasks/TasksShell.tsx` (task complete/drop/delete/schedule/move).
+
+**Debugging**
+- The toast's Undo reverts the wrong change -> the call site showed the toast without the handle from its own `pushUndo`, or reused another action's handle -> check the `undoToast(message, handle)` argument.
+- The toast's Undo does nothing -> the action was already undone or dropped (returns `false` silently), or its closure threw (its own error toast) -> `lib/ui/undo.ts`.
+- A toast has no Undo button -> the call site used plain `toast.success`/`toast(...)` -> this file's contract.
+
+**Tests** — No direct unit test (a thin Sonner wrapper); `tests/e2e/undo.spec.ts` and `tests/e2e/tasks.spec.ts` scenario 2 exercise it end to end.
 
 ## Focused verification
 
 ```bash
-npx vitest run tests/unit/calendarPicker.test.ts tests/unit/view.test.ts tests/unit/visibility.test.ts tests/unit/visibleCollections.test.ts tests/unit/treeFold.test.ts tests/unit/shortcut-guards.test.ts tests/unit/use-task-shortcuts.test.ts
+npx vitest run tests/unit/calendarPicker.test.ts tests/unit/view.test.ts tests/unit/visibility.test.ts tests/unit/visibleCollections.test.ts tests/unit/treeFold.test.ts tests/unit/shortcut-guards.test.ts tests/unit/use-task-shortcuts.test.ts tests/unit/undo.test.ts
 npm run lint && npm run typecheck
 ```

@@ -9,7 +9,8 @@ import type { TimeFormat } from "@/lib/services/preferences";
 import { useCreateEvent, useDeleteEvent, useUpdateEvent } from "@/lib/query/events";
 import { useUpdatePreferences } from "@/lib/query/preferences";
 import { utcToLocalDate, utcToLocalWallTime } from "@/lib/time/zone";
-import { pushUndo, undoLast } from "@/lib/ui/undo";
+import { pushUndo } from "@/lib/ui/undo";
+import { undoToast } from "@/lib/ui/undoToast";
 import { describeRrule } from "@/lib/recurrence/label";
 import {
   anchorRepeat,
@@ -266,16 +267,13 @@ export function EventDialog({
 
     createEvent.mutate(buildPayload(), {
       onSuccess: ({ event }) => {
-        pushUndo({
+        const handle = pushUndo({
           label: "Create event",
           undo: async () => {
             await deleteEvent.mutateAsync({ id: event.id, scope: "all" });
           },
         });
-        toast.success("Event created", {
-          action: { label: "Undo", onClick: () => void undoLast() },
-          duration: 10_000,
-        });
+        undoToast("Event created", handle);
         finishSave();
       },
       onError,

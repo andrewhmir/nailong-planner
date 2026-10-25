@@ -1,5 +1,6 @@
 "use client";
 
+import type { Ref } from "react";
 import { TASK_BUCKETS, type TaskBucket } from "@/lib/domain/tasks";
 import type { TaskCounts } from "@/lib/services/tasks";
 import { cn } from "@/lib/utils";
@@ -20,6 +21,12 @@ interface Props {
    */
   counts?: TaskCounts;
   onChange: (view: TaskBucket) => void;
+  /**
+   * The current view's button. `TasksShell` focuses it when the open view loses
+   * its last row, so `j`/`k` keep working instead of typing into the capture
+   * field.
+   */
+  activeRef?: Ref<HTMLButtonElement>;
 }
 
 /**
@@ -28,7 +35,7 @@ interface Props {
  * intentionally a separate cross-cutting badge because an overdue task can sit
  * in Today or in Week — it is not a fifth bucket.
  */
-export function TaskViewSwitcher({ view, counts, onChange }: Props) {
+export function TaskViewSwitcher({ view, counts, onChange, activeRef }: Props) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       <div role="group" aria-label="Task views" className="flex flex-wrap items-center gap-1">
@@ -40,6 +47,7 @@ export function TaskViewSwitcher({ view, counts, onChange }: Props) {
             <button
               key={bucket}
               type="button"
+              ref={active ? activeRef : undefined}
               aria-pressed={active}
               aria-label={count === undefined ? label : `${label}, ${count} open`}
               onClick={() => onChange(bucket)}
