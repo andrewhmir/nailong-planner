@@ -44,6 +44,8 @@ export interface UpdateEventResult {
 export interface DeleteEventResult {
   deleted?: EventView[];
   truncated?: EventView | null;
+  /** The later segment's id for a “This and following” delete (undo filter). */
+  segmentId?: string;
 }
 
 interface ApiErrorBody {

@@ -30,10 +30,11 @@ import {
   useUpdateEvent,
   type EventInputPayload,
   type EventRange,
+  type UpdateEventResult,
 } from "@/lib/query/events";
 import { usePreferences, useUpdatePreferences } from "@/lib/query/preferences";
 import { expandOccurrences } from "@/lib/recurrence/expand";
-import { parseRepeatRule } from "@/lib/recurrence/rule";
+import { isShiftableRule } from "@/lib/recurrence/scopes";
 import type { CalendarNode } from "@/lib/services/calendars";
 import type { EventView } from "@/lib/services/events";
 import { canWriteCalendar } from "@/lib/services/permissions";
@@ -772,14 +773,15 @@ export function CalendarShell({
     }
 
     updateEvent.mutate(
-      { id: event.id, scope: "all", ...payload },
+      { id: event.id, scope: "all", occurrenceStart, ...payload },
       {
-        onSuccess: ({ event: updated }) => {
+        onSuccess: (result) => {
           const previous = eventToPayload(event);
           pushUndo({
             label: "Change series",
             undo: async () => {
-              await updateEvent.mutateAsync({ id: updated.id, ...previous });
+              await restoreShiftedExceptions(event, result);
+              await updateEvent.mutateAsync({ id: result.event.id, ...previous });
             },
           });
           undoToast("Series changed");
@@ -1026,11 +1028,10 @@ export function CalendarShell({
       event.allDay === 1
         ? (event.startDate ?? utcToLocalDate(Date.now(), timezone))
         : utcToLocalDate(event.startAt ?? Date.now(), timezone);
-    const parsed = parseRepeatRule(event.rrule, startDate, {
+    return isShiftableRule(event.rrule, startDate, {
       allDay: event.allDay === 1,
       timezone,
     });
-    return parsed !== null && !parsed.advanced;
   }
 
   function openScope(
@@ -1084,6 +1085,25 @@ export function CalendarShell({
       rrule: event.rrule,
       exdates: parseExdates(event.exdates),
     };
+  }
+
+  /**
+   * Restores a series' exceptions after an “All events” move/edit: recreate the
+   * pre-change rows under the series, then delete the shifted ones.
+   */
+  async function restoreShiftedExceptions(
+    series: EventView,
+    result: UpdateEventResult,
+  ): Promise<void> {
+    for (const row of result.relinkedPrevious ?? []) {
+      await createEvent.mutateAsync({
+        ...eventToPayload(row),
+        recurrenceParentId: series.id,
+      });
+    }
+    for (const row of result.relinked ?? []) {
+      await deleteEvent.mutateAsync({ id: row.id, scope: "all" });
+    }
   }
 
   function requestDeleteFor(event: EventView, occurrenceStart: string) {
@@ -1149,10 +1169,24 @@ export function CalendarShell({
             pushUndo({
               label: "Delete following events",
               undo: async () => {
-                await recreateDeleted(result.deleted ?? []);
+                const segmentId = result.segmentId;
+                const children = (result.deleted ?? []).filter(
+                  (row) => row.id !== segmentId && row.id !== event.id,
+                );
+                let seriesId = event.id;
+                if (!result.truncated) {
+                  const recreated = await createEvent.mutateAsync(eventToPayload(event));
+                  seriesId = recreated.event.id;
+                }
+                for (const child of children) {
+                  await createEvent.mutateAsync({
+                    ...eventToPayload(child),
+                    recurrenceParentId: seriesId,
+                  });
+                }
                 if (result.truncated) {
                   await updateEvent.mutateAsync({
-                    id: event.id,
+                    id: seriesId,
                     rrule: event.rrule,
                     exdates: parseExdates(event.exdates),
                   });
@@ -1266,11 +1300,13 @@ export function CalendarShell({
     updateEvent.mutate(
       { id: event.id, scope: "all", occurrenceStart, ...move },
       {
-        onSuccess: ({ event: moved }) => {
+        onSuccess: (result) => {
+          const moved = result.event;
           const previous = seriesRestorePayload(event);
           pushUndo({
             label: "Move series",
             undo: async () => {
+              await restoreShiftedExceptions(event, result);
               await updateEvent.mutateAsync({ id: moved.id, ...previous });
             },
           });

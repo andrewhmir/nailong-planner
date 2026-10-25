@@ -6,14 +6,16 @@ import {
   formatRepeatRule,
   parseRepeatRule,
   type RepeatContext,
+  type RepeatOptions,
 } from "@/lib/recurrence/rule";
 import { addDaysToDate, localWallTimeToUtc, utcToLocalDate, utcToLocalWallTime } from "@/lib/time/zone";
 
 /**
  * Pure maths for per-instance recurrence scopes: the “All events” shift, the
  * “This and following” truncation/continuation of RRULE text, and the
- * occurrence-key shifts used when a series moves. The SQL side lives in
- * `lib/services/events.ts`; everything here is deterministic and unit-tested.
+ * occurrence-key shifts used when a series or an exception moves. The SQL side
+ * lives in `lib/services/events.ts`; everything here is deterministic and
+ * unit-tested.
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -22,10 +24,12 @@ const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
 const FLOATING_WALL = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 
 export interface ShiftDelta {
-  /** Calendar-day offset for all-day keys and date fields. */
+  /** Calendar-day offset for all-day values. */
   deltaDays: number;
-  /** Instant offset for timed keys and timestamp fields. */
+  /** Instant offset for timed values (informational; expansion is wall-based). */
   deltaMs: number;
+  /** Wall-clock minute offset for timed values, so DST transitions keep the clock. */
+  deltaMinutes: number;
 }
 
 export interface SeriesMove {
@@ -63,6 +67,25 @@ function modDay(day: number): number {
   return ((day % 7) + 7) % 7;
 }
 
+function dayMinutes(wall: string): number {
+  const [hour = 0, minute = 0] = wall.slice(11).split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+/**
+ * Shifts a `YYYY-MM-DDTHH:MM` wall stamp by calendar days and clock minutes,
+ * wrapping the clock into the calendar when it crosses midnight. This is the
+ * DST-safe coordinate system: moving “09:00 Tuesday to 09:00 Monday” must stay
+ * 09:00 in the series zone even when the instants are 23/25 hours apart.
+ */
+function shiftWall(wall: string, deltaDays: number, deltaMinutes: number): string {
+  const date = wall.slice(0, 10);
+  const total = dayMinutes(wall) + deltaMinutes;
+  const extraDays = Math.floor(total / (24 * 60));
+  const minutes = ((total % (24 * 60)) + 24 * 60) % (24 * 60);
+  return `${addDaysToDate(date, deltaDays + extraDays)}T${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
+}
+
 function timedOccurrenceInstant(occurrenceStart: string): number {
   const instant = Date.parse(occurrenceStart);
   if (!Number.isFinite(instant)) {
@@ -71,6 +94,15 @@ function timedOccurrenceInstant(occurrenceStart: string): number {
     });
   }
   return instant;
+}
+
+function daysInclusive(startDate: string | null, endDate: string | null): number {
+  if (!startDate) {
+    return 1;
+  }
+  const start = utcMidnight(startDate.slice(0, 10));
+  const end = utcMidnight((endDate ?? startDate).slice(0, 10));
+  return Math.max(1, Math.round((end - start) / DAY_MS) + 1);
 }
 
 /** The start date the recurrence rule is anchored on, in the series' zone. */
@@ -86,23 +118,29 @@ export function dateDiffDays(fromDate: string, toDate: string): number {
 }
 
 /** Shifts one occurrence key: a local date for all-day, an ISO instant for timed. */
-export function shiftOccurrenceKey(key: string, delta: ShiftDelta): string {
+export function shiftOccurrenceKey(key: string, delta: ShiftDelta, zone: string): string {
   if (DATE_KEY.test(key)) {
     return addDaysToDate(key, delta.deltaDays);
   }
   const instant = Date.parse(key);
-  return Number.isFinite(instant) ? new Date(instant + delta.deltaMs).toISOString() : key;
+  if (!Number.isFinite(instant)) {
+    return key;
+  }
+  const wall = shiftWall(utcToLocalWallTime(instant, zone), delta.deltaDays, delta.deltaMinutes);
+  return new Date(localWallTimeToUtc(wall, zone)).toISOString();
 }
 
 /**
  * Shifts the stored EXDATE JSON. All-day series match dates; timed series match
- * instants. Values the expander would also ignore (floating walls and junk) are
- * left untouched rather than dropped, so a corrupt entry stays repairable.
+ * instants and are shifted in the series zone's wall clock so a DST transition
+ * does not move a skipped occurrence an hour. Values the expander would also
+ * ignore (floating walls and junk) are left untouched rather than dropped.
  */
 export function shiftExdates(
   raw: string | null,
   allDay: boolean,
   delta: ShiftDelta,
+  zone: string,
 ): string | null {
   if (!raw) {
     return null;
@@ -127,17 +165,89 @@ export function shiftExdates(
       return entry;
     }
     const instant = Date.parse(entry);
-    return Number.isFinite(instant) ? new Date(instant + delta.deltaMs).toISOString() : entry;
+    if (!Number.isFinite(instant)) {
+      return entry;
+    }
+    const wall = shiftWall(utcToLocalWallTime(instant, zone), delta.deltaDays, delta.deltaMinutes);
+    return new Date(localWallTimeToUtc(wall, zone)).toISOString();
   });
   return JSON.stringify(shifted);
+}
+
+function sameRepeatOptions(left: RepeatOptions, right: RepeatOptions): boolean {
+  const sorted = (days: number[]) => [...days].sort((a, b) => a - b).join(",");
+  const sameEnd =
+    left.end.mode === right.end.mode &&
+    (left.end.mode !== "on" || right.end.mode !== "on" || left.end.date === right.end.date) &&
+    (left.end.mode !== "after" || right.end.mode !== "after" || left.end.count === right.end.count);
+  return (
+    left.frequency === right.frequency &&
+    left.interval === right.interval &&
+    left.weekStart === right.weekStart &&
+    sorted(left.weekdays) === sorted(right.weekdays) &&
+    left.monthly.mode === right.monthly.mode &&
+    sameEnd
+  );
+}
+
+interface RulePart {
+  key: string;
+  value: string;
+}
+
+function parseRuleParts(rule: string): RulePart[] {
+  const parts: RulePart[] = [];
+  for (const chunk of rule.split(";")) {
+    const separator = chunk.indexOf("=");
+    if (separator <= 0) {
+      continue;
+    }
+    parts.push({ key: chunk.slice(0, separator).trim().toUpperCase(), value: chunk.slice(separator + 1).trim() });
+  }
+  return parts;
+}
+
+/**
+ * True when the editor's structured model can reproduce this rule, so shifting
+ * it cannot silently drop a part. A known-but-unmodelled shape (e.g.
+ * `FREQ=DAILY;BYDAY=MO,WE` or `FREQ=WEEKLY;BYMONTHDAY=1,15`) is refused instead
+ * of being rewritten to something the user never asked for.
+ */
+export function isShiftableRule(rule: string, startDate: string, context: RepeatContext): boolean {
+  const parsed = parseRepeatRule(rule, startDate, context);
+  if (!parsed || parsed.advanced) {
+    return false;
+  }
+  const keys = new Set(parseRuleParts(rule).map((part) => part.key));
+  if (
+    (parsed.frequency === "DAILY" || parsed.frequency === "YEARLY") &&
+    (keys.has("BYDAY") || keys.has("BYMONTHDAY") || keys.has("BYSETPOS"))
+  ) {
+    return false;
+  }
+  if (parsed.frequency === "WEEKLY" && (keys.has("BYMONTHDAY") || keys.has("BYSETPOS"))) {
+    return false;
+  }
+  if (parsed.frequency === "MONTHLY" && keys.has("BYMONTHDAY") && keys.has("BYDAY")) {
+    return false;
+  }
+  if (parsed.frequency === "MONTHLY" && keys.has("BYSETPOS") && !keys.has("BYDAY")) {
+    return false;
+  }
+  const canonical = formatRepeatRule(parsed, startDate, context);
+  const reparsed = parseRepeatRule(canonical, startDate, context);
+  if (!reparsed) {
+    return false;
+  }
+  return sameRepeatOptions(parsed, reparsed);
 }
 
 /**
  * Shifts an RRULE's date pattern by a day offset: weekly weekdays move with the
  * event, a monthly pattern re-anchors on the new start date, daily/yearly keep
  * their shape, and `UNTIL` moves with the series. Returns `null` when the rule
- * is unparseable or carries parts the editor does not model — the caller must
- * then refuse a whole-series move rather than rewrite the rule.
+ * cannot be represented safely — the caller must refuse a whole-series move
+ * rather than rewrite the rule.
  */
 export function shiftRepeatRule(
   rule: string,
@@ -152,6 +262,9 @@ export function shiftRepeatRule(
   const deltaDays = dateDiffDays(oldStartDate, newStartDate);
   if (deltaDays === 0) {
     return rule;
+  }
+  if (!isShiftableRule(rule, oldStartDate, context)) {
+    return null;
   }
 
   let options = parsed;
@@ -172,7 +285,9 @@ function seriesMoveError(message: string): AppError {
 
 /**
  * The patch that moves a whole series by the same offset as one dragged
- * occurrence (series start/end, rule pattern, UNTIL, EXDATEs).
+ * occurrence: series start/end, rule pattern, UNTIL, EXDATEs. Timed series are
+ * shifted in wall-clock coordinates so a DST transition cannot change the
+ * clock; a resize also carries the duration delta onto the series end.
  */
 export function shiftSeriesTiming(
   row: EventRow,
@@ -190,43 +305,62 @@ export function shiftSeriesTiming(
   const oldStartDate = localDateOfEvent(row, zone);
   const occurrenceInstant = timed ? timedOccurrenceInstant(occurrenceStart) : 0;
   const oldOccurrenceDate = timed
-    ? utcToLocalDate(occurrenceInstant, zone)
+    ? utcToLocalWallTime(occurrenceInstant, zone).slice(0, 10)
     : occurrenceStart.slice(0, 10);
-  const deltaMs = timed ? (move.startAt === null ? 0 : move.startAt - occurrenceInstant) : 0;
-  const newOccurrenceDate = timed
-    ? move.startAt === null
-      ? oldOccurrenceDate
-      : utcToLocalDate(move.startAt, zone)
-    : (move.startDate ?? oldOccurrenceDate);
+  const oldOccurrenceWall = timed ? utcToLocalWallTime(occurrenceInstant, zone) : occurrenceStart;
+  const newOccurrenceWall =
+    move.startAt !== null
+      ? utcToLocalWallTime(move.startAt, zone)
+      : move.startDate !== null
+        ? `${move.startDate}T${oldOccurrenceWall.slice(11)}`
+        : oldOccurrenceWall;
+  const newOccurrenceDate = newOccurrenceWall.slice(0, 10);
   const deltaDays = dateDiffDays(oldOccurrenceDate, newOccurrenceDate);
-  const delta: ShiftDelta = { deltaDays, deltaMs };
+  const deltaMinutes = timed ? dayMinutes(newOccurrenceWall) - dayMinutes(oldOccurrenceWall) : 0;
+  const deltaMs = timed ? (move.startAt ?? occurrenceInstant) - occurrenceInstant : 0;
+  const delta: ShiftDelta = { deltaDays, deltaMs, deltaMinutes };
 
   const context: RepeatContext = { allDay: !timed, timezone: zone };
   const patch: Partial<EventRow> = {
     updatedAt: Date.now(),
-    exdates: shiftExdates(row.exdates, !timed, delta),
+    exdates: shiftExdates(row.exdates, !timed, delta, zone),
   };
 
   if (timed) {
     if (row.startAt === null || row.endAt === null) {
       throw seriesMoveError("That series does not have a start to move.");
     }
-    patch.startAt = row.startAt + deltaMs;
-    patch.endAt = row.endAt + deltaMs;
+    const oldDuration = row.endAt - row.startAt;
+    const newDuration =
+      move.startAt !== null && move.endAt !== null ? move.endAt - move.startAt : oldDuration;
+    const durationDeltaMinutes = Math.round((newDuration - oldDuration) / MINUTE_MS);
+    const startWall = utcToLocalWallTime(row.startAt, zone);
+    const endWall = utcToLocalWallTime(row.endAt, zone);
+    patch.startAt = localWallTimeToUtc(
+      shiftWall(startWall, deltaDays, deltaMinutes),
+      zone,
+    );
+    patch.endAt = localWallTimeToUtc(
+      shiftWall(endWall, deltaDays, deltaMinutes + durationDeltaMinutes),
+      zone,
+    );
   } else {
     if (!row.startDate) {
       throw seriesMoveError("That series does not have a start to move.");
     }
+    const seriesDays = daysInclusive(row.startDate, row.endDate);
+    const oldOccurrenceEndDate = addDaysToDate(oldOccurrenceDate, seriesDays - 1);
+    const newOccurrenceEndDate = move.endDate
+      ? move.endDate.slice(0, 10)
+      : addDaysToDate(newOccurrenceDate, seriesDays - 1);
     patch.startDate = addDaysToDate(row.startDate, deltaDays);
-    patch.endDate = addDaysToDate(row.endDate ?? row.startDate, deltaDays);
+    patch.endDate = addDaysToDate(row.endDate ?? row.startDate, dateDiffDays(oldOccurrenceEndDate, newOccurrenceEndDate));
   }
 
   if (row.rrule) {
-    // The rule shifts by the occurrence delta, so the series start moves by the
-    // same number of days the dragged occurrence did — never to the new date.
     const newSeriesStartDate = timed
-      ? utcToLocalDate((row.startAt ?? 0) + deltaMs, zone)
-      : addDaysToDate(row.startDate ?? oldStartDate, deltaDays);
+      ? utcToLocalDate(patch.startAt ?? row.startAt ?? Date.now(), zone)
+      : patch.startDate ?? oldStartDate;
     const shifted = shiftRepeatRule(row.rrule, oldStartDate, newSeriesStartDate, context);
     if (!shifted) {
       throw seriesMoveError(
@@ -239,45 +373,7 @@ export function shiftSeriesTiming(
   return { patch, delta };
 }
 
-interface RulePart {
-  key: string;
-  value: string;
-}
-
-function parseRuleParts(rule: string): RulePart[] {
-  const parts: RulePart[] = [];
-  for (const chunk of rule.split(";")) {
-    const separator = chunk.indexOf("=");
-    if (separator <= 0) {
-      continue;
-    }
-    parts.push({ key: chunk.slice(0, separator).trim().toUpperCase(), value: chunk.slice(separator + 1).trim() });
-  }
-  return parts;
-}
-
-function serializeRuleParts(parts: RulePart[]): string {
-  return parts.map((part) => `${part.key}=${part.value}`).join(";");
-}
-
-function setRulePart(parts: RulePart[], key: string, value: string): RulePart[] {
-  const index = parts.findIndex((part) => part.key === key);
-  if (index === -1) {
-    return [...parts, { key, value }];
-  }
-  return parts.map((part, position) => (position === index ? { key, value } : part));
-}
-
-function rulePartValue(parts: RulePart[], key: string): string | null {
-  return parts.find((part) => part.key === key)?.value ?? null;
-}
-
-/**
- * Rewrites the rule so the series ends just before `splitStart`: an existing
- * `COUNT` becomes the number of occurrences kept, otherwise (or additionally
- * when no COUNT exists) a synthetic `UNTIL` is written. Unknown parts are kept
- * verbatim so an advanced rule survives a split.
- */
+/** Rewrites the rule so the series ends just before `splitStart`. */
 export function truncateRuleBefore(
   rule: string,
   splitStart: string,
@@ -286,14 +382,27 @@ export function truncateRuleBefore(
   timed: boolean,
 ): string {
   const parts = parseRuleParts(rule);
-  const count = rulePartValue(parts, "COUNT");
+  const count = parts.find((part) => part.key === "COUNT")?.value ?? null;
+  const setPart = (key: string, value: string): string => {
+    let found = false;
+    const next = parts.map((part) => {
+      if (part.key !== key) {
+        return part;
+      }
+      found = true;
+      return { key, value };
+    });
+    return [...(found ? next : [...parts, { key, value }])]
+      .map((part) => `${part.key}=${part.value}`)
+      .join(";");
+  };
+
   if (count !== null) {
-    return serializeRuleParts(setRulePart(parts, "COUNT", String(beforeCount)));
+    return setPart("COUNT", String(beforeCount));
   }
 
   if (!timed) {
-    const lastDate = addDaysToDate(splitStart.slice(0, 10), -1);
-    return serializeRuleParts(setRulePart(parts, "UNTIL", dateStamp(lastDate)));
+    return setPart("UNTIL", dateStamp(addDaysToDate(splitStart.slice(0, 10), -1)));
   }
 
   // One second before the split's wall time, expressed the way the expander
@@ -311,18 +420,13 @@ export function truncateRuleBefore(
   const wallMinute =
     `${previousMinute.getUTCFullYear()}-${pad(previousMinute.getUTCMonth() + 1)}-${pad(previousMinute.getUTCDate())}` +
     `T${pad(previousMinute.getUTCHours())}:${pad(previousMinute.getUTCMinutes())}`;
-  const until = utcStamp(localWallTimeToUtc(wallMinute, zone) + 59_000);
-  return serializeRuleParts(setRulePart(parts, "UNTIL", until));
+  return setPart("UNTIL", utcStamp(localWallTimeToUtc(wallMinute, zone) + 59_000));
 }
 
-/**
- * The later segment's rule when the repeat itself was not edited: a `COUNT`
- * series keeps only its remaining occurrences, an `UNTIL`/`Never` rule is
- * copied as-is (its DTSTART moves to the split occurrence).
- */
+/** The later segment's rule when the repeat was not edited. */
 export function continueRule(rule: string, beforeCount: number): string {
   const parts = parseRuleParts(rule);
-  const count = rulePartValue(parts, "COUNT");
+  const count = parts.find((part) => part.key === "COUNT")?.value ?? null;
   if (count === null) {
     return rule;
   }
@@ -332,10 +436,13 @@ export function continueRule(rule: string, beforeCount: number): string {
       occurrenceStart: "Choose an earlier occurrence.",
     });
   }
-  return serializeRuleParts(setRulePart(parts, "COUNT", String(remaining)));
+  return parts
+    .map((part) => (part.key === "COUNT" ? { key: "COUNT", value: String(remaining) } : part))
+    .map((part) => `${part.key}=${part.value}`)
+    .join(";");
 }
 
-function expansionWindow(row: EventRow, occurrenceStart: string, zone: string): { from: number; to: number } {
+function expansionWindow(row: EventRow, occurrenceStart: string): { from: number; to: number } {
   const timed = row.allDay !== 1;
   const seriesStart = timed
     ? (row.startAt ?? 0)
@@ -346,23 +453,17 @@ function expansionWindow(row: EventRow, occurrenceStart: string, zone: string): 
       occurrenceStart: "Choose an occurrence after the series start.",
     });
   }
-  void zone;
   return { from: seriesStart, to: split + DAY_MS };
 }
 
 /**
- * Counts the occurrences strictly before `occurrenceStart`, and validates that
- * the key is a real occurrence of the series (not an EXDATE, not a gap).
+ * Counts the occurrences *rendered* before `occurrenceStart` (EXDATEs removed)
+ * and validates that the key is a live occurrence. Used by “This event”.
  */
 export function countOccurrencesBefore(row: EventRow, occurrenceStart: string, zone: string): number {
-  if (!row.rrule) {
-    throw new AppError("VALIDATION", "That event does not repeat.", 400, {
-      occurrenceStart: "Choose a repeating event.",
-    });
-  }
-  const occurrences = expandOccurrences(row, expansionWindow(row, occurrenceStart, zone), zone);
+  const occurrences = expandOccurrences(row, expansionWindow(row, occurrenceStart), zone);
   const match = occurrences.some((occurrence) => occurrence.startKey === occurrenceStart);
-  if (!match) {
+  if (!row.rrule || !match) {
     throw new AppError("VALIDATION", "That occurrence is not part of this series.", 400, {
       occurrenceStart: "Choose a real occurrence.",
     });
@@ -370,12 +471,30 @@ export function countOccurrencesBefore(row: EventRow, occurrenceStart: string, z
   return occurrences.filter((occurrence) => occurrence.startKey < occurrenceStart).length;
 }
 
+/**
+ * The occurrence's index in the RRULE sequence, ignoring EXDATEs. `COUNT` and a
+ * split's truncation are defined on the sequence, not on what happens to be
+ * rendered: skipping Oct 2 from a daily `COUNT=10` series must still split
+ * “before the 4th occurrence”, not the 3rd.
+ */
+export function rulePositionBefore(row: EventRow, occurrenceStart: string, zone: string): number {
+  if (!row.rrule) {
+    throw new AppError("VALIDATION", "That event does not repeat.", 400, {
+      occurrenceStart: "Choose a repeating event.",
+    });
+  }
+  assertOccurrenceOf(row, occurrenceStart, zone);
+  const withoutExdates: EventRow = { ...row, exdates: null };
+  const occurrences = expandOccurrences(withoutExdates, expansionWindow(row, occurrenceStart), zone);
+  return occurrences.filter((occurrence) => occurrence.startKey < occurrenceStart).length;
+}
+
 export function assertOccurrenceOf(row: EventRow, occurrenceStart: string, zone: string): void {
   countOccurrencesBefore(row, occurrenceStart, zone);
 }
 
-/** Shifts one exception row's timing (used when following-move re-links it). */
-export function shiftEventTiming(row: EventRow, delta: ShiftDelta): Partial<EventRow> {
+/** Shifts one exception row's timing (following-move re-link, all-move, undo). */
+export function shiftEventTiming(row: EventRow, delta: ShiftDelta, zone: string): Partial<EventRow> {
   if (row.allDay === 1) {
     if (!row.startDate) {
       throw new AppError("VALIDATION", "That event does not have a date.", 400);
@@ -389,9 +508,11 @@ export function shiftEventTiming(row: EventRow, delta: ShiftDelta): Partial<Even
   if (row.startAt === null) {
     throw new AppError("VALIDATION", "That event does not have a start time.", 400);
   }
+  const startWall = utcToLocalWallTime(row.startAt, zone);
+  const endWall = utcToLocalWallTime(row.endAt ?? row.startAt, zone);
   return {
-    startAt: row.startAt + delta.deltaMs,
-    endAt: (row.endAt ?? row.startAt) + delta.deltaMs,
+    startAt: localWallTimeToUtc(shiftWall(startWall, delta.deltaDays, delta.deltaMinutes), zone),
+    endAt: localWallTimeToUtc(shiftWall(endWall, delta.deltaDays, delta.deltaMinutes), zone),
     updatedAt: Date.now(),
   };
 }

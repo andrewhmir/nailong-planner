@@ -444,9 +444,11 @@ describe("recurring edit scopes API", () => {
       const payload = await body<{
         deleted: Array<{ id: string }>;
         truncated: { id: string } | null;
+        segmentId: string;
       }>(response);
       expect(payload.truncated?.id).toBe(series.id);
       expect(payload.deleted).toHaveLength(1);
+      expect(payload.segmentId).toBe(payload.deleted[0]?.id);
       expect(payload.deleted[0]?.id).not.toBe(series.id);
     } finally {
       close();
@@ -480,6 +482,32 @@ describe("recurring edit scopes API", () => {
       );
       expect(patched.status).toBe(403);
 
+      const movedAll = await updateEventHandler(
+        db,
+        ctxB,
+        series.id,
+        jsonRequest(`/api/events/${series.id}`, "PATCH", {
+          scope: "all",
+          occurrenceStart: iso("2026-10-05T09:00"),
+          allDay: false,
+          startAt: at("2026-10-06T10:00"),
+          endAt: at("2026-10-06T11:00"),
+        }),
+      );
+      expect(movedAll.status).toBe(403);
+
+      const split = await updateEventHandler(
+        db,
+        ctxB,
+        series.id,
+        jsonRequest(`/api/events/${series.id}`, "PATCH", {
+          scope: "following",
+          occurrenceStart: iso("2026-10-12T09:00"),
+          rrule: "FREQ=WEEKLY;BYDAY=MO",
+        }),
+      );
+      expect(split.status).toBe(403);
+
       const removed = await deleteEventHandler(
         db,
         ctxB,
@@ -490,6 +518,14 @@ describe("recurring edit scopes API", () => {
         }),
       );
       expect(removed.status).toBe(403);
+
+      const removedAll = await deleteEventHandler(
+        db,
+        ctxB,
+        series.id,
+        jsonRequest(`/api/events/${series.id}`, "DELETE", { scope: "all" }),
+      );
+      expect(removedAll.status).toBe(403);
     } finally {
       close();
     }

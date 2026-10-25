@@ -247,6 +247,58 @@ test("deleting this and following events keeps the earlier occurrences", async (
   await expect(cell(page, dayKey(15)).getByText("Scope cut")).toHaveCount(0);
 });
 
+test("undo restores a following-events delete", async ({ page }) => {
+  const seriesId = await createSeries(page, "Scope undelete");
+
+  await cell(page, dayKey(15)).getByText("Scope undelete").click();
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  const dialog = scopeDialog(page);
+  await expect(dialog.getByRole("heading", { name: "Delete repeating event" })).toBeVisible();
+  await dialog.getByRole("button", { name: "This and following events" }).click();
+  await expect(page.locator("[data-sonner-toast]", { hasText: "Following events deleted" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+
+  await expect
+    .poll(async () => {
+      const events = await storedEvents(page);
+      const series = events.find((event) => event.id === seriesId);
+      return {
+        rows: events.filter((event) => event.title === "Scope undelete").length,
+        rrule: series?.rrule,
+      };
+    })
+    .toEqual({ rows: 1, rrule: "FREQ=WEEKLY" });
+
+  await page.reload();
+  await expect(page.getByText("Scope undelete")).toHaveCount(occurrenceCount);
+  await expect(cell(page, dayKey(15)).getByText("Scope undelete")).toHaveCount(1);
+});
+
+test("editing all events from a later occurrence keeps the series start", async ({ page }) => {
+  const seriesId = await createSeries(page, "Scope all edit");
+
+  await cell(page, dayKey(15)).getByText("Scope all edit").click();
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByLabel("Title").fill("Scope all edit renamed");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  const dialog = scopeDialog(page);
+  await expect(dialog.getByRole("heading", { name: "Change repeating event" })).toBeVisible();
+  await dialog.getByRole("button", { name: "All events", exact: true }).click();
+
+  await expect
+    .poll(async () => {
+      const events = await storedEvents(page);
+      const series = events.find((event) => event.id === seriesId);
+      return { startDate: series?.startDate, title: series?.title };
+    })
+    .toEqual({ startDate: dayKey(1), title: "Scope all edit renamed" });
+
+  await page.reload();
+  await expect(cell(page, dayKey(1)).getByText("Scope all edit renamed")).toHaveCount(1);
+  await expect(page.getByText("Scope all edit renamed")).toHaveCount(occurrenceCount);
+});
+
 test("undo restores a following-events move", async ({ page }) => {
   const seriesId = await createSeries(page, "Scope undo");
 

@@ -7,7 +7,7 @@ import { AppError } from "@/lib/errors";
 import {
   assertOccurrenceOf,
   continueRule,
-  countOccurrencesBefore,
+  rulePositionBefore,
   shiftEventTiming,
   shiftExdates,
   shiftOccurrenceKey,
@@ -37,6 +37,15 @@ export interface EventRange {
 
 /** A scope-free event field patch: the handler strips the scope envelope first. */
 export type EventPatch = Omit<UpdateEventInput, "scope" | "occurrenceStart">;
+
+/** The result of a whole-series shift, including the moved exceptions (undo data). */
+export interface SeriesMoveResult {
+  event: EventView;
+  /** Exceptions after the shift/text propagation. */
+  relinked: EventView[];
+  /** Exceptions before the shift (undo data). */
+  relinkedPrevious: EventView[];
+}
 
 /** The result of splitting a series for “This and following events”. */
 export interface SeriesSplitResult {
@@ -303,14 +312,9 @@ export function updateEvent(
 
   db.update(event).set(patch).where(eq(event.id, id)).run();
 
-  // Turning the repeat off makes every linked exception an independent event.
-  if (input.rrule === null && row.rrule !== null) {
-    db.update(event)
-      .set({ recurrenceParentId: null, recurrenceId: null, updatedAt: Date.now() })
-      .where(eq(event.recurrenceParentId, id))
-      .run();
-  } else if (row.rrule) {
+  if (row.rrule) {
     // Non-time field edits are inherited by exceptions; their times stay put.
+    // A child in a calendar this viewer cannot write is left untouched.
     const inherited: Partial<EventRow> = {};
     if (patch.title !== undefined) {
       inherited.title = patch.title;
@@ -325,8 +329,16 @@ export function updateEvent(
       inherited.calendarId = patch.calendarId;
     }
     if (Object.keys(inherited).length > 0) {
-      inherited.updatedAt = Date.now();
-      db.update(event).set(inherited).where(eq(event.recurrenceParentId, id)).run();
+      const children = db.select().from(event).where(eq(event.recurrenceParentId, id)).all();
+      for (const child of children) {
+        if (!canWriteCalendar(ctx, getCalendarAccess(db, ctx, child.calendarId).effective)) {
+          continue;
+        }
+        db.update(event)
+          .set({ ...inherited, updatedAt: Date.now() })
+          .where(eq(event.id, child.id))
+          .run();
+      }
     }
   }
 
@@ -407,7 +419,12 @@ export function createException(
   return toView(db, exception);
 }
 
-/** “All events” drag/resize: shift the series and its rule/EXDATEs by the delta. */
+/**
+ * “All events”: shift the series, its rule, EXDATEs and linked exceptions by the
+ * drag delta, then apply the edited text/calendar fields and repeat rule. The
+ * form's timing is the clicked occurrence's edited timing, so a text-only edit
+ * has a zero delta and leaves the series start where it was.
+ */
 export function moveSeries(
   db: Database,
   ctx: ViewerContext,
@@ -420,15 +437,75 @@ export function moveSeries(
     startDate: string | null;
     endDate: string | null;
   },
-): EventView {
+  input: EventPatch = {},
+): SeriesMoveResult {
   const row = writableEvent(db, ctx, id);
   assertSeries(row);
   const zone = seriesZone(db, ctx, row);
   assertOccurrenceOf(row, occurrenceStart, zone);
+  if (input.calendarId !== undefined && input.calendarId !== row.calendarId) {
+    assertCalendarWritable(ctx, getCalendarAccess(db, ctx, input.calendarId));
+  }
 
-  const { patch } = shiftSeriesTiming(row, occurrenceStart, move, zone);
-  db.update(event).set(patch).where(eq(event.id, id)).run();
-  return toView(db, getEvent(db, ctx, id));
+  const { patch, delta } = shiftSeriesTiming(row, occurrenceStart, move, zone);
+  const seriesPatch: Partial<EventRow> = { ...patch };
+  if (input.calendarId !== undefined) {
+    seriesPatch.calendarId = input.calendarId;
+  }
+  if (input.title !== undefined) {
+    seriesPatch.title = input.title.trim();
+  }
+  if (input.description !== undefined) {
+    seriesPatch.description = input.description ?? null;
+  }
+  if (input.location !== undefined) {
+    seriesPatch.location = input.location ?? null;
+  }
+  if (input.rrule !== undefined) {
+    seriesPatch.rrule = input.rrule ?? null;
+  }
+
+  const children = db.select().from(event).where(eq(event.recurrenceParentId, id)).all();
+  const relinkedPrevious = children.map((child) => toView(db, child));
+  const childChanges = children.map((child) => {
+    const childPatch: Partial<EventRow> = {
+      ...shiftEventTiming(child, delta, zone),
+      recurrenceId: child.recurrenceId
+        ? shiftOccurrenceKey(child.recurrenceId, delta, zone)
+        : null,
+    };
+    if (seriesPatch.title !== undefined) {
+      childPatch.title = seriesPatch.title;
+    }
+    if (seriesPatch.description !== undefined) {
+      childPatch.description = seriesPatch.description;
+    }
+    if (seriesPatch.location !== undefined) {
+      childPatch.location = seriesPatch.location;
+    }
+    if (seriesPatch.calendarId !== undefined) {
+      childPatch.calendarId = seriesPatch.calendarId;
+    }
+    return { id: child.id, patch: childPatch };
+  });
+
+  db.transaction((tx) => {
+    tx.update(event).set(seriesPatch).where(eq(event.id, id)).run();
+    for (const change of childChanges) {
+      tx.update(event).set(change.patch).where(eq(event.id, change.id)).run();
+    }
+  });
+
+  const relinked = childChanges
+    .map((change) => db.select().from(event).where(eq(event.id, change.id)).get())
+    .filter((child): child is EventRow => child !== undefined)
+    .map((child) => toView(db, child));
+
+  return {
+    event: toView(db, getEvent(db, ctx, id)),
+    relinked,
+    relinkedPrevious,
+  };
 }
 
 /**
@@ -478,7 +555,7 @@ function buildLaterSegment(
   assertEventShape(timing);
 
   const split = splitExdates(row, occurrenceStart);
-  let delta: ShiftDelta = { deltaDays: 0, deltaMs: 0 };
+  let delta: ShiftDelta = { deltaDays: 0, deltaMs: 0, deltaMinutes: 0 };
   let rrule: string | null;
 
   if (moveMode) {
@@ -512,7 +589,7 @@ function buildLaterSegment(
   const shiftExdateValues = timing.allDay ? delta.deltaDays !== 0 : delta.deltaMs !== 0;
   const nextExdates =
     moveMode && shiftExdateValues
-      ? shiftExdates(serializeExdates(split.moved), timing.allDay, delta)
+      ? shiftExdates(serializeExdates(split.moved), timing.allDay, delta, zone)
       : serializeExdates(split.moved);
 
   const now = Date.now();
@@ -562,7 +639,9 @@ export function splitSeries(
   const row = writableEvent(db, ctx, id);
   assertSeries(row);
   const zone = seriesZone(db, ctx, row);
-  const beforeCount = countOccurrencesBefore(row, occurrenceStart, zone);
+  // COUNT/UNTIL truncation counts RRULE sequence positions, not rendered rows:
+  // an EXDATE before the split must not shrink the kept segment.
+  const beforeCount = rulePositionBefore(row, occurrenceStart, zone);
   if (input.calendarId !== undefined && input.calendarId !== row.calendarId) {
     assertCalendarWritable(ctx, getCalendarAccess(db, ctx, input.calendarId));
   }
@@ -600,9 +679,9 @@ export function splitSeries(
       const patch: Partial<EventRow> = { recurrenceParentId: later.row.id };
       if (moveMode) {
         patch.recurrenceId = child.recurrenceId
-          ? shiftOccurrenceKey(child.recurrenceId, later.delta)
+          ? shiftOccurrenceKey(child.recurrenceId, later.delta, zone)
           : null;
-        Object.assign(patch, shiftEventTiming(child, later.delta));
+        Object.assign(patch, shiftEventTiming(child, later.delta, zone));
       }
       tx.update(event).set(patch).where(eq(event.id, child.id)).run();
     }
@@ -640,7 +719,7 @@ export function deleteFollowing(
   ctx: ViewerContext,
   id: string,
   occurrenceStart: string,
-): { deleted: EventView[]; truncated: EventView | null } {
+): { deleted: EventView[]; truncated: EventView | null; segmentId: string } {
   const row = writableEvent(db, ctx, id);
   assertSeries(row);
   const original = toView(db, row);
@@ -652,7 +731,7 @@ export function deleteFollowing(
   if (result.truncated === null) {
     deleted.push(original);
   }
-  return { deleted, truncated: result.truncated };
+  return { deleted, truncated: result.truncated, segmentId: result.event.id };
 }
 
 /**

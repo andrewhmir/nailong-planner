@@ -6,7 +6,9 @@ import {
   continueRule,
   countOccurrencesBefore,
   dateDiffDays,
+  isShiftableRule,
   localDateOfEvent,
+  rulePositionBefore,
   shiftEventTiming,
   shiftExdates,
   shiftOccurrenceKey,
@@ -76,41 +78,77 @@ const iso = (wall: string, zone = TAIPEI) => new Date(localWallTimeToUtc(wall, z
 
 describe("shiftOccurrenceKey", () => {
   it("shifts an all-day key by days", () => {
-    expect(shiftOccurrenceKey("2026-10-24", { deltaDays: 1, deltaMs: 0 })).toBe("2026-10-25");
-    expect(shiftOccurrenceKey("2026-03-01", { deltaDays: -1, deltaMs: 0 })).toBe("2026-02-28");
+    expect(shiftOccurrenceKey("2026-10-24", { deltaDays: 1, deltaMs: 0, deltaMinutes: 0 }, TAIPEI)).toBe(
+      "2026-10-25",
+    );
+    expect(shiftOccurrenceKey("2026-03-01", { deltaDays: -1, deltaMs: 0, deltaMinutes: 0 }, TAIPEI)).toBe(
+      "2026-02-28",
+    );
   });
 
-  it("shifts an instant key by milliseconds", () => {
+  it("shifts an instant key in the series wall clock", () => {
     expect(
-      shiftOccurrenceKey("2026-10-24T01:00:00.000Z", { deltaDays: 1, deltaMs: 25 * 3_600_000 }),
+      shiftOccurrenceKey(
+        "2026-10-24T01:00:00.000Z",
+        { deltaDays: 1, deltaMs: 25 * 3_600_000, deltaMinutes: 60 },
+        TAIPEI,
+      ),
     ).toBe("2026-10-25T02:00:00.000Z");
+  });
+
+  it("keeps a London instant at its wall time across a DST transition", () => {
+    // 2027-03-30 08:00Z is 09:00 BST; shift it one week back by wall time.
+    expect(
+      shiftOccurrenceKey(
+        "2027-03-30T08:00:00.000Z",
+        { deltaDays: -7, deltaMs: -7 * 24 * 3_600_000, deltaMinutes: 0 },
+        LONDON,
+      ),
+    ).toBe("2027-03-23T09:00:00.000Z");
   });
 });
 
 describe("shiftExdates", () => {
   it("shifts all-day dates and leaves malformed values alone", () => {
-    const shifted = shiftExdates(JSON.stringify(["2026-10-24", "not-a-date"]), true, {
-      deltaDays: 1,
-      deltaMs: 0,
-    });
+    const shifted = shiftExdates(
+      JSON.stringify(["2026-10-24", "not-a-date"]),
+      true,
+      { deltaDays: 1, deltaMs: 0, deltaMinutes: 0 },
+      TAIPEI,
+    );
     expect(JSON.parse(shifted ?? "[]")).toEqual(["2026-10-25", "not-a-date"]);
   });
 
   it("returns null for missing or corrupt JSON", () => {
-    expect(shiftExdates(null, false, { deltaDays: 1, deltaMs: 3_600_000 })).toBeNull();
-    expect(shiftExdates("{not json", false, { deltaDays: 1, deltaMs: 3_600_000 })).toBeNull();
+    expect(
+      shiftExdates(null, false, { deltaDays: 1, deltaMs: 3_600_000, deltaMinutes: 60 }, TAIPEI),
+    ).toBeNull();
+    expect(
+      shiftExdates("{not json", false, { deltaDays: 1, deltaMs: 3_600_000, deltaMinutes: 60 }, TAIPEI),
+    ).toBeNull();
   });
 
   it("shifts timed instants but leaves floating wall times unchanged", () => {
     const shifted = shiftExdates(
       JSON.stringify(["2026-10-24T01:00:00.000Z", "2026-10-24T09:00"]),
       false,
-      { deltaDays: 1, deltaMs: 3_600_000 },
+      { deltaDays: 1, deltaMs: 3_600_000, deltaMinutes: 60 },
+      TAIPEI,
     );
     expect(JSON.parse(shifted ?? "[]")).toEqual([
-      "2026-10-24T02:00:00.000Z",
+      "2026-10-25T02:00:00.000Z",
       "2026-10-24T09:00",
     ]);
+  });
+
+  it("shifts a London EXDATE by wall time, not by the instant delta", () => {
+    const shifted = shiftExdates(
+      JSON.stringify(["2027-03-30T08:00:00.000Z"]),
+      false,
+      { deltaDays: -7, deltaMs: -7 * 24 * 3_600_000, deltaMinutes: 0 },
+      LONDON,
+    );
+    expect(JSON.parse(shifted ?? "[]")).toEqual(["2027-03-23T09:00:00.000Z"]);
   });
 });
 
@@ -153,6 +191,16 @@ describe("shiftRepeatRule", () => {
     expect(shiftRepeatRule("FREQ=WEEKLY;BYDAY=TU;BYHOUR=9", "2026-10-06", "2026-10-07", context)).toBeNull();
     expect(shiftRepeatRule("FREQ=HOURLY", "2026-10-06", "2026-10-07", context)).toBeNull();
   });
+
+  it("refuses known-but-unmodelled parts instead of dropping them", () => {
+    expect(isShiftableRule("FREQ=DAILY;BYDAY=MO,WE", "2026-10-06", context)).toBe(false);
+    expect(isShiftableRule("FREQ=YEARLY;BYDAY=1MO", "2026-10-06", context)).toBe(false);
+    expect(isShiftableRule("FREQ=WEEKLY;BYMONTHDAY=1,15", "2026-10-06", context)).toBe(false);
+    expect(shiftRepeatRule("FREQ=DAILY;BYDAY=MO,WE", "2026-10-06", "2026-10-07", context)).toBeNull();
+    expect(isShiftableRule("FREQ=WEEKLY;BYDAY=TU", "2026-10-06", context)).toBe(true);
+    expect(isShiftableRule("FREQ=WEEKLY;INTERVAL=1;BYDAY=TU", "2026-10-06", context)).toBe(true);
+    expect(isShiftableRule("FREQ=MONTHLY;BYDAY=3SA", "2026-10-17", context)).toBe(true);
+  });
 });
 
 describe("shiftSeriesTiming", () => {
@@ -169,7 +217,7 @@ describe("shiftSeriesTiming", () => {
       },
       TAIPEI,
     );
-    expect(delta).toEqual({ deltaDays: 1, deltaMs: 0 });
+    expect(delta).toEqual({ deltaDays: 1, deltaMs: 0, deltaMinutes: 0 });
     expect(patch.startDate).toBe("2026-10-25");
     expect(patch.endDate).toBe("2026-10-26");
     expect(patch.rrule).toContain("BYDAY=SU");
@@ -191,15 +239,13 @@ describe("shiftSeriesTiming", () => {
       },
       TAIPEI,
     );
-    expect(delta).toEqual({ deltaDays: 1, deltaMs: 25 * 3_600_000 });
+    expect(delta).toEqual({ deltaDays: 1, deltaMs: 25 * 3_600_000, deltaMinutes: 60 });
     expect(patch.startAt).toBe(at("2026-10-25T10:00"));
     expect(patch.endAt).toBe(at("2026-10-25T11:00"));
     expect(patch.rrule).toContain("BYDAY=SU");
   });
 
   it("moves the series start by the occurrence delta, not to the new date", () => {
-    // The series starts Sat 3 Oct; the dragged (third) occurrence Sat 17 Oct is
-    // dropped on Sun 18 Oct, a one-day shift.
     const { patch, delta } = shiftSeriesTiming(
       allDayRow({ startDate: "2026-10-03", endDate: "2026-10-03" }),
       "2026-10-17",
@@ -212,7 +258,7 @@ describe("shiftSeriesTiming", () => {
       },
       TAIPEI,
     );
-    expect(delta).toEqual({ deltaDays: 1, deltaMs: 0 });
+    expect(delta).toEqual({ deltaDays: 1, deltaMs: 0, deltaMinutes: 0 });
     expect(patch.startDate).toBe("2026-10-04");
     expect(patch.endDate).toBe("2026-10-04");
     expect(patch.rrule).toContain("BYDAY=SU");
@@ -236,9 +282,47 @@ describe("shiftSeriesTiming", () => {
       },
       TAIPEI,
     );
-    expect(delta).toEqual({ deltaDays: 1, deltaMs: 25 * 3_600_000 });
+    expect(delta).toEqual({ deltaDays: 1, deltaMs: 25 * 3_600_000, deltaMinutes: 60 });
     expect(patch.startAt).toBe(at("2026-10-06T10:00"));
     expect(patch.rrule).toContain("BYDAY=TU");
+  });
+
+  it("keeps a DST series' wall clock when a later occurrence is dropped", () => {
+    // London weekly 09:00 started Tue 2027-03-02; drag the 2027-03-30 (BST)
+    // occurrence one week back onto 2027-03-23 09:00 GMT.
+    const { patch } = shiftSeriesTiming(
+      londonRow(),
+      "2027-03-30T08:00:00.000Z",
+      {
+        allDay: false,
+        startAt: atLondon("2027-03-23T09:00"),
+        endAt: atLondon("2027-03-23T10:00"),
+        startDate: null,
+        endDate: null,
+      },
+      LONDON,
+    );
+    expect(utcToLocalWallTime(patch.startAt ?? 0, LONDON).slice(11)).toBe("09:00");
+    expect(utcToLocalWallTime(patch.endAt ?? 0, LONDON).slice(11)).toBe("10:00");
+    expect(patch.startAt).toBe(atLondon("2027-02-23T09:00"));
+  });
+
+  it("moves the series end when an occurrence is resized", () => {
+    const { patch, delta } = shiftSeriesTiming(
+      timedRow(),
+      iso("2026-10-24T09:00"),
+      {
+        allDay: false,
+        startAt: at("2026-10-24T09:00"),
+        endAt: at("2026-10-24T11:30"),
+        startDate: null,
+        endDate: null,
+      },
+      TAIPEI,
+    );
+    expect(delta).toEqual({ deltaDays: 0, deltaMs: 0, deltaMinutes: 0 });
+    expect(patch.startAt).toBe(at("2026-10-24T09:00"));
+    expect(patch.endAt).toBe(at("2026-10-24T11:30"));
   });
 
   it("rejects an all-day/timed conversion", () => {
@@ -315,14 +399,26 @@ describe("continueRule", () => {
   });
 });
 
-describe("countOccurrencesBefore", () => {
-  it("counts the occurrences before the split", () => {
-    expect(countOccurrencesBefore(allDayRow({ rrule: "FREQ=WEEKLY" }), "2026-11-07", TAIPEI)).toBe(2);
+describe("occurrence counting", () => {
+  const daily = allDayRow({
+    startDate: "2026-10-01",
+    endDate: "2026-10-01",
+    rrule: "FREQ=DAILY;COUNT=10",
+    exdates: JSON.stringify(["2026-10-02"]),
   });
 
-  it("rejects a key that is not an occurrence", () => {
+  it("counts live occurrences before the split", () => {
+    expect(countOccurrencesBefore(daily, "2026-10-05", TAIPEI)).toBe(3); // 1, 3, 4
+  });
+
+  it("counts RRULE sequence positions, ignoring EXDATEs", () => {
+    expect(rulePositionBefore(daily, "2026-10-05", TAIPEI)).toBe(4); // 1, 2, 3, 4
+    expect(rulePositionBefore(allDayRow({ rrule: "FREQ=WEEKLY" }), "2026-11-07", TAIPEI)).toBe(2);
+  });
+
+  it("rejects a key that is not a live occurrence", () => {
     try {
-      countOccurrencesBefore(allDayRow({ rrule: "FREQ=WEEKLY" }), "2026-10-25", TAIPEI);
+      countOccurrencesBefore(daily, "2026-10-02", TAIPEI);
       expect.unreachable("expected a VALIDATION error");
     } catch (error) {
       expect(error).toBeInstanceOf(AppError);
@@ -333,13 +429,21 @@ describe("countOccurrencesBefore", () => {
 
 describe("shiftEventTiming", () => {
   it("shifts a timed exception row", () => {
-    const patch = shiftEventTiming(timedRow(), { deltaDays: 1, deltaMs: 25 * 3_600_000 });
+    const patch = shiftEventTiming(
+      timedRow(),
+      { deltaDays: 1, deltaMs: 25 * 3_600_000, deltaMinutes: 60 },
+      TAIPEI,
+    );
     expect(patch.startAt).toBe(at("2026-10-25T10:00"));
     expect(patch.endAt).toBe(at("2026-10-25T11:00"));
   });
 
   it("shifts an all-day exception row", () => {
-    const patch = shiftEventTiming(allDayRow(), { deltaDays: 2, deltaMs: 0 });
+    const patch = shiftEventTiming(
+      allDayRow(),
+      { deltaDays: 2, deltaMs: 0, deltaMinutes: 0 },
+      TAIPEI,
+    );
     expect(patch.startDate).toBe("2026-10-26");
     expect(patch.endDate).toBe("2026-10-27");
   });

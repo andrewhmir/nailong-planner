@@ -137,15 +137,22 @@ export const updateEventHandler = guarded(
           allDay: "Send the moved occurrence's all-day flag.",
         });
       }
-      return NextResponse.json({
-        event: moveSeries(db, ctx, id, occurrenceStart, {
-          allDay: fields.allDay,
-          startAt: fields.startAt ?? null,
-          endAt: fields.endAt ?? null,
-          startDate: fields.startDate ?? null,
-          endDate: fields.endDate ?? null,
-        }),
-      });
+      return NextResponse.json(
+        moveSeries(
+          db,
+          ctx,
+          id,
+          occurrenceStart,
+          {
+            allDay: fields.allDay,
+            startAt: fields.startAt ?? null,
+            endAt: fields.endAt ?? null,
+            startDate: fields.startDate ?? null,
+            endDate: fields.endDate ?? null,
+          },
+          fields,
+        ),
+      );
     }
 
     return NextResponse.json({ event: updateEvent(db, ctx, id, fields) });
@@ -185,7 +192,11 @@ export const deleteEventHandler = guarded(
         );
       }
       const result = deleteFollowing(db, ctx, id, occurrenceStart);
-      return NextResponse.json({ deleted: result.deleted, truncated: result.truncated });
+      return NextResponse.json({
+        deleted: result.deleted,
+        truncated: result.truncated,
+        segmentId: result.segmentId,
+      });
     }
 
     const deleted = deleteEvent(db, ctx, id, { scope: "all" });
