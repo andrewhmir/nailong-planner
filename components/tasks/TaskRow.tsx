@@ -110,7 +110,7 @@ export function TaskRow({
             "grid h-6 w-6 shrink-0 place-items-center rounded-sm text-ink-mute transition-opacity",
             "opacity-0 hover:text-ink focus-visible:opacity-100 data-[state=open]:opacity-100",
             "group-hover:opacity-100 group-focus-within:opacity-100",
-            "[@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11",
+            "[@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11",
           )}
         >
           <MoreVerticalIcon size={16} />

@@ -76,9 +76,11 @@ async function serverCounts(page: Page): Promise<TaskCounts> {
   return ((await response.json()) as { counts: TaskCounts }).counts;
 }
 
-/** The task row that owns a checkbox: the TaskRow `li`. */
+/** The task row `li`; `data-task-id` makes the locator self-describing. */
 function taskRow(page: Page, title: string) {
-  return page.getByRole("checkbox", { name: title }).locator("..");
+  return page.locator("li[data-task-id]", {
+    has: page.getByRole("checkbox", { name: title }),
+  });
 }
 
 async function capture(page: Page, title: string): Promise<void> {

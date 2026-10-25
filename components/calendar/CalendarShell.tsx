@@ -35,7 +35,7 @@ import { usePreferences } from "@/lib/query/preferences";
 import { expandOccurrences } from "@/lib/recurrence/expand";
 import type { CollectionNode } from "@/lib/services/collections";
 import type { EventView } from "@/lib/services/events";
-import { canWriteCollection } from "@/lib/services/permissions";
+import { canWriteCollection, foldCollectionPermission } from "@/lib/services/permissions";
 import type { UserPreferences } from "@/lib/services/preferences";
 import { formatOccurrenceWhen } from "@/lib/time/format";
 import { addDaysToDate, utcToLocalDate, utcToLocalWallTime } from "@/lib/time/zone";
@@ -351,22 +351,12 @@ export function CalendarShell({
     const ids = new Set<string>();
     const viewer = { userId: currentUserId, householdId: "" };
     for (const root of collections ?? []) {
-      if (!canWriteCollection(viewer, root)) {
+      if (!canWriteCollection(viewer, foldCollectionPermission(root))) {
         ids.add(root.id);
       }
-      const rootEffective = {
-        ownerId: root.ownerId,
-        visibility: root.visibility,
-      };
       for (const child of root.children) {
         // Fold the root's flags in: a protected parent protects its children.
-        if (
-          !canWriteCollection(viewer, {
-            ownerId: rootEffective.ownerId ?? child.ownerId,
-            visibility:
-              rootEffective.visibility === "shared" ? child.visibility : rootEffective.visibility,
-          })
-        ) {
+        if (!canWriteCollection(viewer, foldCollectionPermission(child, root))) {
           ids.add(child.id);
         }
       }

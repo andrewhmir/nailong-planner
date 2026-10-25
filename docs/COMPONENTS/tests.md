@@ -24,7 +24,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 
 | File | What it locks down | Command |
 |---|---|---|
-| `tests/unit/permissions.test.ts` | `canWriteCollection` + `assertWritable` truth table over `{shared, view_only, private} × {owner me, owner partner, owner null}`: shared reads/writes for both, view-only partner write 403, private partner/none read and write 404, foreign household 404 | `npx vitest run tests/unit/permissions.test.ts` |
+| `tests/unit/permissions.test.ts` | `canWriteCollection` + `assertWritable` truth table over `{shared, view_only, private} × {owner me, owner partner, owner null}`: shared reads/writes for both, view-only partner write 403, private partner/none read and write 404, foreign household 404; `foldCollectionPermission` root × child table (a non-shared root wins, a shared root defers to the child) plus owner inheritance | `npx vitest run tests/unit/permissions.test.ts` |
 | `tests/unit/time.test.ts` | Wall-time→UTC round-trips, the 47-hour DST day, rejection of DST-gap and malformed times, inclusive all-day ranges | `npx vitest run tests/unit/time.test.ts` |
 | `tests/unit/recurrence.test.ts` | `expandOccurrences`: series anchored to its stored start, preserved duration, EXDATE skipping, monthly-31st, all-day expansion, and wall-clock expansion across both DST changes in the series' own `tzid` | `npx vitest run tests/unit/recurrence.test.ts` |
 | `tests/unit/recurrence-rule.test.ts` | The structured repeat adapter: every Google-style RRULE shape round-trips; contextual preset defaults; re-anchoring on a moved start date; DATE vs UTC `UNTIL`; `COUNT`; unsupported `FREQ`/parts; the 730-occurrence cap | `npx vitest run tests/unit/recurrence-rule.test.ts` |

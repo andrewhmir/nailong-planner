@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useCollections } from "@/lib/query/collections";
 import { usePreferences, useUpdatePreferences } from "@/lib/query/preferences";
-import { canWriteCollection } from "@/lib/services/permissions";
+import { canWriteCollection, foldCollectionPermission } from "@/lib/services/permissions";
 import type { UserPreferences } from "@/lib/services/preferences";
 import { cn } from "@/lib/utils";
 
@@ -53,10 +53,7 @@ export function CalendarPreferencesCard({ initialPreferences, currentUserId }: P
     const entries = [{ id: root.id, name: root.name }];
     for (const child of root.children) {
       // Fold the root's flags in: a protected parent protects its children.
-      const effective = {
-        ownerId: root.ownerId ?? child.ownerId,
-        visibility: root.visibility === "shared" ? child.visibility : root.visibility,
-      };
+      const effective = foldCollectionPermission(child, root);
       if (canWriteCollection(viewer, effective)) {
         entries.push({ id: child.id, name: `${root.name} / ${child.name}` });
       }

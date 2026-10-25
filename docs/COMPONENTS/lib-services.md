@@ -132,6 +132,7 @@ Only the current owner may change `visibility` or reassign `ownerId`. A member m
 **Purpose** — The one read/write permission pair for collections and the events inside them: `canReadCollection` decides effective visibility, `assertWritable` guards every write, and the pure `canWriteCollection` owner predicate is also used by the client.
 
 **Public API** — `ViewerContext { userId: string; householdId: string }`; `EffectiveCollection = Pick<CollectionRow, "ownerId" | "visibility" | "householdId">` (the root-folded columns produced by `getCollectionAccess` and `resolveVisibleCollections`).
+- `foldCollectionPermission(collection: Pick<CollectionRow, "ownerId" | "visibility">, root?: Pick<CollectionRow, "ownerId" | "visibility"> | null): CollectionPermissionFlags` — the pure client-side root/child fold, shared by the sidebar, `TasksShell`'s Move targets, the import wizard, the Calendar settings card and `CalendarShell.readOnlyCollectionIds`. A child inherits the root's `ownerId`; a non-`shared` root's visibility overrides the child row's, while a `shared` root defers to the child's own flag. Returns only `{ ownerId, visibility }`, so importing it from a client component never pulls in the database.
 - `canReadCollection(viewer, effective): boolean` — `false` for a foreign household; otherwise `false` only when `visibility === "private"` and `ownerId !== viewer.userId`. `shared` and `view_only` read as `true`.
 - `assertWritable(effective, ctx): void` — throws `AppError`: foreign household -> `NOT_FOUND` 404; `private` not owned -> `NOT_FOUND` 404 (existence hidden); `view_only` not owned, including an ownerless row -> `FORBIDDEN` 403 "This collection is view-only."; `shared` -> returns.
 - `canWriteCollection(viewer, collection: Pick<CollectionRow, "ownerId" | "visibility">): boolean` — pure predicate: `shared` -> `true`; `view_only`/`private` and `ownerId === viewer.userId` -> `true`; otherwise `false` (an ownerless non-shared row fails closed).
@@ -146,18 +147,18 @@ Truth table for viewer A (the owner) over the effective columns:
 
 A foreign `householdId` is 404 and invisible even when the row is `shared`.
 
-**State & side effects** — None: no database reads and no role checks. `canWriteCollection` deliberately ignores `householdId`, so callers must pass household-scoped rows. `assertWritable` only sees the effective columns, so callers must have folded the root first (`getCollectionAccess(...).effective` or the resolver's fold).
+**State & side effects** — None: no database reads and no role checks; every export is pure. `canWriteCollection` deliberately ignores `householdId`, so callers must pass household-scoped rows. `assertWritable` only sees the effective columns, so callers must have folded the root first (`getCollectionAccess(...).effective` server-side, `foldCollectionPermission` in client components).
 
-**Depends on / Used by** — `CollectionRow` and `AppError`. Used by `lib/services/collections.ts` (`resolveVisibleCollections`, `getCollectionAccess`, every write, and the `assertCollectionWritable` delegation), `lib/services/events.ts` (type only), `lib/api/route.ts` (type), `components/calendar/CalendarShell.tsx`, `components/settings/CalendarPreferencesCard.tsx`, `components/import/ImportWizard.tsx`, `tests/unit/permissions.test.ts` and `tests/helpers/fixtures.ts`.
+**Depends on / Used by** — `CollectionRow` and `AppError`. Used by `lib/services/collections.ts` (`resolveVisibleCollections`, `getCollectionAccess`, every write, and the `assertCollectionWritable` delegation), `lib/services/events.ts` (type only), `lib/api/route.ts` (type), `components/calendar/CalendarShell.tsx`, `components/settings/CalendarPreferencesCard.tsx`, `components/import/ImportWizard.tsx`, `components/sidebar/CollectionTree.tsx`, `components/tasks/TasksShell.tsx`, `tests/unit/permissions.test.ts` and `tests/helpers/fixtures.ts`.
 
 **Debugging**
-- The partner can read a private collection -> the caller passed the raw child row (`visibility` is always `"shared"` on children) instead of `getCollectionAccess(...).effective` or the resolver's fold -> `canReadCollection`.
+- The partner can read a private collection -> the caller passed the raw child row (`visibility` is always `"shared"` on children) instead of `getCollectionAccess(...).effective` or `foldCollectionPermission` -> `canReadCollection`.
 - A write returns 404 where 403 was expected -> the row is `private` and not owned; 404 is deliberate existence hiding -> `assertWritable`.
 - The partner can still edit a collection that is supposed to be locked -> the restriction sits on the root while the child row carries `visibility: "shared"`, so the caller passed the child's raw flags instead of the effective columns -> `canWriteCollection`.
-- The UI looks read-only but the API accepts the write (or the reverse) -> the API folds the root flags through `getCollectionAccess`; `CalendarShell.readOnlyCollectionIds` repeats the same fold client-side with a placeholder `householdId: ""` -> compare both folds.
+- The UI looks read-only but the API accepts the write (or the reverse) -> the API folds the root flags through `getCollectionAccess`; every client consumer uses `foldCollectionPermission` with a placeholder `householdId: ""` -> compare both folds (they agree for every reachable row; children are always stored `shared`).
 - A non-shared collection with no owner is editable after a manual DB edit -> it is not; the predicate returns `false` for everyone -> `canWriteCollection`.
 
-**Tests** — `tests/unit/permissions.test.ts` (truth table over `{shared, view_only, private} × {owner me, owner partner, owner null}` for both predicates, plus the foreign-household 404), exercised end to end by `tests/integration/collections.test.ts` and `tests/integration/events.test.ts`.
+**Tests** — `tests/unit/permissions.test.ts` (truth table over `{shared, view_only, private} × {owner me, owner partner, owner null}` for both predicates, the root × child fold table, and the foreign-household 404), exercised end to end by `tests/integration/collections.test.ts` and `tests/integration/events.test.ts`.
 
 ### lib/services/preferences.ts
 

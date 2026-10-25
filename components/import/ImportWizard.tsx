@@ -8,7 +8,7 @@ import { ImportBatchesCard } from "@/components/import/ImportBatchesCard";
 import { Button } from "@/components/ui/button";
 import { useCollections } from "@/lib/query/collections";
 import type { ImportCalendarMode, ImportPreview, ImportReport } from "@/lib/services/import";
-import { canWriteCollection } from "@/lib/services/permissions";
+import { canWriteCollection, foldCollectionPermission } from "@/lib/services/permissions";
 
 // Canvas card and field recipes, copied from SettingsForm.tsx (the files are
 // not imported from a shared module there, so change them together).
@@ -64,10 +64,7 @@ export function ImportWizard({ currentUserId }: { currentUserId: string }) {
         if (child.kind !== "calendar") {
           continue;
         }
-        const effective = {
-          ownerId: root.ownerId ?? child.ownerId,
-          visibility: root.visibility === "shared" ? child.visibility : root.visibility,
-        };
+        const effective = foldCollectionPermission(child, root);
         if (canWriteCollection(viewer, effective)) {
           entries.push({ id: child.id, name: `${root.name} / ${child.name}` });
         }

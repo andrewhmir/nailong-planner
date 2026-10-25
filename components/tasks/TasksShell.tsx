@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { localToday, type TaskBucket } from "@/lib/domain/tasks";
 import { useCollections } from "@/lib/query/collections";
 import { useDeleteTask, useTasks, useUpdateTask } from "@/lib/query/tasks";
-import { canWriteCollection } from "@/lib/services/permissions";
-import type { TaskCounts, TaskView } from "@/lib/services/tasks";
+import { canWriteCollection, foldCollectionPermission } from "@/lib/services/permissions";
+import type { TaskView } from "@/lib/services/tasks";
 import type { UpdateTaskInput } from "@/lib/validation/tasks";
 import { TaskCaptureBar } from "./TaskCaptureBar";
 import { TaskRow } from "./TaskRow";
@@ -20,8 +20,6 @@ interface Props {
   shortcutsEnabled: boolean;
   currentUserId: string;
 }
-
-const EMPTY_COUNTS: TaskCounts = { inbox: 0, today: 0, week: 0, someday: 0, overdue: 0 };
 
 /**
  * The `/tasks` workspace: capture bar, the Inbox · Today · Week · Someday
@@ -38,7 +36,9 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   const deleteTask = useDeleteTask();
 
   const tasks = tasksQuery.data?.tasks ?? [];
-  const counts = tasksQuery.data?.counts ?? EMPTY_COUNTS;
+  // Counts stay undefined until the first payload: the switcher shows no badges
+  // while loading or after an error instead of lying with a row of zeros.
+  const counts = tasksQuery.data?.counts;
 
   // Move targets are the viewer's writable lists, labelled by their parent when
   // nested. The server stays authoritative: a stale tree still gets a 403.
@@ -49,18 +49,14 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
       if (root.kind !== "list") {
         continue;
       }
-      if (canWriteCollection(viewer, root)) {
+      if (canWriteCollection(viewer, foldCollectionPermission(root))) {
         targets.push({ id: root.id, name: root.name });
       }
       for (const child of root.children) {
         if (child.kind !== "list") {
           continue;
         }
-        const effective = {
-          ownerId: root.ownerId ?? child.ownerId,
-          visibility: root.visibility === "shared" ? child.visibility : root.visibility,
-        };
-        if (canWriteCollection(viewer, effective)) {
+        if (canWriteCollection(viewer, foldCollectionPermission(child, root))) {
           targets.push({ id: child.id, name: `${root.name} / ${child.name}` });
         }
       }

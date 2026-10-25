@@ -4,6 +4,7 @@ import { AppError } from "@/lib/errors";
 import {
   assertWritable,
   canWriteCollection,
+  foldCollectionPermission,
   type ViewerContext,
 } from "@/lib/services/permissions";
 
@@ -70,6 +71,46 @@ describe("canWriteCollection", () => {
     expect(canWriteCollection(viewerA, calendar({ ownerId: null, visibility: "view_only" }))).toBe(
       false,
     );
+  });
+});
+
+describe("foldCollectionPermission", () => {
+  const visibilities = ["shared", "view_only", "private"] as const;
+
+  for (const rootVisibility of visibilities) {
+    for (const childVisibility of visibilities) {
+      it(`${rootVisibility} root folds into a ${childVisibility} child`, () => {
+        const root = calendar({ ownerId: "user-a", visibility: rootVisibility });
+        const child = calendar({ ownerId: "user-b", visibility: childVisibility });
+        expect(foldCollectionPermission(child, root)).toEqual({
+          // The child always inherits the root's owner when the root has one.
+          ownerId: "user-a",
+          // A protected root wins; a shared root defers to the child's own flag.
+          visibility: rootVisibility === "shared" ? childVisibility : rootVisibility,
+        });
+      });
+    }
+  }
+
+  it("returns the child's own flags when there is no root row", () => {
+    const child = calendar({ ownerId: "user-b", visibility: "view_only" });
+    expect(foldCollectionPermission(child)).toEqual({
+      ownerId: "user-b",
+      visibility: "view_only",
+    });
+    expect(foldCollectionPermission(child, null)).toEqual({
+      ownerId: "user-b",
+      visibility: "view_only",
+    });
+  });
+
+  it("keeps a known child owner when the root row has no owner", () => {
+    expect(
+      foldCollectionPermission(
+        calendar({ ownerId: "user-b", visibility: "shared" }),
+        calendar({ ownerId: null, visibility: "shared" }),
+      ),
+    ).toEqual({ ownerId: "user-b", visibility: "shared" });
   });
 });
 

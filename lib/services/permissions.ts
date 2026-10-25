@@ -13,6 +13,32 @@ export interface ViewerContext {
  */
 export type EffectiveCollection = Pick<CollectionRow, "ownerId" | "visibility" | "householdId">;
 
+/** The root-owned flags a client fold needs; no storage fields, so it is client-safe. */
+export interface CollectionPermissionFlags {
+  ownerId: string | null;
+  visibility: CollectionRow["visibility"];
+}
+
+/**
+ * Folds a root's owner and visibility into one of its children, the client-side
+ * twin of `getCollectionAccess(...).effective` in `lib/services/collections.ts`.
+ * A child inherits its root's owner; a non-`shared` root protects the whole
+ * branch, so its visibility overrides whatever the child row stores. A
+ * `shared` root defers to the child's own visibility, which is how the sidebar,
+ * the movable-list pickers and `CalendarShell.readOnlyCollectionIds` all judge a
+ * nested collection. Pure types only: importing this from a client component
+ * never pulls in the database.
+ */
+export function foldCollectionPermission(
+  collection: Pick<CollectionRow, "ownerId" | "visibility">,
+  root?: Pick<CollectionRow, "ownerId" | "visibility"> | null,
+): CollectionPermissionFlags {
+  return {
+    ownerId: root?.ownerId ?? collection.ownerId,
+    visibility: root && root.visibility !== "shared" ? root.visibility : collection.visibility,
+  };
+}
+
 /**
  * The one write-permission rule for collections and the events inside them.
  *

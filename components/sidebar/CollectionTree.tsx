@@ -30,6 +30,7 @@ import {
   useDeleteCollection,
   useUpdateCollection,
 } from "@/lib/query/collections";
+import { foldCollectionPermission } from "@/lib/services/permissions";
 import { GROUP_ORDER, groupOf, isCollectionVisible, type GroupKey } from "@/lib/ui/visibility";
 import type { TreeFoldApi } from "@/lib/ui/useTreeFold";
 import type { VisibilityApi } from "@/lib/ui/useVisibility";
@@ -52,26 +53,10 @@ function hueOf(root: CollectionNode): HueFamily {
   return root.hueFamily && isHueFamily(root.hueFamily) ? root.hueFamily : "slate";
 }
 
-interface Effective {
-  ownerId: string | null;
-  /** The value that actually applies after the root fold: most restrictive wins. */
-  visibility: CollectionVisibility;
-}
-
-function effectivePermission(
-  collection: CollectionRowType,
-  root?: Pick<CollectionRowType, "ownerId" | "visibility"> | null,
-): Effective {
-  return {
-    ownerId: root?.ownerId ?? collection.ownerId,
-    // A child can only be `shared` in its own row; a protected root protects
-    // everything beneath it, exactly like the server's access fold.
-    visibility:
-      root && root.visibility !== "shared" ? root.visibility : collection.visibility,
-  };
-}
-
-function isReadOnlyFor(viewerId: string, effective: Effective): boolean {
+function isReadOnlyFor(
+  viewerId: string,
+  effective: ReturnType<typeof foldCollectionPermission>,
+): boolean {
   // Private rows only ever reach their owner, so the read-only badge keeps its
   // "view only for the partner" meaning.
   return effective.visibility === "view_only" && effective.ownerId !== viewerId;
@@ -310,7 +295,7 @@ export function CollectionTree({
             </h3>
             <ul id={listId} hidden={!open}>
               {groupRoots.map((root) => {
-                const rootEffective = effectivePermission(root);
+                const rootEffective = foldCollectionPermission(root);
                 const rootReadOnly = isReadOnlyFor(currentUserId, rootEffective);
                 const openRoot = fold.isCollectionOpen(root.id);
                 const childrenId = `collection-children-${instanceId}-${root.id}`;
@@ -351,7 +336,7 @@ export function CollectionTree({
                     {root.children.length > 0 ? (
                       <ul id={childrenId} hidden={!openRoot}>
                         {root.children.map((child) => {
-                          const childEffective = effectivePermission(child, root);
+                          const childEffective = foldCollectionPermission(child, root);
                           const childReadOnly = isReadOnlyFor(currentUserId, childEffective);
                           return (
                             <CollectionRow
