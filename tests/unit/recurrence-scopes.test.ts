@@ -197,6 +197,50 @@ describe("shiftSeriesTiming", () => {
     expect(patch.rrule).toContain("BYDAY=SU");
   });
 
+  it("moves the series start by the occurrence delta, not to the new date", () => {
+    // The series starts Sat 3 Oct; the dragged (third) occurrence Sat 17 Oct is
+    // dropped on Sun 18 Oct, a one-day shift.
+    const { patch, delta } = shiftSeriesTiming(
+      allDayRow({ startDate: "2026-10-03", endDate: "2026-10-03" }),
+      "2026-10-17",
+      {
+        allDay: true,
+        startAt: null,
+        endAt: null,
+        startDate: "2026-10-18",
+        endDate: "2026-10-18",
+      },
+      TAIPEI,
+    );
+    expect(delta).toEqual({ deltaDays: 1, deltaMs: 0 });
+    expect(patch.startDate).toBe("2026-10-04");
+    expect(patch.endDate).toBe("2026-10-04");
+    expect(patch.rrule).toContain("BYDAY=SU");
+  });
+
+  it("moves a timed series start by the occurrence delta when the occurrence is not the first", () => {
+    const series = timedRow({
+      startAt: at("2026-10-05T09:00"),
+      endAt: at("2026-10-05T10:00"),
+      rrule: "FREQ=WEEKLY;BYDAY=MO",
+    });
+    const { patch, delta } = shiftSeriesTiming(
+      series,
+      iso("2026-10-19T09:00"),
+      {
+        allDay: false,
+        startAt: at("2026-10-20T10:00"),
+        endAt: at("2026-10-20T11:00"),
+        startDate: null,
+        endDate: null,
+      },
+      TAIPEI,
+    );
+    expect(delta).toEqual({ deltaDays: 1, deltaMs: 25 * 3_600_000 });
+    expect(patch.startAt).toBe(at("2026-10-06T10:00"));
+    expect(patch.rrule).toContain("BYDAY=TU");
+  });
+
   it("rejects an all-day/timed conversion", () => {
     expect(() =>
       shiftSeriesTiming(

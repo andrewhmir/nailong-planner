@@ -188,13 +188,17 @@ export function shiftSeriesTiming(
   }
 
   const oldStartDate = localDateOfEvent(row, zone);
-  const newStartDate = timed
+  const occurrenceInstant = timed ? timedOccurrenceInstant(occurrenceStart) : 0;
+  const oldOccurrenceDate = timed
+    ? utcToLocalDate(occurrenceInstant, zone)
+    : occurrenceStart.slice(0, 10);
+  const deltaMs = timed ? (move.startAt === null ? 0 : move.startAt - occurrenceInstant) : 0;
+  const newOccurrenceDate = timed
     ? move.startAt === null
-      ? oldStartDate
+      ? oldOccurrenceDate
       : utcToLocalDate(move.startAt, zone)
-    : (move.startDate ?? oldStartDate);
-  const deltaDays = dateDiffDays(oldStartDate, newStartDate);
-  const deltaMs = timed ? timedOccurrenceInstant(occurrenceStart) * -1 + (move.startAt ?? 0) : 0;
+    : (move.startDate ?? oldOccurrenceDate);
+  const deltaDays = dateDiffDays(oldOccurrenceDate, newOccurrenceDate);
   const delta: ShiftDelta = { deltaDays, deltaMs };
 
   const context: RepeatContext = { allDay: !timed, timezone: zone };
@@ -218,7 +222,12 @@ export function shiftSeriesTiming(
   }
 
   if (row.rrule) {
-    const shifted = shiftRepeatRule(row.rrule, oldStartDate, newStartDate, context);
+    // The rule shifts by the occurrence delta, so the series start moves by the
+    // same number of days the dragged occurrence did — never to the new date.
+    const newSeriesStartDate = timed
+      ? utcToLocalDate((row.startAt ?? 0) + deltaMs, zone)
+      : addDaysToDate(row.startDate ?? oldStartDate, deltaDays);
+    const shifted = shiftRepeatRule(row.rrule, oldStartDate, newSeriesStartDate, context);
     if (!shifted) {
       throw seriesMoveError(
         "This series uses a custom repeat rule that the app can't shift. Choose “This event” or edit the series instead.",
