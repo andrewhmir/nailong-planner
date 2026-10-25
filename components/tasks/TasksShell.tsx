@@ -3,14 +3,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import type { TaskStatus } from "@/lib/db/schema";
 import { endOfWeek, localToday, type TaskBucket } from "@/lib/domain/tasks";
 import { useCollections } from "@/lib/query/collections";
-import { useDeleteTask, useTasks, useUpdateTask } from "@/lib/query/tasks";
+import { useCreateTask, useDeleteTask, useTasks, useUpdateTask } from "@/lib/query/tasks";
 import { canWriteCollection, foldCollectionPermission } from "@/lib/services/permissions";
 import type { TaskView } from "@/lib/services/tasks";
+import { pushUndo } from "@/lib/ui/undo";
+import { undoToast } from "@/lib/ui/undoToast";
 import { useTaskShortcuts } from "@/lib/ui/useTaskShortcuts";
+import { useUndoHotkey } from "@/lib/ui/useUndoHotkey";
 import type { UpdateTaskInput } from "@/lib/validation/tasks";
 import { TaskCaptureBar } from "./TaskCaptureBar";
+import { TaskEditorDialog } from "./TaskEditorDialog";
 import { TaskRow } from "./TaskRow";
 import { TaskShortcutHelpDialog } from "./TaskShortcutHelpDialog";
 import { TASK_BUCKET_LABELS, TaskViewSwitcher } from "./TaskViewSwitcher";
@@ -21,38 +26,41 @@ interface Props {
   /** Every page-scoped task key is inert when the user turned shortcuts off. */
   shortcutsEnabled: boolean;
   currentUserId: string;
-  /**
-   * `Enter` hand-off for the task editor. Task 9 wires the gesture; Task 10
-   * mounts `TaskEditorDialog` and passes this callback. Absent means the key is
-   * accepted but has nowhere to open yet.
-   */
-  onOpenTask?: (task: TaskView) => void;
 }
 
 /** The no-other-list toast: the `4` gesture is a no-op with a single list. */
 const NO_OTHER_LIST = "No other writable list to move to.";
 
+/** Stack label + success toast for each status transition (undo is the reverse). */
+const STATUS_COPY: Record<TaskStatus, { label: string; message: string }> = {
+  done: { label: "Complete task", message: "Task completed" },
+  open: { label: "Reopen task", message: "Task reopened" },
+  dropped: { label: "Drop task", message: "Task dropped" },
+};
+
 /**
  * The `/tasks` workspace: capture bar, the Inbox · Today · Week · Someday
- * switcher, the active view's rows and the page's keyboard triage layer. All
- * bucket membership and counts come from the server (`GET /api/tasks?view=`);
- * this shell only chooses the view and turns row actions and keys into
- * PATCHes/DELETEs, toasting on failure.
+ * switcher, the active view's rows, the editor and the page's keyboard triage
+ * layer. All bucket membership and counts come from the server
+ * (`GET /api/tasks?view=`); this shell only chooses the view and turns row
+ * actions, the editor and keys into PATCHes/POSTs/DELETEs, toasting on failure.
  *
  * Selection is an id over the current view's rows. `j`/`k` move it (clamped,
  * starting at the first/last row when nothing is selected) and focus the row;
- * clicking or tabbing to a row also selects it. The keys are page-scoped: the
- * calendar's own `j`/`k` mean period navigation on `/`.
+ * clicking or tabbing to a row also selects it. When a mutation removes the
+ * selected row from the view, the selection and focus move to the nearest
+ * survivor so the next triage key still has a target. The keys are page-scoped:
+ * the calendar's own `j`/`k` mean period navigation on `/`.
+ *
+ * Undo is targeted: every complete/reopen/drop/delete/schedule/move pushes a
+ * compensating action and shows `undoToast` with that action's handle, so the
+ * toast reverts exactly what it describes. `z`/`Ctrl+Z` mount here too and
+ * consume the shared stack LIFO, exactly as on the calendar.
  */
-export function TasksShell({
-  timezone,
-  weekStartsOn,
-  shortcutsEnabled,
-  currentUserId,
-  onOpenTask,
-}: Props) {
+export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUserId }: Props) {
   const [view, setView] = useState<TaskBucket>("inbox");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [editorTask, setEditorTask] = useState<TaskView | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const listRef = useRef<HTMLUListElement | null>(null);
   const switcherRef = useRef<HTMLButtonElement | null>(null);
@@ -63,7 +71,12 @@ export function TasksShell({
   const tasksQuery = useTasks(view);
   const collectionsQuery = useCollections();
   const updateTask = useUpdateTask();
+  const createTask = useCreateTask();
   const deleteTask = useDeleteTask();
+
+  // Same gesture as the calendar: `z`/`Ctrl+Z` undo the newest action. The task
+  // keys never use `z`, so the two layers cannot clash.
+  useUndoHotkey();
 
   // Stable identity so the selection-coherence effect depends on the rows, not
   // on a fresh `[]` from every render.
@@ -77,8 +90,10 @@ export function TasksShell({
   // leaving the open view after the settle refetch. The stale id would then name
   // no row, so the next triage key would silently no-op; move the selection (and
   // focus, because focus follows selection) to the row that took its place, or
-  // hand focus to the view switcher when the view is now empty. Runs only after
-  // a painted list change, never during load or a view switch.
+  // hand focus to the view switcher when the view is now empty. While the editor
+  // is open the selection still moves (the dialog is modal and owns focus), and
+  // `closeEditor` focuses the live selection on close. Runs only after a painted
+  // list change, never during load or a view switch.
   useEffect(() => {
     const previous = previousTasksRef.current;
     previousTasksRef.current = tasks;
@@ -94,6 +109,9 @@ export function TasksShell({
     // is a reconciliation with data that arrived after the mutation, so it
     // cannot move into the mutation callback or a render-time derivation.
     setSelectedTaskId(next ? next.id : null);
+    if (editorTask !== null) {
+      return;
+    }
     if (next) {
       // Focus follows selection: the next triage key acts on this row. The
       // effect runs after commit, so the row is already in the DOM.
@@ -103,7 +121,7 @@ export function TasksShell({
       // "next row" from here (focusing the capture input would type the letter).
       switcherRef.current?.focus();
     }
-  }, [tasks, tasksQuery.isPending, selectedTaskId]);
+  }, [editorTask, tasks, tasksQuery.isPending, selectedTaskId]);
 
   // Move targets are the viewer's writable lists, labelled by their parent when
   // nested. The server stays authoritative: a stale tree still gets a 403.
@@ -129,8 +147,122 @@ export function TasksShell({
     return targets;
   }, [collectionsQuery.data, currentUserId]);
 
-  function patch(task: TaskView, input: UpdateTaskInput, failure: string): void {
-    updateTask.mutate({ id: task.id, ...input }, { onError: () => toast.error(failure) });
+  /** One PATCH with the shared failure toast; the caller owns success/undo. */
+  function patch(
+    target: TaskView,
+    input: UpdateTaskInput,
+    options: { failure: string; onSuccess?: (saved: TaskView) => void },
+  ): void {
+    updateTask.mutate(
+      { id: target.id, ...input },
+      {
+        onSuccess: ({ task: saved }) => options.onSuccess?.(saved),
+        onError: () => toast.error(options.failure),
+      },
+    );
+  }
+
+  /** Status transition + the compensating PATCH, skipped when the server echoes. */
+  function patchStatus(target: TaskView, status: TaskStatus): void {
+    patch(target, { status }, {
+      failure: "Could not update the task.",
+      onSuccess: (saved) => {
+        // The service leaves a no-transition PATCH untouched; an Undo for it
+        // would be a lie, so only a real change pushes an action.
+        if (saved.status === target.status) {
+          return;
+        }
+        const copy = STATUS_COPY[status];
+        const handle = pushUndo({
+          label: copy.label,
+          undo: async () => {
+            await updateTask.mutateAsync({ id: target.id, status: target.status });
+          },
+        });
+        undoToast(copy.message, handle);
+      },
+    });
+  }
+
+  /** Date change + the PATCH that puts both dates back where they were. */
+  function patchSchedule(
+    target: TaskView,
+    input: Pick<UpdateTaskInput, "scheduledOn" | "dueOn">,
+    message: string,
+  ): void {
+    patch(target, input, {
+      failure: "Could not schedule the task.",
+      onSuccess: (saved) => {
+        if (saved.scheduledOn === target.scheduledOn && saved.dueOn === target.dueOn) {
+          return;
+        }
+        const handle = pushUndo({
+          label: "Schedule task",
+          undo: async () => {
+            await updateTask.mutateAsync({
+              id: target.id,
+              scheduledOn: target.scheduledOn,
+              dueOn: target.dueOn,
+            });
+          },
+        });
+        undoToast(message, handle);
+      },
+    });
+  }
+
+  /** Move + the PATCHes that return the row to its old list and position. */
+  function patchMove(target: TaskView, collectionId: string): void {
+    if (collectionId === target.collectionId) {
+      return;
+    }
+    patch(target, { collectionId }, {
+      failure: "Could not move the task.",
+      onSuccess: () => {
+        const handle = pushUndo({
+          label: "Move task",
+          undo: async () => {
+            // A move always appends, so the original position needs a second
+            // PATCH after the row is back in its source list.
+            await updateTask.mutateAsync({ id: target.id, collectionId: target.collectionId });
+            await updateTask.mutateAsync({ id: target.id, sortOrder: target.sortOrder });
+          },
+        });
+        undoToast("Task moved", handle);
+      },
+    });
+  }
+
+  /**
+   * Delete + undo. There is no trash table, so the undo re-creates the task:
+   * `POST /api/tasks` restores the row's own fields, then one PATCH restores the
+   * checklist and the original list position (POST accepts neither). The
+   * re-created task gets a **new id** — the old id is gone.
+   */
+  function deleteTaskWithUndo(target: TaskView): void {
+    deleteTask.mutate(target.id, {
+      onSuccess: () => {
+        const handle = pushUndo({
+          label: "Delete task",
+          undo: async () => {
+            const created = await createTask.mutateAsync({
+              title: target.title,
+              notes: target.notes,
+              collectionId: target.collectionId,
+              scheduledOn: target.scheduledOn,
+              dueOn: target.dueOn,
+            });
+            await updateTask.mutateAsync({
+              id: created.task.id,
+              checklist: target.checklist.map((item) => ({ title: item.title, done: item.done })),
+              sortOrder: target.sortOrder,
+            });
+          },
+        });
+        undoToast("Task deleted", handle);
+      },
+      onError: () => toast.error("Could not delete the task."),
+    });
   }
 
   function changeView(next: TaskBucket): void {
@@ -144,6 +276,28 @@ export function TasksShell({
   function focusRow(id: string): void {
     const rows = Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-task-id]") ?? []);
     rows.find((row) => row.dataset.taskId === id)?.focus();
+  }
+
+  function openTask(target: TaskView): void {
+    // Select first so the row is already the return target when the editor
+    // closes (or its save re-buckets the task out of this view).
+    setSelectedTaskId(target.id);
+    setEditorTask(target);
+  }
+
+  function closeEditor(): void {
+    setEditorTask(null);
+    // Radix restores focus to the opener on close, but that opener can be a row
+    // that a save just removed from the view. Focus the live selection on the
+    // next paint instead (the rows have re-rendered by then).
+    window.setTimeout(() => {
+      const selected = listRef.current?.querySelector<HTMLElement>('[data-selected="true"]');
+      if (selected) {
+        selected.focus();
+        return;
+      }
+      switcherRef.current?.focus();
+    }, 0);
   }
 
   function moveSelection(delta: 1 | -1): void {
@@ -167,20 +321,20 @@ export function TasksShell({
       return;
     }
     if (bucket === 1) {
-      patch(selectedTask, { scheduledOn: today }, "Could not schedule the task.");
+      patchSchedule(selectedTask, { scheduledOn: today }, "Task scheduled");
       return;
     }
     if (bucket === 2) {
       // D6: on the last day of the household week this equals today, so the task
       // lands in Today rather than silently into next week.
-      patch(
+      patchSchedule(
         selectedTask,
         { scheduledOn: endOfWeek(today, weekStartsOn) },
-        "Could not schedule the task.",
+        "Task scheduled",
       );
       return;
     }
-    patch(selectedTask, { scheduledOn: null, dueOn: null }, "Could not schedule the task.");
+    patchSchedule(selectedTask, { scheduledOn: null, dueOn: null }, "Task unscheduled");
   }
 
   function moveToNextList(): void {
@@ -196,7 +350,7 @@ export function TasksShell({
     for (let step = 0; step < moveTargets.length; step += 1) {
       const candidate = moveTargets[(start + step) % moveTargets.length];
       if (candidate && candidate.id !== selectedTask.collectionId) {
-        patch(selectedTask, { collectionId: candidate.id }, "Could not move the task.");
+        patchMove(selectedTask, candidate.id);
         return;
       }
     }
@@ -205,13 +359,13 @@ export function TasksShell({
 
   function completeSelection(): void {
     if (selectedTask) {
-      patch(selectedTask, { status: "done" }, "Could not update the task.");
+      patchStatus(selectedTask, "done");
     }
   }
 
   function openSelection(): void {
     if (selectedTask) {
-      onOpenTask?.(selectedTask);
+      openTask(selectedTask);
     }
   }
 
@@ -289,26 +443,32 @@ export function TasksShell({
               selected={task.id === selectedTaskId}
               onFocus={() => setSelectedTaskId(task.id)}
               moveTargets={moveTargets.filter((target) => target.id !== task.collectionId)}
-              onToggleDone={(done) =>
-                patch(task, { status: done ? "done" : "open" }, "Could not update the task.")
-              }
+              onToggleDone={(done) => patchStatus(task, done ? "done" : "open")}
               onPlan={(date) =>
-                patch(task, { scheduledOn: date }, "Could not schedule the task.")
+                patchSchedule(
+                  task,
+                  { scheduledOn: date },
+                  date === null ? "Task unscheduled" : "Task scheduled",
+                )
               }
-              onMove={(collectionId) =>
-                patch(task, { collectionId }, "Could not move the task.")
-              }
-              onDrop={() => patch(task, { status: "dropped" }, "Could not drop the task.")}
-              onDelete={() =>
-                deleteTask.mutate(task.id, {
-                  onError: () => toast.error("Could not delete the task."),
-                })
-              }
+              onMove={(collectionId) => patchMove(task, collectionId)}
+              onDrop={() => patchStatus(task, "dropped")}
+              onDelete={() => deleteTaskWithUndo(task)}
+              onEdit={() => openTask(task)}
             />
           ))}
         </ul>
       )}
 
+      <TaskEditorDialog
+        task={editorTask}
+        today={today}
+        onClose={closeEditor}
+        onDelete={(target) => {
+          closeEditor();
+          deleteTaskWithUndo(target);
+        }}
+      />
       <TaskShortcutHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
     </section>
   );

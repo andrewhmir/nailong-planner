@@ -341,3 +341,113 @@ test("Shift+K captures from the calendar and triage keys work without a mouse", 
   await selectView(page, "Today");
   await expect(page.getByRole("checkbox", { name: title })).toBeVisible();
 });
+
+test("the task editor persists title, notes and checklist, and Escape discards", async ({ page }) => {
+  const stamp = Date.now().toString(36);
+  const originalTitle = `E2E editor task ${stamp}`;
+  const editedTitle = `E2E edited task ${stamp}`;
+  const notes = `First line ${stamp}\nSecond line`;
+  const itemA = `Checklist milk ${stamp}`;
+  const itemB = `Checklist bread ${stamp}`;
+
+  await page.goto("/tasks");
+  await expect(page.getByRole("heading", { name: "Tasks", exact: true })).toBeVisible();
+  await page.locator("#task-capture").fill(originalTitle);
+  await page.locator("#task-capture").press("Enter");
+  await expect(page.getByRole("checkbox", { name: originalTitle })).toBeVisible();
+
+  const taskId = await taskRow(page, originalTitle).getAttribute("data-task-id");
+  expect(taskId).toBeTruthy();
+
+  // Keyboard-only opening: focus selects the row, Enter opens its editor.
+  await taskRow(page, originalTitle).focus();
+  await page.keyboard.press("Enter");
+  const editor = page.getByRole("dialog", { name: "Edit task" });
+  await expect(editor).toBeVisible();
+
+  await editor.getByLabel("Title").fill(editedTitle);
+  await editor.getByLabel("Notes").fill(notes);
+
+  // Two checklist items; Enter in the add field adds without submitting the form.
+  const addField = editor.getByLabel("New checklist item");
+  await addField.fill(itemA);
+  await addField.press("Enter");
+  await expect(editor.getByRole("checkbox", { name: itemA })).toBeVisible();
+  await addField.fill(itemB);
+  await editor.getByRole("button", { name: "Add item" }).click();
+  await expect(editor.getByRole("checkbox", { name: itemB })).toBeVisible();
+  await editor.getByRole("checkbox", { name: itemA }).click();
+
+  await editor.getByRole("button", { name: "Save" }).click();
+  await expect(editor).toBeHidden();
+  await expect(page.getByRole("checkbox", { name: editedTitle })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: originalTitle })).toHaveCount(0);
+
+  // The save survives a reload, and the API payload proves notes + checklist.
+  await page.reload();
+  await expect(page.getByRole("checkbox", { name: editedTitle })).toBeVisible();
+  const saved = await page.request.get(`/api/tasks/${taskId}`);
+  expect(saved.ok()).toBeTruthy();
+  const body = (await saved.json()) as {
+    task: {
+      title: string;
+      notes: string | null;
+      checklist: Array<{ title: string; done: boolean }>;
+    };
+  };
+  expect(body.task.title).toBe(editedTitle);
+  expect(body.task.notes).toBe(notes);
+  expect(body.task.checklist).toHaveLength(2);
+  expect(body.task.checklist.find((item) => item.title === itemA)?.done).toBe(true);
+  expect(body.task.checklist.find((item) => item.title === itemB)?.done).toBe(false);
+
+  // Escape closes without saving: the edited title never reaches the server.
+  await taskRow(page, editedTitle).focus();
+  await page.keyboard.press("Enter");
+  await expect(editor).toBeVisible();
+  await editor.getByLabel("Title").fill(`E2E discarded ${stamp}`);
+  await page.keyboard.press("Escape");
+  await expect(editor).toBeHidden();
+  await page.reload();
+  await expect(page.getByRole("checkbox", { name: editedTitle })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: `E2E discarded ${stamp}` })).toHaveCount(0);
+});
+
+test("completing a task is undoable from the toast and restores the counts", async ({ page }) => {
+  const stamp = Date.now().toString(36);
+  const title = `E2E undo complete ${stamp}`;
+
+  await page.goto("/tasks");
+  await expect(page.getByRole("heading", { name: "Tasks", exact: true })).toBeVisible();
+  await page.locator("#task-capture").fill(title);
+  await page.locator("#task-capture").press("Enter");
+  await expect(page.getByRole("checkbox", { name: title })).toBeVisible();
+
+  const before = await serverCounts(page);
+  const inbox = await tasksInView(page, "inbox");
+  const taskId = inbox.find((task) => task.title === title)?.id;
+  expect(taskId).toBeTruthy();
+
+  // Complete with the keyboard: the row leaves the open view on the settle refetch.
+  await taskRow(page, title).focus();
+  await page.keyboard.press("x");
+  await expect(page.getByRole("checkbox", { name: title })).toHaveCount(0);
+  await expect.poll(async () => (await serverCounts(page)).inbox).toBe(before.inbox - 1);
+  const completed = await page.request.get(`/api/tasks/${taskId}`);
+  expect(completed.ok()).toBeTruthy();
+  expect(((await completed.json()) as { task: ApiTask }).task.status).toBe("done");
+
+  // The toast is bound to this completion, not to the newest stack entry.
+  const toast = page.locator("[data-sonner-toast]", { hasText: "Task completed" });
+  await expect(toast).toBeVisible();
+  await toast.getByRole("button", { name: "Undo" }).click();
+  await expect(page.getByRole("checkbox", { name: title })).toBeVisible();
+  // It returns exactly once, with its original status and the counts restored.
+  await expect
+    .poll(async () => (await tasksInView(page, "inbox")).filter((task) => task.id === taskId).length)
+    .toBe(1);
+  await expect.poll(async () => (await serverCounts(page)).inbox).toBe(before.inbox);
+  const restored = await page.request.get(`/api/tasks/${taskId}`);
+  expect(restored.ok()).toBeTruthy();
+  expect(((await restored.json()) as { task: ApiTask }).task.status).toBe("open");
+});

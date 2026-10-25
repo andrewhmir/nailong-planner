@@ -33,12 +33,14 @@ interface Props {
   onPlan: (date: string | null) => void;
   onMove: (collectionId: string) => void;
   onDrop: () => void;
+  onEdit: () => void;
   onDelete: () => void;
 }
 
 /**
  * One task row: completion checkbox, title, due badge, the owning list's shade
- * dot, Plan and the row menu. The row itself is focusable, draggable and the
+ * dot, Plan and the row menu (`Edit task…`, `Move to list…`, `Drop`, `Delete`).
+ * The row itself is focusable, draggable and the
  * triage layer's selection unit: it carries `aria-current`/`data-selected` when
  * selected, gains a visible background, and reports focus upward so a click or
  * Tab lands on the same selection `j`/`k` move. `data-task-id` and the
@@ -54,6 +56,7 @@ export function TaskRow({
   onPlan,
   onMove,
   onDrop,
+  onEdit,
   onDelete,
 }: Props) {
   const done = task.status === "done";
@@ -131,6 +134,7 @@ export function TaskRow({
           <MoreVerticalIcon size={16} />
         </DropdownMenuTrigger>
         <DropdownMenuContent>
+          <DropdownMenuItem onSelect={onEdit}>Edit task…</DropdownMenuItem>
           {moveTargets.length > 0 ? (
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>Move to list…</DropdownMenuSubTrigger>

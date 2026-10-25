@@ -316,7 +316,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 | `3` | `bucket` 3 | Clears both `scheduledOn` and `dueOn`, so the task returns to Inbox/Someday by its list. |
 | `4` | `next-list` | Cycles through the viewer's writable `kind="list"` collections; the shell toasts when there is no other list. |
 | `x` | `complete` | PATCHes `status: "done"`. |
-| `Enter` | `open` | Calls the shell's optional `onOpenTask`; Task 10 supplies the editor. |
+| `Enter` | `open` | Calls the shell's `openTask`, which opens `TaskEditorDialog` for the selection. |
 | `?` | `help` | Opens `TaskShortcutHelpDialog`. |
 | `Escape` | `escape` | Clears the selection (no overlay is open when this fires). |
 
@@ -332,7 +332,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 - `j`/`x` do nothing -> `shortcutsEnabled` is off, focus is in an input/textarea, or a dialog/menu is open -> check the `data-shortcuts-enabled` attribute on `[data-testid="tasks-shell"]`, `document.activeElement`, and the overlay stack.
 - `j` scrolls the page instead of moving -> the handler did not `preventDefault` (the action was not recognised) -> check the key map’s shift/modifier branches.
 - Task keys fire on the calendar -> `useTaskShortcuts` moved out of `TasksShell` into `AppShell`/a server layout -> the hook must stay page-scoped.
-- Pressing `Enter` does nothing -> expected until Task 10 passes `onOpenTask`; the key is accepted and calls the optional hand-off.
+- Pressing `Enter` does nothing -> the focused element is a button/menu item (native activation wins) or no row is selected -> `TasksShell`'s `openSelection`, or this file's native-activation guard.
 
 **Tests** — `tests/unit/use-task-shortcuts.test.ts` (every mapping, modifiers, repeats, shifted keys, Caps Lock, unknown keys); the guard side is in `tests/unit/shortcut-guards.test.ts`; the end-to-end triage flow is scenario 2 of `tests/e2e/tasks.spec.ts`.
 
@@ -365,7 +365,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 **State & side effects** — One `window` listener, no state, no storage. It calls into module-level undo state (`lib/ui/undo.ts`), so an undo triggered here is the same stack the toasts use.
 
-**Depends on / Used by** — `undoLast` from `./undo` and `isTextEntryTarget` from `./shortcutGuards`. Mounted once in `components/calendar/CalendarShell.tsx` (`useUndoHotkey()`).
+**Depends on / Used by** — `undoLast` from `./undo` and `isTextEntryTarget` from `./shortcutGuards`. Mounted once per page: `components/calendar/CalendarShell.tsx` and `components/tasks/TasksShell.tsx` (the listener is `window`-scoped, but only the mounted page is live, so the two never both exist).
 
 **Debugging**
 - `Ctrl+Z` reverts an event while the cursor is in a field -> the field is not a text-entry element (a `div[role="textbox"]`, a canvas editor) -> check `isTextEntryTarget` in `./shortcutGuards.ts`.
