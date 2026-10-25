@@ -147,17 +147,17 @@ The three `/api/auth/*` calls are served by the Better Auth catch-all `app/api/a
 
 ### components/ui/dropdown-menu.tsx
 
-**Purpose** — Small Radix dropdown set used for the account menu and the per-calendar options menu. Content and items are pre-styled; the root and trigger are direct Radix exports.
+**Purpose** — Small Radix dropdown set used for the account menu, the per-collection options menu and its Visibility submenu. Content and items are pre-styled; the root, trigger, sub root and radio group are direct Radix exports.
 
-**Public API** — `DropdownMenu`, `DropdownMenuTrigger` (Radix re-exports); `DropdownMenuContent({ children })` — always portalled, `align="end"`, `sideOffset={4}`, `min-w-44`; `DropdownMenuItem({ children, onSelect, danger = false, disabled = false })` where `onSelect: (event: Event) => void` is required and receives the DOM event (call `event.preventDefault()` to keep the menu open); `DropdownMenuLabel({ children })`; `DropdownMenuSeparator()`.
+**Public API** — `DropdownMenu`, `DropdownMenuTrigger`, `DropdownMenuSub`, `DropdownMenuRadioGroup` (Radix re-exports); `DropdownMenuContent({ children })` — always portalled, `align="end"`, `sideOffset={4}`, `min-w-44`; `DropdownMenuItem({ children, onSelect, danger = false, disabled = false })` where `onSelect: (event: Event) => void` is required and receives the DOM event (call `event.preventDefault()` to keep the menu open); `DropdownMenuLabel({ children })`; `DropdownMenuSeparator()`; `DropdownMenuSubTrigger({ children, disabled = false })` — an item-shaped trigger with a trailing chevron and `data-[state=open]` highlight; `DropdownMenuSubContent({ children })` — portalled, `sideOffset={4}`, `alignOffset={-4}`, same surface as the menu; `DropdownMenuRadioItem({ children, value, disabled = false })` — a `menuitemradio` with a check indicator, bold when `data-[state=checked]`.
 
-**State & side effects** — None; Radix owns open state and focus. Items close the menu after `onSelect` unless the handler prevents default.
+**State & side effects** — None; Radix owns open state, focus and the submenu's pointer grace. Items close the menu after `onSelect` unless the handler prevents default; choosing a radio item also closes it. Submenus open on hover, click, and keyboard.
 
-**Depends on / Used by** — `@radix-ui/react-dropdown-menu`, `@/lib/utils` (`cn`). Used by `components/shell/GlobalNavRail.tsx` (account menu, label + separator) and `components/sidebar/CollectionRow.tsx` (add/rename/delete/isolate, separator, `danger` delete).
+**Depends on / Used by** — `@radix-ui/react-dropdown-menu`, `components/ui/icons` (`CheckIcon`, `ChevronRightIcon`), `@/lib/utils` (`cn`). Used by `components/shell/GlobalNavRail.tsx` (account menu, label + separator) and `components/sidebar/CollectionRow.tsx` (add/rename/delete/isolate, the root `Visibility` submenu, separator, `danger` delete).
 
-**Debugging** — `selecting an item closes the menu before a nested dialog opens -> expected Radix behaviour; the item's onSelect has already run -> check the handler's order. the menu opens off the left edge -> content is hard-coded align="end"; pick a different primitive for left-aligned triggers. a disabled item still looks active -> disabled is passed but styling uses data-[disabled] -> verify the prop reached the item`.
+**Debugging** — `selecting an item closes the menu before a nested dialog opens -> expected Radix behaviour; the item's onSelect has already run -> check the handler's order. the menu opens off the left edge -> content is hard-coded align="end"; pick a different primitive for left-aligned triggers. a disabled item still looks active -> disabled is passed but styling uses data-[disabled] -> verify the prop reached the item. a submenu renders behind the parent menu -> the sub content lost its portal/z-50 class -> this file's DropdownMenuSubContent. a submenu trigger does not open by keyboard -> the ChevronRightIcon wrapper replaced the SubTrigger -> keep the Radix SubTrigger root`.
 
-**Tests** — No unit test. `tests/e2e/sidebar.spec.ts` and `tests/e2e/only-this-calendar.spec.ts` drive the items via `role="menuitem"`.
+**Tests** — No unit test. `tests/e2e/sidebar.spec.ts` drives the items via `role="menuitem"` and the visibility picks via `role="menuitemradio"`; `tests/e2e/only-this-calendar.spec.ts` drives the isolation item.
 
 ### components/ui/icons.tsx
 
@@ -174,20 +174,20 @@ The three `/api/auth/*` calls are served by the Better Auth catch-all `app/api/a
 | `XIcon` | close / dismiss | `MenuIcon` | mobile menu, breadcrumb |
 | `TrashIcon` | delete actions | `PencilIcon` | edit actions |
 | `MoreVerticalIcon` | row overflow menu | `UserIcon` | person chips |
-| `LockIcon` | view-only badge | `EyeIcon` | show |
+| `LockIcon` | private / view-only row lock | `EyeIcon` | show |
 | `EyeOffIcon` | hide | `AlertTriangleIcon` | warnings |
 | `SearchIcon` | search box / bar | `ChevronDownIcon` | pickers, collapsed groups |
 | `TasksIcon` | Tasks rail (planned) | `TodayIcon` | Today rail (planned) |
 | `NotesIcon` | Notes rail (planned) | `FocusIcon` | Focus rail (planned) |
-| `ClockIcon` | event dialog time field | | |
+| `ListIcon` | sidebar task-list rows (in place of a calendar swatch) | `ClockIcon` | event dialog time field |
 
 **State & side effects** — None; pure rendering.
 
 **Depends on / Used by** — Only `import type { ReactNode } from "react"`. Imported by `app/(app)/settings/page.tsx`, `components/ui/checkbox.tsx`, `components/shell/{AppShell,GlobalNavRail,BreadcrumbBar}.tsx`, `components/sidebar/{CollectionRow,CollectionTree}.tsx`, `components/calendar/{CalendarPicker,DateField,MiniMonth,SearchBox,TimeField,Toolbar}.tsx`; also by `tests/unit/icons.test.ts`.
 
-**Debugging** — `an icon does not exist under the name you guessed -> names are PascalCase plus an "Icon" suffix and only the 25 in the table above exist -> import from here, never from a package. an icon ignores its size -> width/height come from the size prop with a 20 default -> check the caller. a screen reader stays silent on a meaningful icon -> pass title; otherwise aria-hidden is intentional`.
+**Debugging** — `an icon does not exist under the name you guessed -> names are PascalCase plus an "Icon" suffix and only the 26 in the table above exist -> import from here, never from a package. an icon ignores its size -> width/height come from the size prop with a 20 default -> check the caller. a screen reader stays silent on a meaningful icon -> pass title; otherwise aria-hidden is intentional`.
 
-**Tests** — `tests/unit/icons.test.ts` (stroke/fill, default 20px, `aria-hidden`, `title` handling).
+**Tests** — `tests/unit/icons.test.ts` (stroke/fill, default 20px, `aria-hidden`, `title` handling, and `ListIcon`'s shared contract).
 
 ### components/ui/toast.tsx
 

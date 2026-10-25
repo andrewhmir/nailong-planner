@@ -4,13 +4,26 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ChevronRightIcon, LockIcon, MoreVerticalIcon } from "@/components/ui/icons";
+import {
+  ChevronRightIcon,
+  ListIcon,
+  LockIcon,
+  MoreVerticalIcon,
+} from "@/components/ui/icons";
 import { PARENT_SHADE_INDEX, shadeTokens, type HueFamily } from "@/lib/color/palette";
-import type { CollectionRow as CollectionRowType } from "@/lib/db/schema";
+import type {
+  CollectionRow as CollectionRowType,
+  CollectionVisibility,
+} from "@/lib/db/schema";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -20,6 +33,11 @@ interface Props {
   ownerHue: HueFamily;
   childShades: string[];
   readOnly: boolean;
+  /** The visibility that actually applies: a child inherits its root's value. */
+  visibility: CollectionVisibility;
+  /** Only an editable collection the viewer owns may change its visibility. */
+  canChangeVisibility: boolean;
+  /** Whether the read-only "View only" lock applies (partner-owned collections). */
   showViewOnlyBadge: boolean;
   /** The calendar "display only this calendar" is showing, if any. */
   onlyId: string | null;
@@ -34,6 +52,7 @@ interface Props {
   onAddChild: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onSetVisibility: (visibility: CollectionVisibility) => void;
   onShowOnly: () => void;
   onShowAll: () => void;
 }
@@ -45,6 +64,8 @@ export function CollectionRow({
   ownerHue,
   childShades,
   readOnly,
+  visibility,
+  canChangeVisibility,
   showViewOnlyBadge,
   onlyId,
   foldable = false,
@@ -55,12 +76,16 @@ export function CollectionRow({
   onAddChild,
   onEdit,
   onDelete,
+  onSetVisibility,
   onShowOnly,
   onShowAll,
 }: Props) {
   const tokens = shadeTokens(ownerHue, isChild ? collection.shadeIndex : PARENT_SHADE_INDEX);
   const isOnly = onlyId === collection.id;
   const canFold = foldable && onToggleFold !== undefined;
+  const isList = collection.kind === "list";
+  const noun = isList ? "list" : "calendar";
+  const nounTitle = isList ? "List" : "Calendar";
 
   return (
     <li
@@ -90,17 +115,29 @@ export function CollectionRow({
         <span aria-hidden className="h-5 w-5 shrink-0" />
       )}
       <Checkbox label={collection.name} checked={checked} onCheckedChange={onToggle} />
+      {/* One fixed column for the kind marker: a calendar keeps the 2.5px hue
+          swatch, a list gets the list glyph in the same family shade. The
+          container reserves the glyph width so names align across kinds. */}
       <span
         aria-hidden
-        className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-        style={{ background: tokens.main }}
-      />
+        data-testid={`collection-kind-${collection.kind}`}
+        className="flex h-4 w-4 shrink-0 items-center justify-center"
+        style={{ color: tokens.main }}
+      >
+        {isList ? (
+          <ListIcon size={14} />
+        ) : (
+          <span className="h-2.5 w-2.5 rounded-[2px]" style={{ background: tokens.main }} />
+        )}
+      </span>
       <span
         className={cn("min-w-0 flex-1 truncate text-base", readOnly ? "text-ink-soft" : "text-ink")}
       >
         {collection.name}
       </span>
-      {showViewOnlyBadge ? (
+      {visibility === "private" ? (
+        <LockIcon size={14} title="Private" className="shrink-0 text-ink-mute" />
+      ) : showViewOnlyBadge ? (
         <LockIcon size={14} title="View only" className="shrink-0 text-ink-mute" />
       ) : null}
 
@@ -135,11 +172,11 @@ export function CollectionRow({
         </DropdownMenuTrigger>
         <DropdownMenuContent>
           {!isChild && !readOnly ? (
-            <DropdownMenuItem onSelect={onAddChild}>Add sub-calendar</DropdownMenuItem>
+            <DropdownMenuItem onSelect={onAddChild}>Add sub-{noun}</DropdownMenuItem>
           ) : null}
           {readOnly ? null : (
             <DropdownMenuItem onSelect={onEdit}>
-              {isChild ? "Rename" : "Calendar settings"}
+              {isChild ? "Rename" : `${nounTitle} settings`}
             </DropdownMenuItem>
           )}
           {readOnly ? null : (
@@ -148,11 +185,45 @@ export function CollectionRow({
             </DropdownMenuItem>
           )}
           <DropdownMenuSeparator />
-          {isOnly ? (
-            <DropdownMenuItem onSelect={onShowAll}>Display all calendars</DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem onSelect={onShowOnly}>Display only this calendar</DropdownMenuItem>
-          )}
+          {/* The submenu always opens so a child can show the value it inherits;
+              only the options are disabled, because children cannot own a
+              visibility of their own. */}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>Visibility</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuRadioGroup
+                value={visibility}
+                onValueChange={(next) => {
+                  if (next !== visibility) {
+                    onSetVisibility(next as CollectionVisibility);
+                  }
+                }}
+              >
+                <DropdownMenuRadioItem value="shared" disabled={!canChangeVisibility}>
+                  Shared
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="view_only" disabled={!canChangeVisibility}>
+                  View only
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="private" disabled={!canChangeVisibility}>
+                  Private
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          {/* Isolation filters the event grid, so only calendars offer it. A
+              list must never assume it draws events; an already-isolated row
+              (however it got that way) always offers the way back. */}
+          {isOnly || !isList ? (
+            <>
+              <DropdownMenuSeparator />
+              {isOnly ? (
+                <DropdownMenuItem onSelect={onShowAll}>Display all calendars</DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem onSelect={onShowOnly}>Display only this calendar</DropdownMenuItem>
+              )}
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     </li>

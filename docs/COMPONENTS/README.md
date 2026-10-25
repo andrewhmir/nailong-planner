@@ -27,7 +27,7 @@ never edited.
 | [`lib-domain.md`](lib-domain.md) | Colour, recurrence, time, env, errors, utils | Shade maths, RRULE/EXDATE expansion, all-day vs timed, error codes |
 | [`lib-ui.md`](lib-ui.md) | `lib/ui/` — client state hooks and storage | View/visibility preferences, keyboard shortcuts, undo, search bus |
 | [`components-calendar.md`](components-calendar.md) | `components/calendar/` | Calendar grid, quick create, event dialog/details, miniature month, search |
-| [`components-shell-and-sidebar.md`](components-shell-and-sidebar.md) | `components/shell/`, `components/sidebar/` | App frame, nav rail, breadcrumbs, visibility provider, calendar tree |
+| [`components-shell-and-sidebar.md`](components-shell-and-sidebar.md) | `components/shell/`, `components/sidebar/` | App frame, nav rail, breadcrumbs, visibility provider, mixed collection tree |
 | [`components-settings-ui.md`](components-settings-ui.md) | `components/settings/`, `components/ui/` | Settings forms, preference cards, buttons/dialogs/menus/icons/toasts |
 | [`tests.md`](tests.md) | `tests/` | Which suite locks a behaviour down, and the exact command to run it |
 | [`scripts-and-ops.md`](scripts-and-ops.md) | `scripts/`, `drizzle/`, Docker/CI/tooling config, `package.json` | Migrations, provisioning, backups, CI jobs, deploy settings |

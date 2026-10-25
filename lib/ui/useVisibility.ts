@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { DEFAULT_VISIBILITY, type GroupKey, type VisibilityState } from "./visibility";
+import { DEFAULT_VISIBILITY, parseVisibility, type GroupKey, type VisibilityState } from "./visibility";
 
 export interface VisibilityApi {
   state: VisibilityState;
@@ -20,22 +20,14 @@ export function useVisibility(userId: string): VisibilityApi {
 
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(storageKey);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Partial<VisibilityState>;
-        // Reading persisted preferences must happen after hydration; the server
-        // has no localStorage, so this cannot move into useState's initializer.
-        // The key is unchanged across the collection rename: a pre-v0.2
-        // `calendars` map is not read, so it falls back to "everything visible".
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setState({
-          groups: { ...DEFAULT_VISIBILITY.groups, ...(parsed.groups ?? {}) },
-          collections: parsed.collections ?? {},
-          only: typeof parsed.only === "string" ? parsed.only : null,
-        });
-      }
+      // Reading persisted preferences must happen after hydration; the server
+      // has no localStorage, so this cannot move into useState's initializer.
+      // `parseVisibility` owns the pre-v0.2 `calendars` fallback and the
+      // boolean/type defence, so a corrupt value cannot hide anything.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setState(parseVisibility(window.localStorage.getItem(storageKey)));
     } catch {
-      // Corrupt stored preference: fall back to defaults.
+      // Storage unavailable (private mode): keep the defaults for this session.
     } finally {
       setLoaded(true);
     }

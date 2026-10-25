@@ -4,6 +4,12 @@ import { useId, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ChevronRightIcon, PlusIcon } from "@/components/ui/icons";
 import {
   CHILD_SHADE_ORDER,
@@ -12,7 +18,11 @@ import {
   shadeTokens,
   type HueFamily,
 } from "@/lib/color/palette";
-import type { CollectionRow as CollectionRowType } from "@/lib/db/schema";
+import type {
+  CollectionKind,
+  CollectionRow as CollectionRowType,
+  CollectionVisibility,
+} from "@/lib/db/schema";
 import type { CollectionNode } from "@/lib/services/collections";
 import {
   useCollections,
@@ -44,7 +54,8 @@ function hueOf(root: CollectionNode): HueFamily {
 
 interface Effective {
   ownerId: string | null;
-  viewOnly: boolean;
+  /** The value that actually applies after the root fold: most restrictive wins. */
+  visibility: CollectionVisibility;
 }
 
 function effectivePermission(
@@ -53,13 +64,17 @@ function effectivePermission(
 ): Effective {
   return {
     ownerId: root?.ownerId ?? collection.ownerId,
-    viewOnly:
-      (root?.visibility ?? "shared") !== "shared" || collection.visibility !== "shared",
+    // A child can only be `shared` in its own row; a protected root protects
+    // everything beneath it, exactly like the server's access fold.
+    visibility:
+      root && root.visibility !== "shared" ? root.visibility : collection.visibility,
   };
 }
 
 function isReadOnlyFor(viewerId: string, effective: Effective): boolean {
-  return effective.viewOnly && effective.ownerId !== viewerId;
+  // Private rows only ever reach their owner, so the read-only badge keeps its
+  // "view only for the partner" meaning.
+  return effective.visibility === "view_only" && effective.ownerId !== viewerId;
 }
 
 /** Three shades for the root's preview strip: real children first, then the ramp. */
@@ -126,6 +141,15 @@ export function CollectionTree({
     visibility.setCollections(ids, !currentlyVisible);
   }
 
+  function setVisibility(collection: CollectionRowType, next: CollectionVisibility) {
+    // Visibility is server-authoritative: PATCH the value and let the
+    // invalidated `["collections"]` query produce the row the server allows.
+    updateCollection.mutate(
+      { id: collection.id, visibility: next },
+      { onError: (error) => toast.error(error.message) },
+    );
+  }
+
   function submit(values: CollectionDialogResult) {
     if (!dialog) {
       return;
@@ -160,13 +184,17 @@ export function CollectionTree({
     }
 
     const parentId = dialog.mode === "create-child" ? dialog.parentId : null;
+    const kind: CollectionKind | undefined =
+      dialog.mode === "create-root" ? (values.kind ?? dialog.kind) : undefined;
     createCollection.mutate(
       {
         name: values.name,
         parentId,
+        // A child inherits its root's kind; only a root carries a chosen kind.
+        kind,
         hueFamily: values.hueFamily,
         ownerId: dialog.mode === "create-root" ? (values.ownerId ?? null) : undefined,
-        visibility: values.visibility,
+        visibility: parentId === null ? values.visibility : undefined,
       },
       {
         onSuccess: (result) => {
@@ -202,24 +230,36 @@ export function CollectionTree({
     });
   }
 
+  const deleteNoun = pendingDelete?.kind === "list" ? "list" : "calendar";
+  const deleteItems = deleteNoun === "list" ? "tasks" : "events";
+
   return (
     <div className="flex w-full min-w-0 flex-col pb-6">
       <div className="px-3 pt-3">
-        <Button
-          size="sm"
-          variant="ghost"
-          aria-label="New calendar"
-          onClick={() => setDialog({ mode: "create-root" })}
-          className="-ml-2 text-link"
-        >
-          <PlusIcon size={16} />
-          New calendar
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label="New"
+            className="-ml-2 inline-flex h-7 items-center gap-2 rounded-md border border-transparent px-2 text-sm text-link transition-colors hover:bg-well focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-link"
+          >
+            <PlusIcon size={16} />
+            New
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem onSelect={() => setDialog({ mode: "create-root", kind: "calendar" })}>
+              New calendar
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setDialog({ mode: "create-root", kind: "list" })}>
+              New list
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      {isLoading ? <p className="px-3 py-2 text-sm text-ink-mute">Loading calendars…</p> : null}
+      {isLoading ? (
+        <p className="px-3 py-2 text-sm text-ink-mute">Loading collections…</p>
+      ) : null}
       {isError ? (
-        <p className="px-3 py-2 text-sm text-danger-ink">Could not load calendars.</p>
+        <p className="px-3 py-2 text-sm text-danger-ink">Could not load collections.</p>
       ) : null}
 
       {onlyName ? (
@@ -271,6 +311,7 @@ export function CollectionTree({
             <ul id={listId} hidden={!open}>
               {groupRoots.map((root) => {
                 const rootEffective = effectivePermission(root);
+                const rootReadOnly = isReadOnlyFor(currentUserId, rootEffective);
                 const openRoot = fold.isCollectionOpen(root.id);
                 const childrenId = `collection-children-${instanceId}-${root.id}`;
                 return (
@@ -282,16 +323,26 @@ export function CollectionTree({
                         isChild={false}
                         ownerHue={hueOf(root)}
                         childShades={previewShades(root)}
-                        readOnly={isReadOnlyFor(currentUserId, rootEffective)}
-                        showViewOnlyBadge={isReadOnlyFor(currentUserId, rootEffective)}
+                        readOnly={rootReadOnly}
+                        visibility={rootEffective.visibility}
+                        canChangeVisibility={!rootReadOnly && root.ownerId === currentUserId}
+                        showViewOnlyBadge={rootReadOnly}
                         foldable={root.children.length > 0}
                         expanded={openRoot}
                         controlsId={root.children.length > 0 ? childrenId : undefined}
                         onToggleFold={() => fold.toggleCollection(root.id)}
                         onToggle={() => toggle(root, root.children)}
-                        onAddChild={() => setDialog({ mode: "create-child", parentId: root.id })}
+                        onAddChild={() =>
+                          setDialog({
+                            mode: "create-child",
+                            parentId: root.id,
+                            kind: root.kind,
+                            parentVisibility: rootEffective.visibility,
+                          })
+                        }
                         onEdit={() => setDialog({ mode: "edit", collection: root })}
                         onDelete={() => confirmDelete(root)}
+                        onSetVisibility={(next) => setVisibility(root, next)}
                         onlyId={only}
                         onShowOnly={() => visibility.setOnly(root.id)}
                         onShowAll={() => visibility.setOnly(null)}
@@ -301,6 +352,7 @@ export function CollectionTree({
                       <ul id={childrenId} hidden={!openRoot}>
                         {root.children.map((child) => {
                           const childEffective = effectivePermission(child, root);
+                          const childReadOnly = isReadOnlyFor(currentUserId, childEffective);
                           return (
                             <CollectionRow
                               key={child.id}
@@ -314,12 +366,21 @@ export function CollectionTree({
                               isChild
                               ownerHue={hueOf(root)}
                               childShades={[]}
-                              readOnly={isReadOnlyFor(currentUserId, childEffective)}
-                              showViewOnlyBadge={isReadOnlyFor(currentUserId, childEffective)}
+                              readOnly={childReadOnly}
+                              visibility={childEffective.visibility}
+                              canChangeVisibility={false}
+                              showViewOnlyBadge={childReadOnly}
                               onToggle={() => toggle(child)}
                               onAddChild={() => undefined}
-                              onEdit={() => setDialog({ mode: "edit", collection: child })}
+                              onEdit={() =>
+                                setDialog({
+                                  mode: "edit",
+                                  collection: child,
+                                  inheritedVisibility: rootEffective.visibility,
+                                })
+                              }
                               onDelete={() => confirmDelete(child)}
+                              onSetVisibility={() => undefined}
                               onlyId={only}
                               onShowOnly={() => visibility.setOnly(child.id)}
                               onShowAll={() => visibility.setOnly(null)}
@@ -346,23 +407,23 @@ export function CollectionTree({
           }}
         >
           <DialogContent
-            title="Delete calendar?"
+            title={`Delete ${deleteNoun}?`}
             description={
               pendingDelete.parentId
-                ? `"${pendingDelete.name}" and its events will be removed. This cannot be undone.`
-                : `"${pendingDelete.name}", its sub-calendars and their events will be removed. This cannot be undone.`
+                ? `"${pendingDelete.name}" and its ${deleteItems} will be removed. This cannot be undone.`
+                : `"${pendingDelete.name}", its sub-${deleteNoun}s and their ${deleteItems} will be removed. This cannot be undone.`
             }
           >
             <div className="flex justify-end gap-3">
               <Button onClick={() => setPendingDelete(null)}>Cancel</Button>
               <Button
                 variant="primary"
-                aria-label="Delete calendar"
+                aria-label={`Delete ${deleteNoun}`}
                 className="border border-danger-ink bg-danger-soft text-danger-ink hover:bg-danger-soft/80"
                 onClick={runDelete}
                 disabled={deleteCollection.isPending}
               >
-                Delete calendar
+                Delete {deleteNoun}
               </Button>
             </div>
           </DialogContent>

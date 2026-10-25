@@ -13,8 +13,8 @@ calendar still draws, or an undo action does nothing.
 | lib/ui/lastView.ts | Persists the last FullCalendar view per user in `localStorage` |
 | lib/ui/view.ts | Resolves which view a device opens on (`auto` = phone/desktop split) |
 | lib/ui/useVisibility.ts | Visibility state + per-user `localStorage` persistence |
-| lib/ui/visibility.ts | Pure visibility rules: person pills, parent inheritance, "display only this" |
-| lib/ui/visibleCollections.ts | Turns the rules into the set of calendar ids the grid draws |
+| lib/ui/visibility.ts | Pure visibility rules — person pills, parent inheritance, "display only this" — plus the stored-state parser (calendar and list ids alike) |
+| lib/ui/visibleCollections.ts | Turns the rules into the set of collection ids the grid draws |
 | lib/ui/useDebouncedValue.ts | Delays a fast-changing value by `delayMs` |
 | lib/ui/useKeyboardShortcuts.ts | Single-key shortcuts with the "no shortcut while typing" guard |
 | lib/ui/useMediaQuery.ts | Reactive `matchMedia` subscription |
@@ -94,7 +94,7 @@ calendar still draws, or an undo action does nothing.
 - `interface VisibilityApi { state: VisibilityState; setGroup(group: GroupKey, visible: boolean): void; toggleCollection(id: string): void; setCollections(ids: string[], visible: boolean): void; setOnly(id: string | null): void }`.
 - `useVisibility(userId: string): VisibilityApi`.
 
-**State & side effects** — `localStorage` key `nailong.visibility.${userId}` (unchanged across the v0.2 collection rename); the value is `JSON.stringify(VisibilityState)`, i.e. `{ groups: { ours, me, partner }, collections: { <id>: boolean }, only: string | null }`. The read happens in an effect after mount (it cannot be a `useState` initialiser because the server has no `localStorage`), then `loaded` flips true and a second effect writes on every state change; both effects swallow storage exceptions, so private mode degrades to session-only visibility. The persisted read is defensive: `groups` is merged over `DEFAULT_VISIBILITY.groups`, `collections` is taken as-is (a legacy `calendars` map is not a known key, so it reads as no overrides), and `only` is kept only when it is a string.
+**State & side effects** — `localStorage` key `nailong.visibility.${userId}` (unchanged across the v0.2 collection rename); the value is `JSON.stringify(VisibilityState)`, i.e. `{ groups: { ours, me, partner }, collections: { <id>: boolean }, only: string | null }`. The read happens in an effect after mount (it cannot be a `useState` initialiser because the server has no `localStorage`), through `parseVisibility` from `./visibility`, then `loaded` flips true and a second effect writes on every state change; both effects swallow storage exceptions, so private mode degrades to session-only visibility. The parser is the read-side defence: `groups` is merged over `DEFAULT_VISIBILITY.groups`, only boolean `collections` entries survive, a legacy `calendars` map is not a known key (so it reads as no overrides), and `only` is kept only when it is a string. Collection ids are opaque here — a list id persists and toggles exactly like a calendar id.
 
 **Derived rules** — Every mutator except `setOnly` sets `only: null`, which is how touching any pill or checkbox leaves the isolated "display only this calendar" view. `toggleCollection` treats a missing entry as visible (`!(previous.collections[id] ?? true)`), so the first click hides a collection rather than enabling it. `setCollections` writes the same flag for each id and replaces the map copy, never mutating the previous state.
 
@@ -115,6 +115,7 @@ calendar still draws, or an undo action does nothing.
 - `type GroupKey = "ours" | "me" | "partner"`; `GROUP_ORDER: readonly GroupKey[] = ["ours", "me", "partner"]`.
 - `interface VisibilityState { groups: Record<GroupKey, boolean>; collections: Record<string, boolean>; only: string | null }` — a missing `collections` entry means visible.
 - `DEFAULT_VISIBILITY: VisibilityState` — all three groups true, empty `collections`, `only: null`.
+- `parseVisibility(raw: string | null): VisibilityState` — storage-read defence: missing/malformed JSON and non-objects fall back to `DEFAULT_VISIBILITY`; only boolean `groups`/`collections` entries are trusted; `only` is kept only when it is a string. A pre-v0.2 `calendars` map is ignored, so legacy storage reads as "nothing overridden".
 - `effectiveOwnerOf(collection: Pick<CollectionRow, "ownerId">, parent?: Pick<CollectionRow, "ownerId"> | null): string | null` — the owner that actually applies: a child inherits its parent's owner (`parent.ownerId ?? collection.ownerId`), matching the server's `getCollectionAccess` fold.
 - `groupOf(collection: Pick<CollectionRow, "ownerId">, viewerId: string, parent?: Pick<CollectionRow, "ownerId"> | null): GroupKey` — effective owner `null` -> `"ours"` (a shared collection), equals `viewerId` -> `"me"`, anything else -> `"partner"`.
 - `isCollectionVisible(state, collection: Pick<CollectionRow, "id" | "ownerId">, viewerId, parent?: Pick<CollectionRow, "id" | "ownerId"> | null): boolean`. Passing the parent makes the child's pill follow the root, so a stale per-row `ownerId` on a sub-collection cannot put it in the wrong group.
@@ -125,17 +126,22 @@ calendar still draws, or an undo action does nothing.
 3. A `parent` is supplied and `state.collections[parent.id] === false` -> hidden. Only checked when the caller passes the parent, which is why a child's visibility is a caller responsibility outside the tree.
 4. Otherwise the collection's own checkbox, defaulting to visible.
 
-**State & side effects** — None. No storage here — `useVisibility` owns persistence.
+**Kind and privacy** — Collection ids are opaque: a `kind: "list"` collection groups, hides, isolates and persists exactly like a calendar one, and the rules here never read `kind`. This module is display-only and deliberately contains no privacy check: the server already filters a partner's private collections out of `GET /api/collections`, so a private row that reaches the client is one its viewer may see. Adding `visibility === "private"` logic here would create a second, divergent privacy rule.
+
+**State & side effects** — None. No storage here — `useVisibility` owns persistence and calls `parseVisibility` on the stored value.
 
 **Depends on / Used by** — `CollectionRow` from `lib/db/schema`. Used by `lib/ui/visibleCollections.ts` and `components/sidebar/CollectionTree.tsx` (checkbox states and the "currently visible" check used when toggling a parent for its children). `GROUP_ORDER` and `groupOf` group the tree's roots into the three sections; child checks pass the root so they group with it.
 
 **Debugging**
 - Unchecking a parent leaves children drawn -> the caller omitted the `parent` argument -> check the `isCollectionVisible(state, child, currentUserId, root)` call sites in `CollectionTree.tsx`.
+- A list id does not hide although its box is unticked -> the caller passed a different id (a name, or the parent's id) -> ids are opaque; compare `collection.id`.
+- A private collection is hidden locally -> a privacy check was added to this module; it is display-only and must not invent one -> remove it and check the server's `listCollections` filter instead.
 - A shared calendar hides with the "me" pill -> `ownerId` is null for shared calendars, so it belongs to `ours` -> check the row's `owner_id`.
 - A sub-calendar vanishes with the "Ours" pill although it renders under a person's heading -> the caller passed no `parent`, or the row's stale `owner_id` is NULL from a pre-`0004` owner move -> pass the root; migration `0004` backfills the row.
 - Isolated view swallows every pill -> expected precedence for `only`; the exit path is any mutator in `useVisibility`, which sets `only: null`.
+- A pre-v0.2 profile looks like every collection was re-shown -> expected: `parseVisibility` ignores the old `calendars` key -> clear `nailong.visibility.*` if the old overrides matter.
 
-**Tests** — `tests/unit/visibility.test.ts`.
+**Tests** — `tests/unit/visibility.test.ts` (calendar and list ids, `parseVisibility`'s collection/legacy keys and type defence, private rows not filtered client-side).
 
 ### lib/ui/visibleCollections.ts
 
@@ -143,7 +149,7 @@ calendar still draws, or an undo action does nothing.
 
 **Public API** — `visibleCollectionIds(roots: CollectionNode[], state: VisibilityState, userId: string): Set<string>`.
 
-**Derivation rules** — When `state.only !== null` it returns `new Set([state.only])` immediately: exact, and deliberately bypassing the branch pruning below so a sub-calendar can be isolated while its parent is filtered out. Otherwise it walks roots in order: a root that fails `isCollectionVisible(state, root, userId)` is skipped **together with all of its children** (the loop `continue`s), and each child is then tested with `isCollectionVisible(state, child, userId, root)` — the root is passed so the child's pill follows the root's owner rather than a stale child row. The result is a `Set` of ids only — never calendar rows — and it is rebuilt on every call.
+**Derivation rules** — When `state.only !== null` it returns `new Set([state.only])` immediately: exact, and deliberately bypassing the branch pruning below so a sub-calendar can be isolated while its parent is filtered out. Otherwise it walks roots in order: a root that fails `isCollectionVisible(state, root, userId)` is skipped **together with all of its children** (the loop `continue`s), and each child is then tested with `isCollectionVisible(state, child, userId, root)` — the root is passed so the child's pill follows the root's owner rather than a stale child row. The result is a `Set` of ids only — never collection rows — and it is rebuilt on every call. The function never reads `kind`: a list id contributes and is pruned exactly like a calendar id, and only the consumers that draw events care that a list has none.
 
 **State & side effects** — None. Pure over its arguments.
 
@@ -151,10 +157,11 @@ calendar still draws, or an undo action does nothing.
 
 **Debugging**
 - The grid is empty while a calendar is ticked -> `state.only` is set to a different id -> check `visibility.state.only`.
+- A list branch stays drawn when its root is unticked -> the caller filtered by hand instead of using the root/child pair here -> call this function with the whole mixed tree.
 - Grid and mini-month disagree -> both call this function, so the difference is in the arguments (stale provider state, or a mini-month built from a different calendar list) -> log `roots.length` and `state` at both sites.
 - A child shows while its parent's checkbox is off -> the root was filtered but the child test was reached, which only happens when you call `isCollectionVisible` directly instead of going through this function -> check the caller.
 
-**Tests** — `tests/unit/visibleCollections.test.ts`; `tests/e2e/sidebar.spec.ts` and `tests/e2e/only-this-calendar.spec.ts` cover the rendered result.
+**Tests** — `tests/unit/visibleCollections.test.ts` (mixed calendar/list trees: list branches prune and isolate like calendar ones); `tests/e2e/sidebar.spec.ts` and `tests/e2e/only-this-calendar.spec.ts` cover the rendered result.
 
 ## Sidebar folding
 
@@ -163,11 +170,11 @@ calendar still draws, or an undo action does nothing.
 **Purpose** — The pure fold rules for the collection sidebar: which groups and which root collections are expanded. Folding is display-only — it hides a branch in the tree and never changes what the grid draws (that is `VisibilityState`'s job).
 
 **Public API**
-- `interface TreeFoldState { groups: Record<GroupKey, boolean>; collections: Record<string, boolean> }` — `true` means expanded, and a missing entry means expanded, so an untouched tree looks exactly as it did before folding existed. The storage key `nailong.treeFold.${userId}` is unchanged; a legacy `calendars` map is not a known key and reads as nothing folded.
+- `interface TreeFoldState { groups: Record<GroupKey, boolean>; collections: Record<string, boolean> }` — `true` means expanded, and a missing entry means expanded, so an untouched tree looks exactly as it did before folding existed. Keys are opaque collection ids: a list id folds and persists exactly like a calendar id. The storage key `nailong.treeFold.${userId}` is unchanged; a legacy `calendars` map is not a known key and reads as nothing folded.
 - `DEFAULT_TREE_FOLD: TreeFoldState` — all three groups open, no collection overrides.
 - `isGroupOpen(state, group): boolean`, `isCollectionOpen(state, id): boolean` — default `true` for missing entries.
 - `setGroupOpen(state, group, open): TreeFoldState`, `setCollectionOpen(state, id, open): TreeFoldState` — immutable copies; children fold with their root, so only root ids are stored.
-- `parseTreeFold(raw: string | null): TreeFoldState` — storage-read defence: malformed JSON, non-objects and non-boolean entries fall back to expanded; only real booleans are trusted.
+- `parseTreeFold(raw: string | null): TreeFoldState` — storage-read defence: malformed JSON, non-objects and non-boolean entries fall back to expanded; only real booleans are trusted, and only the `collections` key is read.
 
 **State & side effects** — None; pure over its arguments. `useTreeFold` owns `localStorage`.
 
@@ -175,10 +182,12 @@ calendar still draws, or an undo action does nothing.
 
 **Debugging**
 - A folded branch reappears after a reload -> `parseTreeFold` returned defaults, which happens when the stored JSON is not an object -> inspect `nailong.treeFold.<userId>`.
+- A list branch will not fold -> the tree passed the group key or a name instead of `collection.id` -> ids are opaque; log the id.
 - A branch folds although the user never touched it -> a stored entry is the wrong boolean, or a second writer used the same key -> the same storage key.
 - Folding is expected to hide grid calendars and does not -> wrong module: fold state must never be read by `isCollectionVisible`/`visibleCollectionIds` -> this file's header comment.
+- A pre-v0.2 profile looks fully expanded -> expected: the old `calendars` key is ignored -> clear `nailong.treeFold.*` if the old folds matter.
 
-**Tests** — `tests/unit/treeFold.test.ts`.
+**Tests** — `tests/unit/treeFold.test.ts` (calendar and list ids, legacy `calendars` ignored).
 
 ### lib/ui/useTreeFold.ts
 

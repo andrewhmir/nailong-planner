@@ -4,23 +4,37 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { HUE_FAMILIES, PARENT_SHADE_INDEX, shadeTokens, type HueFamily } from "@/lib/color/palette";
-import type { CollectionRow } from "@/lib/db/schema";
+import type { CollectionKind, CollectionRow, CollectionVisibility } from "@/lib/db/schema";
 import { cn } from "@/lib/utils";
 
 export type CollectionDialogState =
-  | { mode: "create-root" }
-  | { mode: "create-child"; parentId: string }
-  | { mode: "edit"; collection: CollectionRow };
+  | { mode: "create-root"; kind: CollectionKind }
+  | {
+      mode: "create-child";
+      parentId: string;
+      kind: CollectionKind;
+      /** The parent root's visibility, which the child inherits and cannot change. */
+      parentVisibility: CollectionVisibility;
+    }
+  | {
+      mode: "edit";
+      collection: CollectionRow;
+      /** The root's visibility, used to show a child the value it inherits. */
+      inheritedVisibility?: CollectionVisibility;
+    };
 
 export interface CollectionDialogResult {
   name: string;
+  /** Root creation only; a child inherits its parent's kind. */
+  kind?: CollectionKind;
   hueFamily?: HueFamily;
   ownerId?: string | null;
   /**
-   * The dialog exposes one switch (view-only). `private` is not offered yet, so
-   * the result is limited to the two values the existing control can produce.
+   * Three-valued, exactly like the column. A root edit must send its current
+   * value back even when the user only renamed it, or a private collection
+   * would be silently downgraded to `shared`.
    */
-  visibility?: "shared" | "view_only";
+  visibility?: CollectionVisibility;
 }
 
 interface Props {
@@ -31,6 +45,12 @@ interface Props {
   onClose: () => void;
   onSubmit: (values: CollectionDialogResult) => void;
 }
+
+const VISIBILITY_OPTIONS: { value: CollectionVisibility; label: string }[] = [
+  { value: "shared", label: "Shared" },
+  { value: "view_only", label: "View only" },
+  { value: "private", label: "Private" },
+];
 
 export function CollectionDialog({
   state,
@@ -45,36 +65,52 @@ export function CollectionDialog({
   }
 
   const isEdit = state.mode === "edit";
-  const isRoot =
-    state.mode === "create-root" || (isEdit && state.collection.parentId === null);
+  const isRoot = state.mode === "create-root" || (isEdit && state.collection.parentId === null);
+  const kind: CollectionKind =
+    state.mode === "edit" ? state.collection.kind : state.kind;
+  const noun = kind === "list" ? "list" : "calendar";
+  const nounTitle = kind === "list" ? "List" : "Calendar";
 
   const title =
     state.mode === "create-root"
-      ? "New calendar"
+      ? `New ${noun}`
       : state.mode === "create-child"
-        ? "Add sub-calendar"
+        ? `Add sub-${noun}`
         : isRoot
-          ? "Calendar settings"
-          : "Rename sub-calendar";
+          ? `${nounTitle} settings`
+          : `Rename sub-${noun}`;
   const description =
     state.mode === "create-child"
-      ? "It inherits the parent's color in a new shade."
+      ? `It inherits the parent's color and visibility in a new shade.`
       : isRoot
-        ? "Shared calendars appear under Shared."
+        ? `Shared ${noun}s appear under Shared; private ones stay with their owner.`
         : undefined;
 
   const formKey =
     state.mode === "create-root"
-      ? "create-root"
+      ? `create-root-${state.kind}`
       : state.mode === "create-child"
         ? `create-child-${state.parentId}`
         : `edit-${state.collection.id}`;
+
+  // A child shows the value it inherits; only a root edit/create starts from a
+  // value the dialog can change. A root defaults to `shared`, a child inherits
+  // its parent's value (children are always stored as `shared` themselves).
+  const initialVisibility: CollectionVisibility =
+    state.mode === "edit"
+      ? state.collection.parentId === null
+        ? state.collection.visibility
+        : (state.inheritedVisibility ?? "shared")
+      : state.mode === "create-child"
+        ? state.parentVisibility
+        : "shared";
 
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent title={title} description={description}>
         <CollectionForm
           key={formKey}
+          kind={kind}
           isRoot={isRoot}
           isEdit={isEdit}
           initialName={isEdit ? state.collection.name : ""}
@@ -84,7 +120,7 @@ export function CollectionDialog({
               : "teal"
           }
           initialOwnerId={isEdit && isRoot ? state.collection.ownerId : null}
-          initialViewOnly={isEdit && isRoot ? state.collection.visibility === "view_only" : false}
+          initialVisibility={initialVisibility}
           currentUserId={currentUserId}
           currentUserName={currentUserName}
           pending={pending}
@@ -97,12 +133,13 @@ export function CollectionDialog({
 }
 
 interface FormProps {
+  kind: CollectionKind;
   isRoot: boolean;
   isEdit: boolean;
   initialName: string;
   initialHue: HueFamily;
   initialOwnerId: string | null;
-  initialViewOnly: boolean;
+  initialVisibility: CollectionVisibility;
   currentUserId: string;
   currentUserName: string;
   pending: boolean;
@@ -115,12 +152,13 @@ const CONTROL =
 const LABEL = "block text-base text-ink";
 
 function CollectionForm({
+  kind,
   isRoot,
   isEdit,
   initialName,
   initialHue,
   initialOwnerId,
-  initialViewOnly,
+  initialVisibility,
   currentUserId,
   currentUserName,
   pending,
@@ -130,9 +168,14 @@ function CollectionForm({
   const [name, setName] = useState(initialName);
   const [hueFamily, setHueFamily] = useState<HueFamily>(initialHue);
   const [ownerId, setOwnerId] = useState<string | null>(initialOwnerId);
-  const [viewOnly, setViewOnly] = useState(initialViewOnly);
+  const [visibility, setVisibility] = useState<CollectionVisibility>(initialVisibility);
 
   const isMine = ownerId === currentUserId;
+  // Only the owner can pick a restrictive value, and only a root carries one:
+  // the server rejects view-only/private without an owner and rejects both on
+  // children, which inherit their parent's value instead.
+  const canEditVisibility = isRoot && isMine;
+  const noun = kind === "list" ? "list" : "calendar";
 
   return (
     <form
@@ -141,9 +184,13 @@ function CollectionForm({
         event.preventDefault();
         onSubmit({
           name,
+          ...(isRoot ? { kind } : {}),
           hueFamily: isRoot ? hueFamily : undefined,
           ownerId: isRoot ? ownerId : undefined,
-          visibility: isRoot ? (isMine && viewOnly ? "view_only" : "shared") : undefined,
+          // Never send a less restrictive value than the stored one: a private
+          // root being renamed must stay private, and a shared root cannot be
+          // view-only or private until it is assigned to its owner.
+          visibility: isRoot ? (isMine ? visibility : "shared") : undefined,
         });
       }}
     >
@@ -169,9 +216,15 @@ function CollectionForm({
             <select
               id="calendar-owner"
               value={ownerId ?? "ours"}
-              onChange={(event) =>
-                setOwnerId(event.target.value === "ours" ? null : currentUserId)
-              }
+              onChange={(event) => {
+                const nextOwnerId = event.target.value === "ours" ? null : currentUserId;
+                setOwnerId(nextOwnerId);
+                // A shared collection cannot be view-only or private, so the
+                // control must fall back to the value the server will store.
+                if (nextOwnerId === null) {
+                  setVisibility("shared");
+                }
+              }}
               className={CONTROL}
             >
               <option value="ours">Shared</option>
@@ -179,23 +232,33 @@ function CollectionForm({
             </select>
           </div>
 
-          <label className="flex items-start gap-2 text-base text-ink-soft">
-            <input
-              type="checkbox"
-              checked={viewOnly && isMine}
-              disabled={!isMine}
-              onChange={(event) => setViewOnly(event.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 rounded-sm border border-field accent-accent"
-            />
-            <span>
-              View only
-              <span className="mt-0.5 block text-xs text-ink-mute">
-                {isMine
-                  ? "Only you can edit this calendar and its sub-calendars."
-                  : "Assign the calendar to yourself first."}
-              </span>
-            </span>
-          </label>
+          <fieldset>
+            <legend className="mb-1 text-base text-ink">Visibility</legend>
+            <div className="space-y-1">
+              {VISIBILITY_OPTIONS.map((option) => (
+                <label
+                  key={option.value}
+                  className="flex items-center gap-2 text-base text-ink-soft"
+                >
+                  <input
+                    type="radio"
+                    name="visibility"
+                    value={option.value}
+                    checked={visibility === option.value}
+                    disabled={!canEditVisibility}
+                    onChange={() => setVisibility(option.value)}
+                    className="h-4 w-4 shrink-0 accent-accent"
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-ink-mute">
+              {isMine
+                ? `View only and Private apply to this ${noun} and its sub-${noun}s.`
+                : `Assign this ${noun} to yourself to change who can see it.`}
+            </p>
+          </fieldset>
 
           <fieldset>
             <legend className="mb-1 text-base text-ink">Color</legend>
@@ -217,11 +280,34 @@ function CollectionForm({
             </div>
           </fieldset>
         </>
-      ) : null}
+      ) : (
+        <fieldset>
+          <legend className="mb-1 text-base text-ink">Visibility</legend>
+          <div className="space-y-1">
+            {VISIBILITY_OPTIONS.map((option) => (
+              <label key={option.value} className="flex items-center gap-2 text-base text-ink-soft">
+                <input
+                  type="radio"
+                  name="visibility"
+                  value={option.value}
+                  checked={visibility === option.value}
+                  disabled
+                  onChange={() => undefined}
+                  className="h-4 w-4 shrink-0 accent-accent"
+                />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-ink-mute">
+            Sub-{noun}s inherit their parent&apos;s visibility; change the top-level {noun} instead.
+          </p>
+        </fieldset>
+      )}
 
       {isEdit ? null : (
         <p className="text-xs text-ink-mute">
-          Sub-calendars inherit this calendar&apos;s color and sharing.
+          Sub-{noun}s inherit this {noun}&apos;s color and sharing.
         </p>
       )}
 

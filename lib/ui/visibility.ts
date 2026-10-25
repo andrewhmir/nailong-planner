@@ -23,6 +23,52 @@ export const DEFAULT_VISIBILITY: VisibilityState = {
   only: null,
 };
 
+/** Only real booleans survive: a corrupt stored value must not hide a row. */
+function booleanEntries(value: unknown): Record<string, boolean> {
+  const entries: Record<string, boolean> = {};
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return entries;
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry === "boolean") {
+      entries[key] = entry;
+    }
+  }
+  return entries;
+}
+
+/**
+ * Reads the persisted visibility state, falling back to everything visible.
+ * The storage key is unchanged across the collection rename; a pre-v0.2 JSON
+ * body carries a `calendars` map instead of `collections`, which is not a known
+ * key and therefore reads as "no per-collection overrides".
+ */
+export function parseVisibility(raw: string | null): VisibilityState {
+  if (!raw) {
+    return DEFAULT_VISIBILITY;
+  }
+  try {
+    const parsed = JSON.parse(raw) as {
+      groups?: unknown;
+      collections?: unknown;
+      only?: unknown;
+    } | null;
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return DEFAULT_VISIBILITY;
+    }
+    return {
+      groups: {
+        ...DEFAULT_VISIBILITY.groups,
+        ...(booleanEntries(parsed.groups) as Partial<Record<GroupKey, boolean>>),
+      },
+      collections: booleanEntries(parsed.collections),
+      only: typeof parsed.only === "string" ? parsed.only : null,
+    };
+  } catch {
+    return DEFAULT_VISIBILITY;
+  }
+}
+
 /**
  * The owner that actually applies to a collection. A sub-collection inherits
  * its root's owner — the server folds the same way in `getCollectionAccess` —
