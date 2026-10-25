@@ -177,7 +177,7 @@ The three `/api/auth/*` calls are served by the Better Auth catch-all `app/api/a
 | `LockIcon` | private / view-only row lock | `EyeIcon` | show |
 | `EyeOffIcon` | hide | `AlertTriangleIcon` | warnings |
 | `SearchIcon` | search box / bar | `ChevronDownIcon` | pickers, collapsed groups |
-| `TasksIcon` | Tasks rail (planned) | `TodayIcon` | Today rail (planned) |
+| `TasksIcon` | Tasks rail | `TodayIcon` | Today rail (planned) |
 | `NotesIcon` | Notes rail (planned) | `FocusIcon` | Focus rail (planned) |
 | `ListIcon` | sidebar task-list rows (in place of a calendar swatch) | `ClockIcon` | event dialog time field |
 

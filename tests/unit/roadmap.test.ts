@@ -26,11 +26,18 @@ describe("roadmap", () => {
   it("promises only the next version", () => {
     const promised = ROADMAP.filter((entry) => entry.status === "planned" && entry.version);
     expect(promised).toHaveLength(1);
-    expect(promised[0]?.id).toBe("tasks");
-    expect(promised[0]?.version).toBe("v0.2.0");
+    expect(promised[0]?.id).toBe("today");
+    expect(promised[0]?.version).toBe("v0.3.0");
   });
 
-  it("gives every planned destination capabilities and a gate label", () => {
+  it("keeps Tasks live, with no version and no capabilities", () => {
+    const tasks = ROADMAP.find((entry) => entry.id === "tasks");
+    expect(tasks?.status).toBe("live");
+    expect(tasks?.version).toBeUndefined();
+    expect(tasks?.capabilities).toEqual([]);
+  });
+
+  it("gives every planned destination capabilities and the right gate label", () => {
     const planned = ROADMAP.filter((entry) => entry.status === "planned");
     expect(planned.length).toBeGreaterThan(0);
     for (const entry of planned) {
@@ -39,11 +46,17 @@ describe("roadmap", () => {
         entry.version ? `Coming in ${entry.version}` : "Planned",
       );
     }
+    expect(Object.fromEntries(planned.map((entry) => [entry.id, gateLabel(entry)]))).toEqual({
+      today: "Coming in v0.3.0",
+      notes: "Planned",
+      focus: "Planned",
+    });
   });
 
-  it("keeps the calendar as the only live app destination today", () => {
+  it("keeps the live destinations at Calendar, Tasks and Settings", () => {
     expect(ROADMAP.filter((entry) => entry.status === "live").map((entry) => entry.href)).toEqual([
       "/",
+      "/tasks",
       "/settings",
     ]);
   });

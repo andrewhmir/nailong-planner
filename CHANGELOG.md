@@ -6,6 +6,58 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet — the next promised release is v0.3.0 (Today).
+
+## [0.2.0] - 2026-10-26
+
+### Added — tasks and triage
+
+- **Capture from any screen** — `Shift+K` opens a global capture dialog on every
+  signed-in page. A title is enough: the task lands in your private Inbox, and
+  the `Task captured` toast can undo it without leaving the calendar.
+- **The `/tasks` workspace** — Inbox · Today · Week · Someday buckets with live
+  counts, a Plan picker that sends a task to a day or to Someday, and a task
+  editor with notes, an optional due date and a checklist.
+- **Keyboard triage** — `j`/`k` move the selection, `1`/`2`/`3` schedule it into
+  Today / the end of the week / Someday, `4` moves it to the next writable list,
+  `x` completes it, `Enter` opens it, and `z`/`Ctrl+Z` undo the last action. The
+  single-key layer is page-scoped, stays inert while you type, and respects the
+  keyboard-shortcuts preference.
+- **Task chips on the calendar** — a scheduled task draws as a read-only
+  all-day chip in Month, Week, Day and List; clicking it opens
+  `/tasks?task=<id>` with the editor, and dragging a row onto the sidebar mini
+  month plans it onto that day with a targeted undo.
+- **Lists and privacy** — task lists live in the same nested tree as calendars
+  (a list glyph replaces the hue swatch) and can be private, shared or
+  view-only. A private list and its tasks never appear in the partner's tree or
+  API, and each person's Inbox is created lazily by `GET /api/collections`.
+
+### Added — collections and privacy
+
+- **`collection` replaces `calendar`** — one table now holds calendars and task
+  lists (`kind: "calendar" | "list"`), events point at `collection_id`, and the
+  sidebar tree, pickers, visibility pills and calendar dialogs all work on the
+  mixed tree. Sub-calendars still mirror their root's owner.
+- **Three-state visibility** — `visibility` (`shared` / `view_only` / `private`)
+  replaces the `is_view_only_for_partner` flag. Private collections are filtered
+  server-side on every read and write, not just in the sidebar.
+- **Migration `0005`** — renames in place (`calendar` -> `collection`,
+  `event.calendar_id` -> `collection_id`), adds `kind`/`visibility`, backfills
+  the old flag, and creates `task` + `task_checklist_item`.
+
+### Changed
+
+- **The API moved with the model** — `/api/calendars` is now
+  `/api/collections`; handlers, query hooks and types are collection-shaped
+  (`CollectionRow`, `useCollections`) with no `calendar` alias left in the
+  TypeScript layer.
+- **The roadmap flipped** — Tasks is `live` and no longer gated; Today is the
+  one promised destination, now reading `Coming in v0.3.0`.
+- **Version 0.2.0** — `package.json`, `package-lock.json` and `APP_VERSION`
+  (`lib/roadmap.ts`) move together; the unit suite keeps them in lockstep.
+- **Mixed-tree copy** — the sidebar landmark is "Collection tree", the phone
+  sheet "Collections", and the New menu creates lists alongside calendars.
+
 ### Fixed
 
 - **Imported calendars are separated by person** — a new Google import creates
@@ -22,16 +74,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   "Ours" pill. Migration `0004` backfills rows left behind by the old
   non-cascading owner move.
 
+### Upgrade note
+
+- Migration `0005` applies automatically the first time the app opens the
+  database (`migrate()` already runs on boot); there is no manual step. Rows and
+  ids are renamed in place, so no calendar or event data is recreated.
+- Any client calling `/api/calendars*` must switch to `/api/collections*`; the
+  old route no longer exists.
+- Visibility and sidebar-fold state saved by v0.1.0 stored a `calendars` map
+  that the new parsers deliberately ignore. It resets to the defaults
+  (everything visible, everything expanded) and is rewritten on the next toggle.
+
 ## [0.1.0] - 2026-10-22
 
 ### Added — roadmap rail
 
-- **The roadmap lives in the rail** — Calendar is live; Tasks
-  (`Coming in v0.2.0`), Today, Notes and Focus sit greyed beside it. Each opens a
-  short "what's coming" dialog with what it will do and which release it belongs
-  to, instead of linking to a dead route; hovering still names the promise. Only
-  the next release is ever committed to a version — everything after it reads
-  `Planned` — and the rail itself never scrolls or carries version text.
+- **The roadmap lives in the rail** — Calendar is live; Tasks, Today, Notes and
+  Focus sit greyed beside it. Each opens a short "what's coming" dialog with what
+  it will do and which release it belongs to, instead of linking to a dead
+  route; hovering still names the promise. Only the next release is ever
+  committed to a version — everything after it reads `Planned` — and the rail
+  itself never scrolls or carries version text.
 - **One source of truth** — `lib/roadmap.ts` holds the destinations, the version
   and the gate labels, so promoting a feature is a single `status` flip and an
   `APP_VERSION` that is test-locked to `package.json`.
@@ -128,4 +191,5 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   focus ring: the dialog's scroll area clips at its padding box, so it now keeps
   horizontal padding on both sides instead of only under the scrollbar.
 
+[0.2.0]: https://github.com/andrewhmir/nailong-planner/releases/tag/v0.2.0
 [0.1.0]: https://github.com/andrewhmir/nailong-planner/releases/tag/v0.1.0

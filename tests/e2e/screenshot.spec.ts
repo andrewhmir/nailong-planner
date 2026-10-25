@@ -65,13 +65,22 @@ test.describe("desktop screenshots", () => {
     await page.screenshot({ path: "docs/screenshots/search.png" });
   });
 
+  test("tasks workspace", async ({ page }) => {
+    await signIn(page, ANDREW, fixtures.password);
+    await page.goto("/tasks");
+    // Seeded Inbox captures, so the capture never shows an empty workspace.
+    await expect(page.getByRole("checkbox", { name: "Call the plumber" })).toBeVisible();
+    await settle(page);
+    await page.screenshot({ path: "docs/screenshots/tasks-desktop.png" });
+  });
+
   test("planned destination dialog", async ({ page }) => {
     await signIn(page, ANDREW, fixtures.password);
     await page
       .getByRole("navigation", { name: "Primary navigation" })
-      .getByRole("button", { name: "Tasks — Coming in v0.2.0" })
+      .getByRole("button", { name: "Today — Coming in v0.3.0" })
       .click();
-    await expect(page.getByRole("dialog", { name: "Tasks" })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Today" })).toBeVisible();
     await settle(page);
     await page.screenshot({ path: "docs/screenshots/roadmap-dialog.png" });
   });

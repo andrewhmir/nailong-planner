@@ -71,11 +71,19 @@ rather not have edited.
 
 ## Features
 
-- **A roadmap in the rail** — Calendar is live; Tasks (`Coming in v0.2.0`),
-  Today, Notes and Focus sit greyed in the nav rail. Each opens a short
-  "what's coming" panel naming its release and what it will do, so the roadmap
-  is part of the app instead of a document nobody reads. Only the next version
-  is ever promised; everything after it says `Planned`.
+- **A roadmap in the rail** — Calendar and Tasks are live; Today
+  (`Coming in v0.3.0`), Notes and Focus sit greyed in the nav rail. Each opens a
+  short "what's coming" panel naming its release and what it will do, so the
+  roadmap is part of the app instead of a document nobody reads. Only the next
+  version is ever promised; everything after it says `Planned`.
+- **Tasks, captured and triaged** — `Shift+K` captures anything from any screen;
+  `/tasks` buckets it into Inbox · Today · Week · Someday, schedules it with the
+  Plan picker, and files it from the keyboard (`j`/`k` to move, `1`–`3` to
+  schedule, `4` to move to another list, `x` to complete, `z` to undo). A task
+  can carry notes, an optional due date and a checklist. Lists sit in the same
+  nested tree as calendars and can be private, shared or view-only, with the
+  same two-person rules; a scheduled task shows on the calendar as a read-only
+  chip, and dragging a row onto the sidebar mini month plans it onto that day.
 - **Google-Calendar-shaped daily loops** — a day/slot click, a range drag or
   `Shift+C` opens a quick-create bubble (Enter saves, "More options" escalates to
   the full editor); clicking an event opens anchored details with its repeat
@@ -224,12 +232,12 @@ Historical design specs and plans (never edited):
 - Implementation plan: [`docs/superpowers/plans/2026-10-19-nailong-planner-v0.1.0.md`](docs/superpowers/plans/2026-10-19-nailong-planner-v0.1.0.md)
 - Operations, backups, recovery: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 
-## Out of scope for v0.1.0
+## Out of scope for v0.2.0
 
 Reminders and notifications · two-way Google Calendar sync and read-only ICS
-subscriptions / export feeds · a 30-day trash bin (undo is session-only in
-v0.1.0) · per-occurrence overrides and "this and following" edits · dark mode ·
-PWA · tasks, notes and other modules · more than two users.
+subscriptions / export feeds · a 30-day trash bin (undo is session-only) ·
+per-occurrence overrides and "this and following" edits · dark mode · PWA ·
+notes, focus and the Today page · more than two users.
 
 ## Contributing
 

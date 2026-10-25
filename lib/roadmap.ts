@@ -5,12 +5,12 @@
  * "what's coming" dialogs, so a release ceremony is a single `status` flip —
  * no version string is hand-written anywhere else.
  *
- * Version policy: only the next release is promised ("Coming in v0.2.0").
+ * Version policy: only the next release is promised ("Coming in v0.3.0").
  * Everything after that says "Planned" until it has a version of its own.
  */
 
 /** Must equal `version` in package.json; `tests/unit/roadmap.test.ts` enforces it. */
-export const APP_VERSION = "0.1.0";
+export const APP_VERSION = "0.2.0";
 
 export type RoadmapStatus = "live" | "planned";
 
@@ -47,22 +47,16 @@ export const ROADMAP: readonly RoadmapEntry[] = [
     id: "tasks",
     label: "Tasks",
     href: "/tasks",
-    status: "planned",
-    version: "v0.2.0",
+    status: "live",
     blurb: "Everything you owe yourself, in one place.",
-    capabilities: [
-      "Capture anything with Shift+K, from any screen",
-      "Triage in the morning: Today, This week or Someday",
-      "Drag a task onto a day to make room for it",
-      "Lists only you can see — and lists we share",
-      "Move with j/k, file with 1–3, no mouse needed",
-    ],
+    capabilities: [],
   },
   {
     id: "today",
     label: "Today",
     href: "/today",
     status: "planned",
+    version: "v0.3.0",
     blurb: "One page for the day: what's next, what's left, what matters.",
     capabilities: [
       "Your agenda at a glance",
@@ -107,7 +101,7 @@ export const ROADMAP: readonly RoadmapEntry[] = [
   },
 ];
 
-/** "Coming in v0.2.0" for the next release; "Planned" for everything after. */
+/** "Coming in v0.3.0" for the next release; "Planned" for everything after. */
 export function gateLabel(entry: Pick<RoadmapEntry, "version">): string {
   return entry.version ? `Coming in ${entry.version}` : "Planned";
 }
