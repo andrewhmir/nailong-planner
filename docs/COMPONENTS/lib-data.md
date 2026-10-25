@@ -320,7 +320,7 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 
 ## Validation schemas
 
-All four modules export plain Zod schemas (no I/O). Handlers parse the JSON body with them and let `AppError`/`ZodError` mapping in `lib/api` produce the 400 envelope; the schemas themselves never touch the database.
+All five modules export plain Zod schemas (no I/O). Handlers parse the JSON body with them and let `AppError`/`ZodError` mapping in `lib/api` produce the 400 envelope; the schemas themselves never touch the database.
 
 ### lib/validation/collections.ts
 
@@ -395,6 +395,24 @@ All four modules export plain Zod schemas (no I/O). Handlers parse the JSON body
 - Setting week start to `2` returns 400 -> only `0`/`1` are modelled (`week_starts_on` integer default 0).
 
 **Tests** — No direct unit test; covered through `tests/integration/settings-api.test.ts` and `tests/e2e/settings.spec.ts`.
+
+### lib/validation/tasks.ts
+
+**Purpose** — Zod schemas for creating a task, partially updating it and reordering a list, plus the date-only field shared by `scheduledOn` and `dueOn`.
+
+**Public API** — `dateOnlySchema` (`/^\d{4}-\d{2}-\d{2}$/`, custom message "Use YYYY-MM-DD."); `checklistInputSchema` (array of at most 50 `{ title: 1–200 trimmed, done: boolean }`); `createTaskSchema` (`title` 1–200 trimmed required, `notes` ≤ 2000 nullish, `collectionId` optional non-empty, `scheduledOn`/`dueOn` date-only nullish); `updateTaskSchema` (`createTaskSchema.partial()` plus `status` enum `open|done|dropped`, `checklist`, `sortOrder` int ≥ 0); `reorderTasksSchema` (`collectionId` non-empty, `orderedIds` array of at least 1 non-empty strings); types `CreateTaskInput`, `UpdateTaskInput`, `ReorderTasksInput`.
+
+**State & side effects** — None; pure parsing. Neither schema is `.strict()`, so unknown keys are stripped rather than rejected. `dateOnlySchema` checks the shape only — `2026-13-01` passes, exactly like the event schemas' `dateString`; tasks store the string and the service does no calendar-date check. `nullish()` on the two date fields is what lets a PATCH clear a date with `null`. `title` is trimmed before its length check. `updateTaskSchema` deliberately carries no defaults, so every omitted field means "leave unchanged"; that is why `status` is not defaulted to `"open"` and a checklist PATCH replaces rather than merges.
+
+**Depends on / Used by** — `zod` only. The schemas and their inferred types are imported by `lib/services/tasks.ts`; Task 6's `lib/api/handlers/tasks.ts` will parse the request bodies with them. Today they are exercised directly by `tests/integration/tasks.test.ts`.
+
+**Debugging** —
+- A PATCH that only changes the title clears a date -> the client sent the field as `null` (or omitted the key and another layer defaulted it); missing keys are left alone by `updateTask`'s whitelist.
+- A task cannot be moved through the reorder payload -> `reorderTasksSchema` only carries order; moving is `updateTaskSchema.collectionId`.
+- An extra field is silently dropped -> task schemas are not `.strict()` (only `lib/validation/preferences.ts` rejects unknown keys).
+- A checklist item title is stored trimmed but a note's whitespace is kept -> only `title` fields call `.trim()`; `notes` is capped, not trimmed.
+
+**Tests** — Parsed in `tests/integration/tasks.test.ts` (date shape, create title/notes bounds, partial update with status/checklist/sortOrder, checklist cap, reorder minimum). Handler-level status codes arrive with `tests/integration/tasks-api.test.ts` in Task 6.
 
 ## Non-obvious gotchas for `docs/DEBUGGING.md`
 

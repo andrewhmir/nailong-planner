@@ -199,7 +199,10 @@ The request pipeline in one line:
   strings, not epochs: never pass `startAt`-style milliseconds. `task.status` is
   `open`/`done`/`dropped`; `task.sort_order` is the manual order; deleting a
   collection cascades its tasks, and deleting a task cascades its
-  `task_checklist_item` rows.
+  `task_checklist_item` rows. Task reads are task-scoped only through their
+  collection: a hidden collection's 404 is rewritten to "Task not found." on
+  every verb, and the list views derive buckets from the household's `timezone`
+  and `weekStartsOn` (`lib/services/tasks.ts`, `lib/domain/tasks.ts`).
 - `tests/helpers/db.ts` `makeTestDb({ upTo })` builds a temporary migrations folder
   truncated at a journal tag, so a migration test can insert pre-migration rows and
   then call `migrate(db)`. The real `drizzle/` folder is never modified.
@@ -296,6 +299,13 @@ any wrapper in the shell/calendar tree.
 | Deleting an occurrence returns 500 | the stored `exdates` JSON is corrupt: the append path parses it strictly, while the read path tolerates it | `lib/services/events.ts` `deleteEvent`, `lib/recurrence/expand.ts` |
 | Recurring events appear outside the requested range | `listEvents` returns **every** recurring row and lets the client expand it; only non-recurring rows are range-filtered. All-day overlap is compared against the local date of the exclusive `to` bound | `lib/services/events.ts` `listEvents` |
 | Event list looks shifted when the client omits `from`/`to` | the handler defaults to the household-timezone **current month**, falling back to `Asia/Taipei` if the household row is missing | `lib/api/handlers/events.ts` |
+| A task marked done or dropped vanishes from every task view | `listTasks` only loads `status = 'open'`; `view: "all"` is still open-only, so finished work is reachable only by its list/calendar, not by a bucket | `lib/services/tasks.ts` `listTasks`, the row's `status`/`completedAt`/`droppedAt` |
+| Task shows in Today or Week although it is scheduled for later | the bucket anchor is the earliest commitment (`min(scheduledOn, dueOn)`), so an earlier deadline wins over a later schedule | `lib/domain/tasks.ts` `bucketOf`, `lib/services/tasks.ts` `listTasks` |
+| A task scheduled next week is missing from Today/Week/Someday | by design: `bucketOf` returns `null` beyond `endOfWeek(today, weekStartsOn)`; only the calendar's `view=all` includes it | `lib/domain/tasks.ts` `bucketOf`, `lib/services/tasks.ts` `listTasks` |
+| Reorder returns 400 "Send exactly the open tasks of this list." | the payload was not the full open set — partial, duplicate, done/dropped, cross-list or missing id; a stale client must re-fetch instead of patching order | `lib/services/tasks.ts` `reorderTasks` |
+| Task counts stay the same after picking a list or a view | intended: `counts` are global over visible open tasks and ignore `collectionId`/`view` | `lib/services/tasks.ts` `listTasks` |
+| A deleted task cannot be restored | there is no trash table: `deleteTask` hard-deletes and the checklist cascades, so undo re-creates the task with a new id | `lib/services/tasks.ts` `deleteTask`, the undo call site |
+| Checklist item ids change on every save | intended: a checklist PATCH is a full replacement (delete all, insert in array order), not a diff | `lib/services/tasks.ts` `replaceChecklist` |
 | `z` / `Ctrl+Z` undoes an event while editing a rich-text field | two divergent typing guards (`isTextEntryTarget`, `isEditableTarget`) and neither recognises `div[role="textbox"]` | `lib/ui/useKeyboardShortcuts.ts`, `lib/ui/useUndoHotkey.ts` |
 | Child calendar renders identical to its parent | `shadeIndex` 3 is reserved for the root; children must come from `[4,2,5,1,6,0,7]`, so a child stored as 3 collides with the parent | `lib/color/palette.ts`, `lib/services/collections.ts` |
 | An error response's status does not match its code | `AppError.status` is an explicit constructor argument, not derived from `code` | `lib/errors.ts`; the throw site |

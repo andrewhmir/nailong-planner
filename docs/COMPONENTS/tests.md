@@ -66,6 +66,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 | `tests/integration/import-schema.test.ts` | External-key uniqueness per household, many NULL keys, `tzid`/external columns round-trip, `import_change` cascades with its batch | `npx vitest run tests/integration/import-schema.test.ts` |
 | `tests/integration/import-service.test.ts` | Preview without writes, transactional commit and calendar creation, idempotent re-import, in-place update with `before_json`, view-only refusal, per-member separation (each importer's own `From Google` tree, no partner reuse), a spoofing list named `From Google` ignored and only shared calendars created, unknown-TZID warning, size cap, rollback and the edited-after-import skip rule, rollback permission check, batch history | `npx vitest run tests/integration/import-service.test.ts` |
 | `tests/integration/import-api.test.ts` | Multipart preview/commit through the handlers, missing/malformed mapping 400s, list + rollback status codes (409/404), `withViewer` wiring | `npx vitest run tests/integration/import-api.test.ts` |
+| `tests/integration/tasks.test.ts` | Task service: Inbox default and insert order, explicit dates and list summary, private/view-only/foreign create guards, both week-start conventions across all four buckets, global counts vs view/collection filters, overdue boundaries, move permissions, status timestamps, checklist replacement/clearing and id regeneration, reorder exact-set rejection (partial/duplicate/cross-list/done), partner 404 on get/list/update/delete, view-only read/write split, cascade delete, schema parsing | `npx vitest run tests/integration/tasks.test.ts` |
 
 ## E2E specs
 
@@ -103,7 +104,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 | File | What it provides | Used by |
 |---|---|---|
 | `tests/helpers/db.ts` | `makeTestDb()`: a fresh `:memory:` database with `foreign_keys = ON` and all migrations applied; `makeTestDb({ upTo })` applies a temporary migrations folder truncated at a journal tag (for migration-by-migration tests) | Every integration test |
-| `tests/helpers/fixtures.ts` | `makeSeededDb()`: two households, two members in `h1`, one in `h2`, and the `ctxA`/`ctxB`/`ctxOther` viewer contexts | `tests/integration/collections.test.ts`, `events.test.ts`, `collections-api.test.ts`, `events-api.test.ts`, `settings-api.test.ts`, `preferences-api.test.ts`, `regressions.test.ts`, `search-api.test.ts` |
+| `tests/helpers/fixtures.ts` | `makeSeededDb()`: two households, two members in `h1`, one in `h2`, and the `ctxA`/`ctxB`/`ctxOther` viewer contexts | `tests/integration/collections.test.ts`, `events.test.ts`, `collections-api.test.ts`, `events-api.test.ts`, `settings-api.test.ts`, `preferences-api.test.ts`, `regressions.test.ts`, `search-api.test.ts`, `tasks.test.ts` |
 | `tests/e2e/helpers.ts` | `loadFixtures()` from `.playwright/fixtures.json`, the `ANDREW`/`PARTNER` emails, and `signIn(page, email, password)` | Every spec in `tests/e2e/` |
 
 ## Which spec covers what
@@ -132,6 +133,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 | FullCalendar Canvas styles | `tests/e2e/calendar-style.spec.ts`; the primitives' geometry in `tests/e2e/primitives.spec.ts` |
 | UI primitives (button, dialog, scrim) | `tests/e2e/primitives.spec.ts` |
 | Screenshots and fonts | `tests/e2e/screenshot.spec.ts` (with `CAPTURE_SCREENSHOTS=1`); the Lato assertion in `tests/e2e/design-tokens.spec.ts` |
+| Task service (buckets, counts, checklist, ordering, privacy) | `tests/integration/tasks.test.ts`; the pure bucket/week maths in `tests/unit/tasks-buckets.test.ts` |
 | Event CRUD, drag and occurrence deletion | `tests/e2e/events.spec.ts`; service-level rules in `tests/integration/events.test.ts` |
 | Recurrence expansion (RRULE, EXDATE, duration, DST wall-clock) | `tests/unit/recurrence.test.ts`; the stored-EXDATE side in `tests/integration/events.test.ts` |
 | Google Calendar import | `tests/unit/ics-parse.test.ts`, `tests/integration/import-service.test.ts`, `tests/integration/import-api.test.ts`, `tests/integration/import-schema.test.ts`, `tests/e2e/import.spec.ts` |
