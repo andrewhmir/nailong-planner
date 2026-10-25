@@ -25,7 +25,7 @@ The storage and transport foundation of the planner: the Drizzle/SQLite schema, 
 
 ## Entity model
 
-Fourteen tables exist in the migrated database (five migrations: `0000_even_morg`, `0001_tiny_falcon`, `0002_user_preference`, `0003_salty_stranger`, `0004_normalise_subcalendar_owners`, `0005_collections_and_tasks`). `household` is the tenancy boundary; every domain query filters on `household_id`. Column names below are the SQLite names, with the Drizzle field in parentheses when it differs.
+Fourteen tables exist in the migrated database (six migrations: `0000_even_morg`, `0001_tiny_falcon`, `0002_user_preference`, `0003_salty_stranger`, `0004_normalise_subcalendar_owners`, `0005_collections_and_tasks`). `household` is the tenancy boundary; every domain query filters on `household_id`. Column names below are the SQLite names, with the Drizzle field in parentheses when it differs.
 
 | Table | Key columns | Constraints and relations |
 |---|---|---|

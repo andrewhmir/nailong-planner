@@ -16,6 +16,7 @@ export interface CalendarDialogResult {
   name: string;
   hueFamily?: HueFamily;
   ownerId?: string | null;
+  /** @deprecated until Task 2: write-side compat; maps to collection.visibility. */
   isViewOnlyForPartner?: boolean;
 }
 

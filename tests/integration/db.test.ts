@@ -162,9 +162,17 @@ describe("migration 0005", () => {
       migrate(db);
 
       const collections = new Map(
-        query<{ id: string; kind: string; visibility: string; name: string; parent_id: string | null }>(
+        query<{
+          id: string;
+          kind: string;
+          visibility: string;
+          name: string;
+          parent_id: string | null;
+          hue_family: string | null;
+          shade_index: number;
+        }>(
           sqlite,
-          "SELECT id, kind, visibility, name, parent_id FROM collection",
+          "SELECT id, kind, visibility, name, parent_id, hue_family, shade_index FROM collection",
         ).map((row) => [row.id, row]),
       );
       expect(collections.get("root")).toMatchObject({
@@ -172,12 +180,16 @@ describe("migration 0005", () => {
         visibility: "shared",
         name: "School",
         parent_id: null,
+        hue_family: "indigo",
+        shade_index: 3,
       });
       expect(collections.get("child")).toMatchObject({
         kind: "calendar",
         visibility: "view_only",
         name: "Math",
         parent_id: "root",
+        hue_family: null,
+        shade_index: 4,
       });
 
       const events = new Map(
@@ -240,11 +252,12 @@ describe("migration 0005", () => {
 
       migrate(db);
 
-      const [row] = query<{ visibility: string }>(
+      const [row] = query<{ visibility: string; owner_id: string | null }>(
         sqlite,
-        "SELECT visibility FROM collection WHERE id = 'locked-root'",
+        "SELECT visibility, owner_id FROM collection WHERE id = 'locked-root'",
       );
       expect(row?.visibility).toBe("view_only");
+      expect(row?.owner_id).toBe("user-a");
     } finally {
       close();
     }

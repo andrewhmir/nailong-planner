@@ -22,6 +22,7 @@ export interface CalendarInput {
   parentId?: string | null;
   hueFamily?: string;
   ownerId?: string | null;
+  /** @deprecated until Task 2: write-side compat; maps to collection.visibility. */
   isViewOnlyForPartner?: boolean;
 }
 

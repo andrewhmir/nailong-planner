@@ -242,7 +242,7 @@ any wrapper in the shell/calendar tree.
 | The repeat summary hides the end date | a timed `UNTIL` was rendered without the household `timezone` context, so the summary fell back to UTC or dropped it | `describeRrule` call in `components/calendar/EventDetails.tsx` |
 | Drag/resize/create snaps back | optimistic update rolled back: API rejected (view-only, validation, 4xx) | browser network panel, then `lib/query/eventCache.ts` + `canWriteCalendar` |
 | Undo toast does nothing | undo stack is session-only and per-view; failed mutation already rolled back | `lib/ui/undo.ts`, `lib/ui/useUndoHotkey.ts` |
-| Cannot edit a calendar/event | `isViewOnlyForPartner` and viewer is not the owner; server re-checks on write | `lib/services/permissions.ts`, `lib/services/events.ts` |
+| Cannot edit a calendar/event | collection `visibility = 'view_only'` or `'private'` and the viewer is not the owner; server re-checks on write | `lib/services/permissions.ts`, `lib/services/events.ts` |
 | Calendar row/checkbox does nothing | parent checkbox or `only` mode overriding it | `lib/ui/visibility.ts` `isCalendarVisible` |
 | A sub-calendar renders under a person's heading but its events still vanish with the "Ours" pill | the child row's `owner_id` is NULL (or otherwise disagrees with its root) — an owner move from before the cascade fix; visibility must fold the root | that row's `owner_id` vs its root's; `effectiveOwnerOf`/`groupOf(parent)` in `lib/ui/visibility.ts`, migration `0004`, `updateCalendar`'s owner cascade |
 | Sub-calendar has the wrong colour | shade assigned on create from the parent's family; palette exhausted at 7 children | `lib/color/palette.ts`, `lib/services/calendars.ts` |
