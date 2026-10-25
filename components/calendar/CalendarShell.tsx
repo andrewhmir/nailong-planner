@@ -21,7 +21,7 @@ import {
   shadeTokens,
   type HueFamily,
 } from "@/lib/color/palette";
-import { useCalendars } from "@/lib/query/calendars";
+import { useCollections } from "@/lib/query/collections";
 import { parseExdates } from "@/lib/query/eventCache";
 import {
   useCreateEvent,
@@ -33,9 +33,9 @@ import {
 } from "@/lib/query/events";
 import { usePreferences } from "@/lib/query/preferences";
 import { expandOccurrences } from "@/lib/recurrence/expand";
-import type { CalendarNode } from "@/lib/services/calendars";
+import type { CollectionNode } from "@/lib/services/collections";
 import type { EventView } from "@/lib/services/events";
-import { canWriteCalendar } from "@/lib/services/permissions";
+import { canWriteCollection } from "@/lib/services/permissions";
 import type { UserPreferences } from "@/lib/services/preferences";
 import { formatOccurrenceWhen } from "@/lib/time/format";
 import { addDaysToDate, utcToLocalDate, utcToLocalWallTime } from "@/lib/time/zone";
@@ -47,7 +47,7 @@ import { useMediaQuery } from "@/lib/ui/useMediaQuery";
 import { useUndoHotkey } from "@/lib/ui/useUndoHotkey";
 import { stepWheel, wheelNavAllowed } from "@/lib/ui/wheelNav";
 import { resolveInitialView } from "@/lib/ui/view";
-import { visibleCalendarIds } from "@/lib/ui/visibleCalendars";
+import { visibleCollectionIds } from "@/lib/ui/visibleCollections";
 import { CalendarView, type RenderableOccurrence } from "./CalendarView";
 import { EventDetailsPopover } from "./EventDetailsPopover";
 import { EventDialog, type EventDialogInitial } from "./EventDialog";
@@ -125,7 +125,7 @@ function seriesEndWall(event: EventView, timezone: string): string {
 /** Rebuilds the create payload from a row so an undo can restore it verbatim. */
 function eventToPayload(event: EventView): EventInputPayload {
   return {
-    calendarId: event.calendarId,
+    collectionId: event.collectionId,
     title: event.title,
     description: event.description,
     location: event.location,
@@ -159,7 +159,7 @@ export function CalendarShell({
   preferences: initialPreferences,
 }: Props) {
   const visibility = useVisibilityApi();
-  const { data: calendars } = useCalendars();
+  const { data: collections } = useCollections();
   const preferences = usePreferences(initialPreferences);
   const calendarRef = useRef<CalendarRef | null>(null);
   const router = useRouter();
@@ -323,35 +323,35 @@ export function CalendarShell({
 
   const visibleIds = useMemo(
     () =>
-      visibleCalendarIds(
-        (calendars ?? []) as CalendarNode[],
+      visibleCollectionIds(
+        (collections ?? []) as CollectionNode[],
         visibility.state,
         currentUserId,
       ),
-    [calendars, currentUserId, visibility.state],
+    [collections, currentUserId, visibility.state],
   );
 
   const visibleEvents = useMemo(
-    () => (events ?? []).filter((event) => visibleIds.has(event.calendarId)),
+    () => (events ?? []).filter((event) => visibleIds.has(event.collectionId)),
     [events, visibleIds],
   );
 
-  const calendarNames = useMemo(() => {
+  const collectionNames = useMemo(() => {
     const names = new Map<string, string>();
-    for (const root of calendars ?? []) {
+    for (const root of collections ?? []) {
       names.set(root.id, root.name);
       for (const child of root.children) {
         names.set(child.id, child.name);
       }
     }
     return names;
-  }, [calendars]);
+  }, [collections]);
 
-  const readOnlyCalendarIds = useMemo(() => {
+  const readOnlyCollectionIds = useMemo(() => {
     const ids = new Set<string>();
     const viewer = { userId: currentUserId, householdId: "" };
-    for (const root of calendars ?? []) {
-      if (!canWriteCalendar(viewer, root)) {
+    for (const root of collections ?? []) {
+      if (!canWriteCollection(viewer, root)) {
         ids.add(root.id);
       }
       const rootEffective = {
@@ -361,7 +361,7 @@ export function CalendarShell({
       for (const child of root.children) {
         // Fold the root's flags in: a protected parent protects its children.
         if (
-          !canWriteCalendar(viewer, {
+          !canWriteCollection(viewer, {
             ownerId: rootEffective.ownerId ?? child.ownerId,
             visibility:
               rootEffective.visibility === "shared" ? child.visibility : rootEffective.visibility,
@@ -372,7 +372,7 @@ export function CalendarShell({
       }
     }
     return ids;
-  }, [calendars, currentUserId]);
+  }, [collections, currentUserId]);
 
   const [nowAnchor] = useState(() => Date.now());
 
@@ -470,47 +470,47 @@ export function CalendarShell({
     ? (visibleEvents.find((event) => event.id === selection.eventId) ?? null)
     : null;
   const selectedIsReadOnly = selectedEvent
-    ? readOnlyCalendarIds.has(selectedEvent.calendarId)
+    ? readOnlyCollectionIds.has(selectedEvent.collectionId)
     : false;
 
   const selectedColor = useMemo(() => {
     if (!selectedEvent) {
       return "oklch(0.65 0.02 250)";
     }
-    for (const root of calendars ?? []) {
-      if (root.id === selectedEvent.calendarId) {
+    for (const root of collections ?? []) {
+      if (root.id === selectedEvent.collectionId) {
         return shadeTokens(familyOf(root), PARENT_SHADE_INDEX).mainHex;
       }
-      const child = root.children.find((entry) => entry.id === selectedEvent.calendarId);
+      const child = root.children.find((entry) => entry.id === selectedEvent.collectionId);
       if (child) {
         return shadeTokens(familyOf(root), child.shadeIndex).mainHex;
       }
     }
     return "oklch(0.65 0.02 250)";
-  }, [calendars, selectedEvent]);
+  }, [collections, selectedEvent]);
 
-  const selectedCalendarName = selectedEvent
-    ? (calendarNames.get(selectedEvent.calendarId) ?? "")
+  const selectedCollectionName = selectedEvent
+    ? (collectionNames.get(selectedEvent.collectionId) ?? "")
     : "";
 
-  const writableCalendars = useMemo<CalendarNode[]>(
+  const writableCollections = useMemo<CollectionNode[]>(
     () =>
-      (calendars ?? [])
-        .filter((root) => !readOnlyCalendarIds.has(root.id))
+      (collections ?? [])
+        .filter((root) => !readOnlyCollectionIds.has(root.id))
         .map((root) => ({
           ...root,
-          children: root.children.filter((child) => !readOnlyCalendarIds.has(child.id)),
+          children: root.children.filter((child) => !readOnlyCollectionIds.has(child.id)),
         })),
-    [calendars, readOnlyCalendarIds],
+    [collections, readOnlyCollectionIds],
   );
 
   // "Display only this calendar" also sets where new events land — but only
   // when that calendar is writable; isolating a view-only one leaves creation
   // on the settings default.
-  const defaultEventCalendarId = useMemo(() => {
+  const defaultEventCollectionId = useMemo(() => {
     const only = visibility.state.only;
     if (only) {
-      const writable = writableCalendars.some(
+      const writable = writableCollections.some(
         (root) => root.id === only || root.children.some((child) => child.id === only),
       );
       if (writable) {
@@ -518,7 +518,7 @@ export function CalendarShell({
       }
     }
     return preferences.lastEventCalendarId;
-  }, [preferences.lastEventCalendarId, visibility.state.only, writableCalendars]);
+  }, [preferences.lastEventCalendarId, visibility.state.only, writableCollections]);
 
   function changeView(next: PlannerView) {
     viewChosenByUser.current = true;
@@ -643,7 +643,7 @@ export function CalendarShell({
 
   function handleMoreOptions(values: {
     title: string;
-    calendarId: string;
+    collectionId: string;
     startWall: string;
     endWall: string;
     allDay: boolean;
@@ -980,8 +980,8 @@ export function CalendarShell({
         scrollTime={scrollTime}
         firstDay={weekStartsOn}
         occurrences={occurrences}
-        calendarNames={calendarNames}
-        readOnlyCalendarIds={readOnlyCalendarIds}
+        collectionNames={collectionNames}
+        readOnlyCollectionIds={readOnlyCollectionIds}
         onDatesSet={handleDatesSet as (info: DatesSetInfo) => void}
         onDateClick={handleDateClick}
         onSelect={handleSelect as (info: DateSelectInfo) => void}
@@ -1005,8 +1005,8 @@ export function CalendarShell({
       {quickDraft ? (
         <QuickCreatePopover
           draft={quickDraft}
-          calendars={writableCalendars}
-          defaultCalendarId={defaultEventCalendarId}
+          collections={writableCollections}
+          defaultCollectionId={defaultEventCollectionId}
           timezone={timezone}
           timeFormat={preferences.timeFormat}
           onClose={() => setQuickDraft(null)}
@@ -1053,8 +1053,8 @@ export function CalendarShell({
                 timezone={timezone}
                 timeFormat={preferences.timeFormat}
                 weekStartsOn={weekStartsOn}
-                calendars={writableCalendars}
-                defaultCalendarId={defaultEventCalendarId}
+                collections={writableCollections}
+                defaultCollectionId={defaultEventCollectionId}
                 onClose={finishCloseDialog}
                 onCancel={requestCloseDialog}
                 onDirtyChange={setDialogDirty}
@@ -1075,7 +1075,7 @@ export function CalendarShell({
       {selectedEvent && selection ? (
         <EventDetailsPopover
           event={selectedEvent}
-          calendarName={selectedCalendarName}
+          calendarName={selectedCollectionName}
           color={selectedColor}
           timezone={timezone}
           timeFormat={preferences.timeFormat}

@@ -4,28 +4,28 @@ import { useCallback, useEffect, useState } from "react";
 import type { GroupKey } from "./visibility";
 import {
   DEFAULT_TREE_FOLD,
-  isCalendarOpen,
+  isCollectionOpen,
   isGroupOpen,
   parseTreeFold,
-  setCalendarOpen,
+  setCollectionOpen,
   setGroupOpen,
   type TreeFoldState,
 } from "./treeFold";
 
 /**
- * Which branches of the calendar sidebar are open. Persisted per user, in
+ * Which branches of the collection sidebar are open. Persisted per user, in
  * `localStorage`, separately from visibility: folding a branch only changes how
- * the tree is displayed, never which calendars are drawn.
+ * the tree is displayed, never which collections are drawn.
  */
 export interface TreeFoldApi {
   isGroupOpen: (group: GroupKey) => boolean;
-  isCalendarOpen: (id: string) => boolean;
+  isCollectionOpen: (id: string) => boolean;
   toggleGroup: (group: GroupKey) => void;
-  toggleCalendar: (id: string) => void;
-  /** Opens the group a created or re-owned calendar landed in. */
+  toggleCollection: (id: string) => void;
+  /** Opens the group a created or re-owned collection landed in. */
   expandGroup: (group: GroupKey) => void;
-  /** Opens a root so a newly added sub-calendar is not created hidden. */
-  expandCalendar: (id: string) => void;
+  /** Opens a root so a newly added sub-collection is not created hidden. */
+  expandCollection: (id: string) => void;
 }
 
 export function useTreeFold(userId: string): TreeFoldApi {
@@ -64,27 +64,27 @@ export function useTreeFold(userId: string): TreeFoldApi {
     setState((previous) => setGroupOpen(previous, group, !isGroupOpen(previous, group)));
   }, []);
 
-  const toggleCalendar = useCallback((id: string) => {
-    setState((previous) => setCalendarOpen(previous, id, !isCalendarOpen(previous, id)));
+  const toggleCollection = useCallback((id: string) => {
+    setState((previous) => setCollectionOpen(previous, id, !isCollectionOpen(previous, id)));
   }, []);
 
   const expandGroup = useCallback((group: GroupKey) => {
     setState((previous) => setGroupOpen(previous, group, true));
   }, []);
 
-  const expandCalendar = useCallback((id: string) => {
-    setState((previous) => setCalendarOpen(previous, id, true));
+  const expandCollection = useCallback((id: string) => {
+    setState((previous) => setCollectionOpen(previous, id, true));
   }, []);
 
   const groupOpen = useCallback((group: GroupKey) => isGroupOpen(state, group), [state]);
-  const calendarOpen = useCallback((id: string) => isCalendarOpen(state, id), [state]);
+  const collectionOpen = useCallback((id: string) => isCollectionOpen(state, id), [state]);
 
   return {
     isGroupOpen: groupOpen,
-    isCalendarOpen: calendarOpen,
+    isCollectionOpen: collectionOpen,
     toggleGroup,
-    toggleCalendar,
+    toggleCollection,
     expandGroup,
-    expandCalendar,
+    expandCollection,
   };
 }

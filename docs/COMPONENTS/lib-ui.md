@@ -14,7 +14,7 @@ calendar still draws, or an undo action does nothing.
 | lib/ui/view.ts | Resolves which view a device opens on (`auto` = phone/desktop split) |
 | lib/ui/useVisibility.ts | Visibility state + per-user `localStorage` persistence |
 | lib/ui/visibility.ts | Pure visibility rules: person pills, parent inheritance, "display only this" |
-| lib/ui/visibleCalendars.ts | Turns the rules into the set of calendar ids the grid draws |
+| lib/ui/visibleCollections.ts | Turns the rules into the set of calendar ids the grid draws |
 | lib/ui/useDebouncedValue.ts | Delays a fast-changing value by `delayMs` |
 | lib/ui/useKeyboardShortcuts.ts | Single-key shortcuts with the "no shortcut while typing" guard |
 | lib/ui/useMediaQuery.ts | Reactive `matchMedia` subscription |
@@ -30,19 +30,19 @@ calendar still draws, or an undo action does nothing.
 
 **Public API**
 - `interface PickerRow { id: string; name: string; depth: 0 | 1; hasChildren: boolean; expanded: boolean; color: string }`.
-- `buildPickerRows(calendars: CalendarNode[], expandedIds: ReadonlySet<string>): PickerRow[]` — every root is listed; a root's `children` follow only when `expandedIds.has(root.id)`. Root rows carry `depth: 0`, `hasChildren: root.children.length > 0`, `expanded`; child rows are fixed at `depth: 1`, `hasChildren: false`, `expanded: false`.
-- `expandedForSelection(calendars: CalendarNode[], selectedId: string): Set<string>` — the one root whose child is selected, else an empty set (a root selection needs no branch open).
+- `buildPickerRows(collections: CollectionNode[], expandedIds: ReadonlySet<string>): PickerRow[]` — every root is listed; a root's `children` follow only when `expandedIds.has(root.id)`. Root rows carry `depth: 0`, `hasChildren: root.children.length > 0`, `expanded`; child rows are fixed at `depth: 1`, `hasChildren: false`, `expanded: false`.
+- `expandedForSelection(collections: CollectionNode[], selectedId: string): Set<string>` — the one root whose child is selected, else an empty set (a root selection needs no branch open).
 - `toggleExpanded(expanded: ReadonlySet<string>, id: string): Set<string>` — returns a new `Set`, never mutates the argument.
-- `calendarSwatch(calendars: CalendarNode[], id: string): { name: string; color: string } | null` — works for a root or a child anywhere in the tree, `null` for an unknown id.
+- `calendarSwatch(collections: CollectionNode[], id: string): { name: string; color: string } | null` — works for a root or a child anywhere in the tree, `null` for an unknown id.
 
 **Derived rules** — Colour always comes from the *root's* family: roots render `shadeTokens(family, PARENT_SHADE_INDEX).mainHex` (slot 3) and children `shadeTokens(family, child.shadeIndex).mainHex`, so a child's stored `shadeIndex` is what distinguishes siblings. The private `familyOf` falls back to `"slate"` when `hueFamily` is null or not a `HueFamily`, which is why an uncoloured legacy calendar still renders a grey swatch.
 
 **State & side effects** — None. No storage, no DOM, no memoisation; every call rebuilds from its arguments, so the expansion set lives in the caller's `useState`.
 
-**Depends on / Used by** — `PARENT_SHADE_INDEX`, `shadeTokens`, `isHueFamily`, `HueFamily` from `lib/color/palette`; `CalendarRow` from `lib/db/schema`; `CalendarNode` from `lib/services/calendars`. Used by `components/calendar/CalendarPicker.tsx` (all four exports) and `components/calendar/QuickCreatePopover.tsx` (`calendarSwatch`, to label the default calendar).
+**Depends on / Used by** — `PARENT_SHADE_INDEX`, `shadeTokens`, `isHueFamily`, `HueFamily` from `lib/color/palette`; `CollectionRow` from `lib/db/schema`; `CollectionNode` from `lib/services/collections`. Used by `components/calendar/CalendarPicker.tsx` (all four exports) and `components/calendar/QuickCreatePopover.tsx` (`calendarSwatch`, to label the default calendar).
 
 **Debugging**
-- A sub-calendar's swatch is the same colour as its parent -> its `shadeIndex` is 3 (the parent slot) or the row is not a child -> check `calendar.shade_index` and which branch of `buildPickerRows` produced the row.
+- A sub-calendar's swatch is the same colour as its parent -> its `shadeIndex` is 3 (the parent slot) or the row is not a child -> check `collection.shade_index` and which branch of `buildPickerRows` produced the row.
 - The picker opens with the selected sub-calendar collapsed -> `expandedForSelection` only opens one level and returns nothing for a stale id -> check the id passed from the toolbar and that the calendar list is fresh.
 - Expanding a parent does not reveal children -> the caller stored a mutated set instead of the returned one, or `expandedIds` is a new set each render -> check `toggleExpanded` usage in `CalendarPicker.tsx`.
 
@@ -91,14 +91,14 @@ calendar still draws, or an undo action does nothing.
 **Purpose** — Holds the household's visibility state in React and persists it per user in `localStorage`, exposing the four mutators the sidebar and calendar pickers call.
 
 **Public API**
-- `interface VisibilityApi { state: VisibilityState; setGroup(group: GroupKey, visible: boolean): void; toggleCalendar(id: string): void; setCalendars(ids: string[], visible: boolean): void; setOnly(id: string | null): void }`.
+- `interface VisibilityApi { state: VisibilityState; setGroup(group: GroupKey, visible: boolean): void; toggleCollection(id: string): void; setCollections(ids: string[], visible: boolean): void; setOnly(id: string | null): void }`.
 - `useVisibility(userId: string): VisibilityApi`.
 
-**State & side effects** — `localStorage` key `nailong.visibility.${userId}`; the value is `JSON.stringify(VisibilityState)`, i.e. `{ groups: { ours, me, partner }, calendars: { <id>: boolean }, only: string | null }`. The read happens in an effect after mount (it cannot be a `useState` initialiser because the server has no `localStorage`), then `loaded` flips true and a second effect writes on every state change; both effects swallow storage exceptions, so private mode degrades to session-only visibility. The persisted read is defensive: `groups` is merged over `DEFAULT_VISIBILITY.groups`, `calendars` is taken as-is, and `only` is kept only when it is a string.
+**State & side effects** — `localStorage` key `nailong.visibility.${userId}` (unchanged across the v0.2 collection rename); the value is `JSON.stringify(VisibilityState)`, i.e. `{ groups: { ours, me, partner }, collections: { <id>: boolean }, only: string | null }`. The read happens in an effect after mount (it cannot be a `useState` initialiser because the server has no `localStorage`), then `loaded` flips true and a second effect writes on every state change; both effects swallow storage exceptions, so private mode degrades to session-only visibility. The persisted read is defensive: `groups` is merged over `DEFAULT_VISIBILITY.groups`, `collections` is taken as-is (a legacy `calendars` map is not a known key, so it reads as no overrides), and `only` is kept only when it is a string.
 
-**Derived rules** — Every mutator except `setOnly` sets `only: null`, which is how touching any pill or checkbox leaves the isolated "display only this calendar" view. `toggleCalendar` treats a missing entry as visible (`!(previous.calendars[id] ?? true)`), so the first click hides a calendar rather than enabling it. `setCalendars` writes the same flag for each id and replaces the map copy, never mutating the previous state.
+**Derived rules** — Every mutator except `setOnly` sets `only: null`, which is how touching any pill or checkbox leaves the isolated "display only this calendar" view. `toggleCollection` treats a missing entry as visible (`!(previous.collections[id] ?? true)`), so the first click hides a collection rather than enabling it. `setCollections` writes the same flag for each id and replaces the map copy, never mutating the previous state.
 
-**Depends on / Used by** — `DEFAULT_VISIBILITY`, `GroupKey`, `VisibilityState` from `./visibility`. Instantiated once in `components/shell/AppShell.tsx` (`useVisibility(currentUser.id)`) and distributed through `VisibilityProvider`/`useVisibilityApi`; the API type is imported by `components/shell/{VisibilityProvider,BreadcrumbBar}.tsx`, `components/sidebar/{PersonPills,CalendarTree}.tsx`, and the state is read by `components/calendar/CalendarShell.tsx` and `components/sidebar/SidebarMiniMonth.tsx`.
+**Depends on / Used by** — `DEFAULT_VISIBILITY`, `GroupKey`, `VisibilityState` from `./visibility`. Instantiated once in `components/shell/AppShell.tsx` (`useVisibility(currentUser.id)`) and distributed through `VisibilityProvider`/`useVisibilityApi`; the API type is imported by `components/shell/{VisibilityProvider,BreadcrumbBar}.tsx`, `components/sidebar/{PersonPills,CollectionTree}.tsx`, and the state is read by `components/calendar/CalendarShell.tsx` and `components/sidebar/SidebarMiniMonth.tsx`.
 
 **Debugging**
 - A hidden calendar comes back after a reload -> the state changed before `loaded` was true (the write effect is gated on it), or another tab overwrote the key -> watch writes to `nailong.visibility.<userId>`.
@@ -109,86 +109,86 @@ calendar still draws, or an undo action does nothing.
 
 ### lib/ui/visibility.ts
 
-**Purpose** — The pure rules that decide whether a calendar is drawn: three person pills, a per-calendar checkbox, parent inheritance for sub-calendars, and Google's "display only this calendar" override.
+**Purpose** — The pure rules that decide whether a collection is drawn: three person pills, a per-collection checkbox, parent inheritance for sub-collections, and Google's "display only this calendar" override.
 
 **Public API**
 - `type GroupKey = "ours" | "me" | "partner"`; `GROUP_ORDER: readonly GroupKey[] = ["ours", "me", "partner"]`.
-- `interface VisibilityState { groups: Record<GroupKey, boolean>; calendars: Record<string, boolean>; only: string | null }` — a missing `calendars` entry means visible.
-- `DEFAULT_VISIBILITY: VisibilityState` — all three groups true, empty `calendars`, `only: null`.
-- `effectiveOwnerOf(calendar: Pick<CalendarRow, "ownerId">, parent?: Pick<CalendarRow, "ownerId"> | null): string | null` — the owner that actually applies: a child inherits its parent's owner (`parent.ownerId ?? calendar.ownerId`), matching the server's `getCalendarAccess` fold.
-- `groupOf(calendar: Pick<CalendarRow, "ownerId">, viewerId: string, parent?: Pick<CalendarRow, "ownerId"> | null): GroupKey` — effective owner `null` -> `"ours"` (a shared calendar), equals `viewerId` -> `"me"`, anything else -> `"partner"`.
-- `isCalendarVisible(state, calendar: Pick<CalendarRow, "id" | "ownerId">, viewerId, parent?: Pick<CalendarRow, "id" | "ownerId"> | null): boolean`. Passing the parent makes the child's pill follow the root, so a stale per-row `ownerId` on a sub-calendar cannot put it in the wrong group.
+- `interface VisibilityState { groups: Record<GroupKey, boolean>; collections: Record<string, boolean>; only: string | null }` — a missing `collections` entry means visible.
+- `DEFAULT_VISIBILITY: VisibilityState` — all three groups true, empty `collections`, `only: null`.
+- `effectiveOwnerOf(collection: Pick<CollectionRow, "ownerId">, parent?: Pick<CollectionRow, "ownerId"> | null): string | null` — the owner that actually applies: a child inherits its parent's owner (`parent.ownerId ?? collection.ownerId`), matching the server's `getCollectionAccess` fold.
+- `groupOf(collection: Pick<CollectionRow, "ownerId">, viewerId: string, parent?: Pick<CollectionRow, "ownerId"> | null): GroupKey` — effective owner `null` -> `"ours"` (a shared collection), equals `viewerId` -> `"me"`, anything else -> `"partner"`.
+- `isCollectionVisible(state, collection: Pick<CollectionRow, "id" | "ownerId">, viewerId, parent?: Pick<CollectionRow, "id" | "ownerId"> | null): boolean`. Passing the parent makes the child's pill follow the root, so a stale per-row `ownerId` on a sub-collection cannot put it in the wrong group.
 
 **Derivation rules, in evaluation order**
-1. `state.only !== null` -> exactly `calendar.id === state.only`. This outranks everything, so an isolated sub-calendar draws even when its pill and its parent's checkbox are off.
-2. The calendar's person pill (`groupOf`, folded through `parent` when one is supplied) is false -> hidden (a missing key counts as visible).
-3. A `parent` is supplied and `state.calendars[parent.id] === false` -> hidden. Only checked when the caller passes the parent, which is why a child's visibility is a caller responsibility outside the tree.
-4. Otherwise the calendar's own checkbox, defaulting to visible.
+1. `state.only !== null` -> exactly `collection.id === state.only`. This outranks everything, so an isolated sub-collection draws even when its pill and its parent's checkbox are off.
+2. The collection's person pill (`groupOf`, folded through `parent` when one is supplied) is false -> hidden (a missing key counts as visible).
+3. A `parent` is supplied and `state.collections[parent.id] === false` -> hidden. Only checked when the caller passes the parent, which is why a child's visibility is a caller responsibility outside the tree.
+4. Otherwise the collection's own checkbox, defaulting to visible.
 
 **State & side effects** — None. No storage here — `useVisibility` owns persistence.
 
-**Depends on / Used by** — `CalendarRow` from `lib/db/schema`. Used by `lib/ui/visibleCalendars.ts` and `components/sidebar/CalendarTree.tsx` (checkbox states and the "currently visible" check used when toggling a parent for its children). `GROUP_ORDER` and `groupOf` group the tree's roots into the three sections; child checks pass the root so they group with it.
+**Depends on / Used by** — `CollectionRow` from `lib/db/schema`. Used by `lib/ui/visibleCollections.ts` and `components/sidebar/CollectionTree.tsx` (checkbox states and the "currently visible" check used when toggling a parent for its children). `GROUP_ORDER` and `groupOf` group the tree's roots into the three sections; child checks pass the root so they group with it.
 
 **Debugging**
-- Unchecking a parent leaves children drawn -> the caller omitted the `parent` argument -> check the `isCalendarVisible(state, child, currentUserId, root)` call sites in `CalendarTree.tsx`.
+- Unchecking a parent leaves children drawn -> the caller omitted the `parent` argument -> check the `isCollectionVisible(state, child, currentUserId, root)` call sites in `CollectionTree.tsx`.
 - A shared calendar hides with the "me" pill -> `ownerId` is null for shared calendars, so it belongs to `ours` -> check the row's `owner_id`.
 - A sub-calendar vanishes with the "Ours" pill although it renders under a person's heading -> the caller passed no `parent`, or the row's stale `owner_id` is NULL from a pre-`0004` owner move -> pass the root; migration `0004` backfills the row.
 - Isolated view swallows every pill -> expected precedence for `only`; the exit path is any mutator in `useVisibility`, which sets `only: null`.
 
 **Tests** — `tests/unit/visibility.test.ts`.
 
-### lib/ui/visibleCalendars.ts
+### lib/ui/visibleCollections.ts
 
-**Purpose** — The single implementation of "which calendar ids is the grid drawing", shared by the main grid and the sidebar mini-month so they cannot disagree.
+**Purpose** — The single implementation of "which collection ids is the grid drawing", shared by the main grid and the sidebar mini-month so they cannot disagree.
 
-**Public API** — `visibleCalendarIds(roots: CalendarNode[], state: VisibilityState, userId: string): Set<string>`.
+**Public API** — `visibleCollectionIds(roots: CollectionNode[], state: VisibilityState, userId: string): Set<string>`.
 
-**Derivation rules** — When `state.only !== null` it returns `new Set([state.only])` immediately: exact, and deliberately bypassing the branch pruning below so a sub-calendar can be isolated while its parent is filtered out. Otherwise it walks roots in order: a root that fails `isCalendarVisible(state, root, userId)` is skipped **together with all of its children** (the loop `continue`s), and each child is then tested with `isCalendarVisible(state, child, userId, root)` — the root is passed so the child's pill follows the root's owner rather than a stale child row. The result is a `Set` of ids only — never calendar rows — and it is rebuilt on every call.
+**Derivation rules** — When `state.only !== null` it returns `new Set([state.only])` immediately: exact, and deliberately bypassing the branch pruning below so a sub-calendar can be isolated while its parent is filtered out. Otherwise it walks roots in order: a root that fails `isCollectionVisible(state, root, userId)` is skipped **together with all of its children** (the loop `continue`s), and each child is then tested with `isCollectionVisible(state, child, userId, root)` — the root is passed so the child's pill follows the root's owner rather than a stale child row. The result is a `Set` of ids only — never calendar rows — and it is rebuilt on every call.
 
 **State & side effects** — None. Pure over its arguments.
 
-**Depends on / Used by** — `CalendarNode` from `lib/services/calendars`; `isCalendarVisible`, `VisibilityState` from `./visibility`. Called by `components/calendar/CalendarShell.tsx` (memoised over `calendars`, `currentUserId`, `visibility.state`; its result filters the fetched events by `calendarId`) and `components/sidebar/SidebarMiniMonth.tsx`.
+**Depends on / Used by** — `CollectionNode` from `lib/services/collections`; `isCollectionVisible`, `VisibilityState` from `./visibility`. Called by `components/calendar/CalendarShell.tsx` (memoised over `collections`, `currentUserId`, `visibility.state`; its result filters the fetched events by `collectionId`) and `components/sidebar/SidebarMiniMonth.tsx`.
 
 **Debugging**
 - The grid is empty while a calendar is ticked -> `state.only` is set to a different id -> check `visibility.state.only`.
 - Grid and mini-month disagree -> both call this function, so the difference is in the arguments (stale provider state, or a mini-month built from a different calendar list) -> log `roots.length` and `state` at both sites.
-- A child shows while its parent's checkbox is off -> the root was filtered but the child test was reached, which only happens when you call `isCalendarVisible` directly instead of going through this function -> check the caller.
+- A child shows while its parent's checkbox is off -> the root was filtered but the child test was reached, which only happens when you call `isCollectionVisible` directly instead of going through this function -> check the caller.
 
-**Tests** — `tests/unit/visibleCalendars.test.ts`; `tests/e2e/sidebar.spec.ts` and `tests/e2e/only-this-calendar.spec.ts` cover the rendered result.
+**Tests** — `tests/unit/visibleCollections.test.ts`; `tests/e2e/sidebar.spec.ts` and `tests/e2e/only-this-calendar.spec.ts` cover the rendered result.
 
 ## Sidebar folding
 
 ### lib/ui/treeFold.ts
 
-**Purpose** — The pure fold rules for the calendar sidebar: which groups and which root calendars are expanded. Folding is display-only — it hides a branch in the tree and never changes what the grid draws (that is `VisibilityState`'s job).
+**Purpose** — The pure fold rules for the collection sidebar: which groups and which root collections are expanded. Folding is display-only — it hides a branch in the tree and never changes what the grid draws (that is `VisibilityState`'s job).
 
 **Public API**
-- `interface TreeFoldState { groups: Record<GroupKey, boolean>; calendars: Record<string, boolean> }` — `true` means expanded, and a missing entry means expanded, so an untouched tree looks exactly as it did before folding existed.
-- `DEFAULT_TREE_FOLD: TreeFoldState` — all three groups open, no calendar overrides.
-- `isGroupOpen(state, group): boolean`, `isCalendarOpen(state, id): boolean` — default `true` for missing entries.
-- `setGroupOpen(state, group, open): TreeFoldState`, `setCalendarOpen(state, id, open): TreeFoldState` — immutable copies; children fold with their root, so only root ids are stored.
+- `interface TreeFoldState { groups: Record<GroupKey, boolean>; collections: Record<string, boolean> }` — `true` means expanded, and a missing entry means expanded, so an untouched tree looks exactly as it did before folding existed. The storage key `nailong.treeFold.${userId}` is unchanged; a legacy `calendars` map is not a known key and reads as nothing folded.
+- `DEFAULT_TREE_FOLD: TreeFoldState` — all three groups open, no collection overrides.
+- `isGroupOpen(state, group): boolean`, `isCollectionOpen(state, id): boolean` — default `true` for missing entries.
+- `setGroupOpen(state, group, open): TreeFoldState`, `setCollectionOpen(state, id, open): TreeFoldState` — immutable copies; children fold with their root, so only root ids are stored.
 - `parseTreeFold(raw: string | null): TreeFoldState` — storage-read defence: malformed JSON, non-objects and non-boolean entries fall back to expanded; only real booleans are trusted.
 
 **State & side effects** — None; pure over its arguments. `useTreeFold` owns `localStorage`.
 
-**Depends on / Used by** — `GroupKey` from `./visibility`. Used by `lib/ui/useTreeFold.ts`; `components/sidebar/CalendarTree.tsx` reads it only through that hook.
+**Depends on / Used by** — `GroupKey` from `./visibility`. Used by `lib/ui/useTreeFold.ts`; `components/sidebar/CollectionTree.tsx` reads it only through that hook.
 
 **Debugging**
 - A folded branch reappears after a reload -> `parseTreeFold` returned defaults, which happens when the stored JSON is not an object -> inspect `nailong.treeFold.<userId>`.
 - A branch folds although the user never touched it -> a stored entry is the wrong boolean, or a second writer used the same key -> the same storage key.
-- Folding is expected to hide grid calendars and does not -> wrong module: fold state must never be read by `isCalendarVisible`/`visibleCalendarIds` -> this file's header comment.
+- Folding is expected to hide grid calendars and does not -> wrong module: fold state must never be read by `isCollectionVisible`/`visibleCollectionIds` -> this file's header comment.
 
 **Tests** — `tests/unit/treeFold.test.ts`.
 
 ### lib/ui/useTreeFold.ts
 
-**Purpose** — Holds the sidebar fold state in React and persists it per user in `localStorage`, exposing the expand/collapse mutators `CalendarTree` needs.
+**Purpose** — Holds the sidebar fold state in React and persists it per user in `localStorage`, exposing the expand/collapse mutators `CollectionTree` needs.
 
-**Public API** — `interface TreeFoldApi { isGroupOpen(group: GroupKey): boolean; isCalendarOpen(id: string): boolean; toggleGroup(group: GroupKey): void; toggleCalendar(id: string): void; expandGroup(group: GroupKey): void; expandCalendar(id: string): void }`; `useTreeFold(userId: string): TreeFoldApi`.
+**Public API** — `interface TreeFoldApi { isGroupOpen(group: GroupKey): boolean; isCollectionOpen(id: string): boolean; toggleGroup(group: GroupKey): void; toggleCollection(id: string): void; expandGroup(group: GroupKey): void; expandCollection(id: string): void }`; `useTreeFold(userId: string): TreeFoldApi`.
 
-**State & side effects** — `localStorage` key `nailong.treeFold.${userId}`; the value is `JSON.stringify(TreeFoldState)`. The read happens in an effect after mount (the server has no `localStorage`, so it cannot be a `useState` initialiser), then the write effect persists every change; both effects swallow storage exceptions, so private mode degrades to session-only folding. The write effect is gated on the key that was actually loaded (`loadedKey === storageKey`) rather than a boolean, so a `userId` change re-reads before writing and never persists the previous person's state under the new key. `expandGroup`/`expandCalendar` exist so a calendar created (or re-owned) into a folded group, or a sub-calendar added to a folded parent, is not silently hidden.
+**State & side effects** — `localStorage` key `nailong.treeFold.${userId}`; the value is `JSON.stringify(TreeFoldState)`. The read happens in an effect after mount (the server has no `localStorage`, so it cannot be a `useState` initialiser), then the write effect persists every change; both effects swallow storage exceptions, so private mode degrades to session-only folding. The write effect is gated on the key that was actually loaded (`loadedKey === storageKey`) rather than a boolean, so a `userId` change re-reads before writing and never persists the previous person's state under the new key. `expandGroup`/`expandCollection` exist so a collection created (or re-owned) into a folded group, or a sub-collection added to a folded parent, is not silently hidden.
 
-**Depends on / Used by** — `DEFAULT_TREE_FOLD`, `parseTreeFold`, `isGroupOpen`, `isCalendarOpen`, `setGroupOpen`, `setCalendarOpen`, `TreeFoldState` from `./treeFold`; `GroupKey` from `./visibility`. Instantiated once in `components/shell/AppShell.tsx` (`useTreeFold(currentUser.id)`) and passed to `CalendarTree` as the `fold` prop, so the desktop sidebar and the phone sheet share one fold state.
+**Depends on / Used by** — `DEFAULT_TREE_FOLD`, `parseTreeFold`, `isGroupOpen`, `isCollectionOpen`, `setGroupOpen`, `setCollectionOpen`, `TreeFoldState` from `./treeFold`; `GroupKey` from `./visibility`. Instantiated once in `components/shell/AppShell.tsx` (`useTreeFold(currentUser.id)`) and passed to `CollectionTree` as the `fold` prop, so the desktop sidebar and the phone sheet share one fold state.
 
 **Debugging**
 - Desktop and the phone sheet fold independently -> a second `useTreeFold` call was added instead of passing `AppShell`'s `fold` prop -> search for `useTreeFold(`.
@@ -357,6 +357,6 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 ## Focused verification
 
 ```bash
-npx vitest run tests/unit/calendarPicker.test.ts tests/unit/view.test.ts tests/unit/visibility.test.ts tests/unit/visibleCalendars.test.ts tests/unit/treeFold.test.ts
+npx vitest run tests/unit/calendarPicker.test.ts tests/unit/view.test.ts tests/unit/visibility.test.ts tests/unit/visibleCollections.test.ts tests/unit/treeFold.test.ts
 npm run lint && npm run typecheck
 ```

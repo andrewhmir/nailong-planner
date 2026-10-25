@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { CalendarRow } from "@/lib/db/schema";
-import { DEFAULT_VISIBILITY, groupOf, isCalendarVisible, type VisibilityState } from "@/lib/ui/visibility";
+import type { CollectionRow } from "@/lib/db/schema";
+import { DEFAULT_VISIBILITY, groupOf, isCollectionVisible, type VisibilityState } from "@/lib/ui/visibility";
 
 const viewer = "user-a";
 
-function calendar(overrides: Partial<CalendarRow>): CalendarRow {
+function calendar(overrides: Partial<CollectionRow>): CollectionRow {
   return {
     id: "c1",
     householdId: "h1",
@@ -30,8 +30,8 @@ describe("calendar visibility", () => {
   });
 
   it("shows everything by default", () => {
-    expect(isCalendarVisible(DEFAULT_VISIBILITY, calendar({}), viewer)).toBe(true);
-    expect(isCalendarVisible(DEFAULT_VISIBILITY, calendar({ id: "child" }), viewer)).toBe(true);
+    expect(isCollectionVisible(DEFAULT_VISIBILITY, calendar({}), viewer)).toBe(true);
+    expect(isCollectionVisible(DEFAULT_VISIBILITY, calendar({ id: "child" }), viewer)).toBe(true);
   });
 
   it("multiplies the group pill with the per-calendar checkbox", () => {
@@ -39,20 +39,20 @@ describe("calendar visibility", () => {
       ...DEFAULT_VISIBILITY,
       groups: { ...DEFAULT_VISIBILITY.groups, partner: false },
     };
-    expect(isCalendarVisible(hiddenGroup, calendar({ ownerId: "user-b" }), viewer)).toBe(false);
-    expect(isCalendarVisible(hiddenGroup, calendar({ ownerId: "user-a" }), viewer)).toBe(true);
+    expect(isCollectionVisible(hiddenGroup, calendar({ ownerId: "user-b" }), viewer)).toBe(false);
+    expect(isCollectionVisible(hiddenGroup, calendar({ ownerId: "user-a" }), viewer)).toBe(true);
 
-    const unchecked: VisibilityState = { ...DEFAULT_VISIBILITY, calendars: { c1: false } };
-    expect(isCalendarVisible(unchecked, calendar({}), viewer)).toBe(false);
+    const unchecked: VisibilityState = { ...DEFAULT_VISIBILITY, collections: { c1: false } };
+    expect(isCollectionVisible(unchecked, calendar({}), viewer)).toBe(false);
   });
 
   it("hides a sub-calendar when its parent is hidden", () => {
-    const parentHidden: VisibilityState = { ...DEFAULT_VISIBILITY, calendars: { "parent-id": false } };
+    const parentHidden: VisibilityState = { ...DEFAULT_VISIBILITY, collections: { "parent-id": false } };
     const child = calendar({ id: "child-id", parentId: "parent-id", ownerId: "user-a" });
     const parent = calendar({ id: "parent-id" });
 
-    expect(isCalendarVisible(parentHidden, parent, viewer)).toBe(false);
-    expect(isCalendarVisible(parentHidden, child, viewer, parent)).toBe(false);
+    expect(isCollectionVisible(parentHidden, parent, viewer)).toBe(false);
+    expect(isCollectionVisible(parentHidden, child, viewer, parent)).toBe(false);
   });
 
   it("groups a sub-calendar by its parent's owner, not its stale row", () => {
@@ -77,8 +77,8 @@ describe("calendar visibility", () => {
     const myRoot = calendar({ id: "root-id", ownerId: "user-a" });
     const staleChild = calendar({ id: "child-id", parentId: "root-id", ownerId: null });
 
-    expect(isCalendarVisible(oursHidden, myRoot, viewer)).toBe(true);
-    expect(isCalendarVisible(oursHidden, staleChild, viewer, myRoot)).toBe(true);
+    expect(isCollectionVisible(oursHidden, myRoot, viewer)).toBe(true);
+    expect(isCollectionVisible(oursHidden, staleChild, viewer, myRoot)).toBe(true);
 
     // The partner's pill still hides a child of their parent.
     const partnerHidden: VisibilityState = {
@@ -86,7 +86,7 @@ describe("calendar visibility", () => {
       groups: { ours: true, me: true, partner: false },
     };
     expect(
-      isCalendarVisible(partnerHidden, staleChild, viewer, calendar({ id: "root-id", ownerId: "user-b" })),
+      isCollectionVisible(partnerHidden, staleChild, viewer, calendar({ id: "root-id", ownerId: "user-b" })),
     ).toBe(false);
   });
 });
@@ -95,8 +95,8 @@ describe("display only this calendar", () => {
   it("draws exactly the isolated calendar and nothing else", () => {
     const only: VisibilityState = { ...DEFAULT_VISIBILITY, only: "c1" };
 
-    expect(isCalendarVisible(only, calendar({ id: "c1" }), viewer)).toBe(true);
-    expect(isCalendarVisible(only, calendar({ id: "c2" }), viewer)).toBe(false);
+    expect(isCollectionVisible(only, calendar({ id: "c1" }), viewer)).toBe(true);
+    expect(isCollectionVisible(only, calendar({ id: "c2" }), viewer)).toBe(false);
   });
 
   it("outranks the pills and the per-calendar checkboxes", () => {
@@ -105,11 +105,11 @@ describe("display only this calendar", () => {
     const only: VisibilityState = {
       ...DEFAULT_VISIBILITY,
       groups: { ours: false, me: false, partner: false },
-      calendars: { c1: false },
+      collections: { c1: false },
       only: "c1",
     };
 
-    expect(isCalendarVisible(only, calendar({ id: "c1" }), viewer)).toBe(true);
+    expect(isCollectionVisible(only, calendar({ id: "c1" }), viewer)).toBe(true);
   });
 
   it("keeps a parent's sub-calendars hidden — only that one calendar is drawn", () => {
@@ -117,14 +117,14 @@ describe("display only this calendar", () => {
     const parent = calendar({ id: "parent-id" });
     const child = calendar({ id: "child-id", parentId: "parent-id" });
 
-    expect(isCalendarVisible(only, parent, viewer)).toBe(true);
-    expect(isCalendarVisible(only, child, viewer, parent)).toBe(false);
+    expect(isCollectionVisible(only, parent, viewer)).toBe(true);
+    expect(isCollectionVisible(only, child, viewer, parent)).toBe(false);
   });
 
   it("restores the normal view once cleared", () => {
     const cleared: VisibilityState = { ...DEFAULT_VISIBILITY, only: null };
 
-    expect(isCalendarVisible(cleared, calendar({ id: "c1" }), viewer)).toBe(true);
-    expect(isCalendarVisible(cleared, calendar({ id: "c2" }), viewer)).toBe(true);
+    expect(isCollectionVisible(cleared, calendar({ id: "c1" }), viewer)).toBe(true);
+    expect(isCollectionVisible(cleared, calendar({ id: "c2" }), viewer)).toBe(true);
   });
 });

@@ -2,9 +2,9 @@
 
 import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useCalendars } from "@/lib/query/calendars";
+import { useCollections } from "@/lib/query/collections";
 import { usePreferences, useUpdatePreferences } from "@/lib/query/preferences";
-import { canWriteCalendar } from "@/lib/services/permissions";
+import { canWriteCollection } from "@/lib/services/permissions";
 import type { UserPreferences } from "@/lib/services/preferences";
 import { cn } from "@/lib/utils";
 
@@ -41,11 +41,11 @@ interface Props {
 export function CalendarPreferencesCard({ initialPreferences, currentUserId }: Props) {
   const preferences = usePreferences(initialPreferences);
   const update = useUpdatePreferences();
-  const { data: calendars } = useCalendars();
+  const { data: collections } = useCollections();
 
   const viewer = { userId: currentUserId, householdId: "" };
-  const writableCalendars = (calendars ?? []).flatMap((root) => {
-    if (!canWriteCalendar(viewer, root)) {
+  const writableCollections = (collections ?? []).flatMap((root) => {
+    if (!canWriteCollection(viewer, root)) {
       return [];
     }
     const entries = [{ id: root.id, name: root.name }];
@@ -55,7 +55,7 @@ export function CalendarPreferencesCard({ initialPreferences, currentUserId }: P
         ownerId: root.ownerId ?? child.ownerId,
         visibility: root.visibility === "shared" ? child.visibility : root.visibility,
       };
-      if (canWriteCalendar(viewer, effective)) {
+      if (canWriteCollection(viewer, effective)) {
         entries.push({ id: child.id, name: `${root.name} / ${child.name}` });
       }
     }
@@ -165,9 +165,9 @@ export function CalendarPreferencesCard({ initialPreferences, currentUserId }: P
             className={FIELD}
           >
             <option value="">None</option>
-            {writableCalendars.map((calendar) => (
-              <option key={calendar.id} value={calendar.id}>
-                {calendar.name}
+            {writableCollections.map((collection) => (
+              <option key={collection.id} value={collection.id}>
+                {collection.name}
               </option>
             ))}
           </select>

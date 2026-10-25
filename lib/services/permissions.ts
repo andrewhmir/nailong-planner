@@ -1,4 +1,4 @@
-import type { CalendarRow } from "@/lib/db/schema";
+import type { CollectionRow } from "@/lib/db/schema";
 
 export interface ViewerContext {
   userId: string;
@@ -14,12 +14,12 @@ export interface ViewerContext {
  * writable by nobody — validation prevents that state, and if it somehow exists
  * this predicate fails closed.
  */
-export function canWriteCalendar(
+export function canWriteCollection(
   viewer: ViewerContext,
-  calendar: Pick<CalendarRow, "ownerId" | "visibility">,
+  collection: Pick<CollectionRow, "ownerId" | "visibility">,
 ): boolean {
-  if (calendar.visibility === "shared") {
+  if (collection.visibility === "shared") {
     return true;
   }
-  return calendar.ownerId !== null && calendar.ownerId === viewer.userId;
+  return collection.ownerId !== null && collection.ownerId === viewer.userId;
 }

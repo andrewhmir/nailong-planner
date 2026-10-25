@@ -1,17 +1,17 @@
 import type { NextRequest } from "next/server";
 import { withViewer } from "@/lib/api/route";
 import {
-  deleteCalendarHandler,
-  updateCalendarHandler,
-} from "@/lib/api/handlers/calendars";
+  deleteCollectionHandler,
+  updateCollectionHandler,
+} from "@/lib/api/handlers/collections";
 
 export const dynamic = "force-dynamic";
 
 const patch = withViewer<{ id: string }>(({ db, ctx, request, id }) =>
-  updateCalendarHandler(db, ctx, id, request),
+  updateCollectionHandler(db, ctx, id, request),
 );
 
-const remove = withViewer<{ id: string }>(({ db, ctx, id }) => deleteCalendarHandler(db, ctx, id));
+const remove = withViewer<{ id: string }>(({ db, ctx, id }) => deleteCollectionHandler(db, ctx, id));
 
 export async function PATCH(
   request: NextRequest,

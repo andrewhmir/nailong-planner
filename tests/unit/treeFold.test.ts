@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_TREE_FOLD,
-  isCalendarOpen,
+  isCollectionOpen,
   isGroupOpen,
   parseTreeFold,
-  setCalendarOpen,
+  setCollectionOpen,
   setGroupOpen,
   type TreeFoldState,
 } from "@/lib/ui/treeFold";
@@ -15,7 +15,7 @@ describe("tree fold defaults", () => {
     expect(isGroupOpen(DEFAULT_TREE_FOLD, "me")).toBe(true);
     expect(isGroupOpen(DEFAULT_TREE_FOLD, "partner")).toBe(true);
     // A calendar with no stored entry is expanded: folding is opt-in.
-    expect(isCalendarOpen(DEFAULT_TREE_FOLD, "cal-1")).toBe(true);
+    expect(isCollectionOpen(DEFAULT_TREE_FOLD, "cal-1")).toBe(true);
   });
 });
 
@@ -28,22 +28,22 @@ describe("tree fold toggles", () => {
   });
 
   it("folds one calendar without touching its siblings", () => {
-    const next = setCalendarOpen(DEFAULT_TREE_FOLD, "school", false);
-    expect(isCalendarOpen(next, "school")).toBe(false);
-    expect(isCalendarOpen(next, "work")).toBe(true);
+    const next = setCollectionOpen(DEFAULT_TREE_FOLD, "school", false);
+    expect(isCollectionOpen(next, "school")).toBe(false);
+    expect(isCollectionOpen(next, "work")).toBe(true);
   });
 
   it("does not mutate the state it was given", () => {
     const state: TreeFoldState = DEFAULT_TREE_FOLD;
     setGroupOpen(state, "me", false);
-    setCalendarOpen(state, "school", false);
+    setCollectionOpen(state, "school", false);
     expect(state).toEqual(DEFAULT_TREE_FOLD);
   });
 });
 
 describe("parseTreeFold", () => {
   it("round-trips stored state", () => {
-    const stored = setCalendarOpen(setGroupOpen(DEFAULT_TREE_FOLD, "partner", false), "school", false);
+    const stored = setCollectionOpen(setGroupOpen(DEFAULT_TREE_FOLD, "partner", false), "school", false);
     expect(parseTreeFold(JSON.stringify(stored))).toEqual(stored);
   });
 
@@ -55,11 +55,11 @@ describe("parseTreeFold", () => {
 
   it("drops entries that are not booleans instead of trusting them", () => {
     const parsed = parseTreeFold(
-      JSON.stringify({ groups: { me: "folded", ours: false }, calendars: { school: 0, work: true } }),
+      JSON.stringify({ groups: { me: "folded", ours: false }, collections: { school: 0, work: true } }),
     );
     expect(isGroupOpen(parsed, "me")).toBe(true);
     expect(isGroupOpen(parsed, "ours")).toBe(false);
-    expect(isCalendarOpen(parsed, "school")).toBe(true);
-    expect(isCalendarOpen(parsed, "work")).toBe(true);
+    expect(isCollectionOpen(parsed, "school")).toBe(true);
+    expect(isCollectionOpen(parsed, "work")).toBe(true);
   });
 });

@@ -6,9 +6,9 @@ import {
   previewImportHandler,
   rollbackImportBatchHandler,
 } from "@/lib/api/handlers/import";
-import { calendar, event } from "@/lib/db/schema";
+import { collection, event } from "@/lib/db/schema";
 import type { ImportFile } from "@/lib/services/import";
-import { createCalendar } from "@/lib/services/calendars";
+import { createCollection } from "@/lib/services/collections";
 import { localWallTimeToUtc } from "@/lib/time/zone";
 import { makeSeededDb } from "../helpers/fixtures";
 
@@ -48,7 +48,7 @@ function multipart(files: ImportFile[], mapping?: unknown): Request {
 
 async function setup() {
   const seeded = await makeSeededDb();
-  const home = createCalendar(seeded.db, seeded.ctxA, { name: "Home", hueFamily: "teal" });
+  const home = createCollection(seeded.db, seeded.ctxA, { name: "Home", hueFamily: "teal" });
   return { ...seeded, home };
 }
 
@@ -69,7 +69,7 @@ describe("import API", () => {
       expect(payload.preview.createCount).toBe(1);
       expect(payload.preview.calendars[0]?.name).toBe("Family");
       expect(db.select().from(event).all()).toHaveLength(0);
-      expect(db.select().from(calendar).all().filter((row) => row.name === "Family")).toHaveLength(0);
+      expect(db.select().from(collection).all().filter((row) => row.name === "Family")).toHaveLength(0);
     } finally {
       close();
     }

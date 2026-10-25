@@ -6,9 +6,9 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { ImportBatchesCard } from "@/components/import/ImportBatchesCard";
 import { Button } from "@/components/ui/button";
-import { useCalendars } from "@/lib/query/calendars";
+import { useCollections } from "@/lib/query/collections";
 import type { ImportCalendarMode, ImportPreview, ImportReport } from "@/lib/services/import";
-import { canWriteCalendar } from "@/lib/services/permissions";
+import { canWriteCollection } from "@/lib/services/permissions";
 
 // Canvas card and field recipes, copied from SettingsForm.tsx (the files are
 // not imported from a shared module there, so change them together).
@@ -46,13 +46,13 @@ export function ImportWizard({ currentUserId }: { currentUserId: string }) {
   const [report, setReport] = useState<ImportReport | null>(null);
   const [mapping, setMapping] = useState<Record<string, ImportCalendarMode>>({});
   const [busy, setBusy] = useState(false);
-  const { data: calendarTree } = useCalendars();
+  const { data: collectionTree } = useCollections();
 
-  const writableCalendars = (() => {
+  const writableCollections = (() => {
     const viewer = { userId: currentUserId, householdId: "" };
     const entries: Array<{ id: string; name: string }> = [];
-    for (const root of calendarTree ?? []) {
-      if (canWriteCalendar(viewer, root)) {
+    for (const root of collectionTree ?? []) {
+      if (canWriteCollection(viewer, root)) {
         entries.push({ id: root.id, name: root.name });
       }
       for (const child of root.children) {
@@ -60,7 +60,7 @@ export function ImportWizard({ currentUserId }: { currentUserId: string }) {
           ownerId: root.ownerId ?? child.ownerId,
           visibility: root.visibility === "shared" ? child.visibility : root.visibility,
         };
-        if (canWriteCalendar(viewer, effective)) {
+        if (canWriteCollection(viewer, effective)) {
           entries.push({ id: child.id, name: `${root.name} / ${child.name}` });
         }
       }
@@ -113,7 +113,7 @@ export function ImportWizard({ currentUserId }: { currentUserId: string }) {
       setStep("report");
       toast.success("Import complete");
       void queryClient.invalidateQueries({ queryKey: ["events"] });
-      void queryClient.invalidateQueries({ queryKey: ["calendars"] });
+      void queryClient.invalidateQueries({ queryKey: ["collections"] });
       void queryClient.invalidateQueries({ queryKey: ["import-batches"] });
     } catch (error) {
       toast.error((error as Error).message);
@@ -134,7 +134,7 @@ export function ImportWizard({ currentUserId }: { currentUserId: string }) {
           : "Import undone",
       );
       void queryClient.invalidateQueries({ queryKey: ["events"] });
-      void queryClient.invalidateQueries({ queryKey: ["calendars"] });
+      void queryClient.invalidateQueries({ queryKey: ["collections"] });
       void queryClient.invalidateQueries({ queryKey: ["import-batches"] });
       if (report?.batchId === batchId) {
         setReport(null);
@@ -324,7 +324,7 @@ export function ImportWizard({ currentUserId }: { currentUserId: string }) {
           <div className="mt-3 space-y-3">
             {preview.calendars.map((calendar) => {
               const entry = mapping[calendar.name] ?? { mode: "new" };
-              const value = entry.mode === "new" ? "new" : `existing:${entry.calendarId}`;
+              const value = entry.mode === "new" ? "new" : `existing:${entry.collectionId}`;
               return (
                 <div key={calendar.name}>
                   <label className={LABEL} htmlFor={`import-target-${calendar.name}`}>
@@ -343,12 +343,12 @@ export function ImportWizard({ currentUserId }: { currentUserId: string }) {
                         [calendar.name]:
                           next === "new"
                             ? { mode: "new" }
-                            : { mode: "existing", calendarId: next.replace("existing:", "") },
+                            : { mode: "existing", collectionId: next.replace("existing:", "") },
                       }));
                     }}
                   >
                     <option value="new">Create a new calendar under “From Google” (yours)</option>
-                    {writableCalendars.map((target) => (
+                    {writableCollections.map((target) => (
                       <option key={target.id} value={`existing:${target.id}`}>
                         {target.name}
                       </option>

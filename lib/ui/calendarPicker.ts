@@ -4,37 +4,37 @@ import {
   shadeTokens,
   type HueFamily,
 } from "@/lib/color/palette";
-import type { CalendarRow } from "@/lib/db/schema";
-import type { CalendarNode } from "@/lib/services/calendars";
+import type { CollectionRow } from "@/lib/db/schema";
+import type { CollectionNode } from "@/lib/services/collections";
 
 /** One rendered line of the nested calendar picker. */
 export interface PickerRow {
   id: string;
   name: string;
-  /** 0 for a top-level calendar, 1 for one of its sub-calendars. */
+  /** 0 for a top-level collection, 1 for one of its sub-collections. */
   depth: 0 | 1;
   hasChildren: boolean;
   expanded: boolean;
-  /** Swatch colour: the family's parent shade for roots, the assigned shade for sub-calendars. */
+  /** Swatch colour: the family's parent shade for roots, the assigned shade for sub-collections. */
   color: string;
 }
 
-function familyOf(calendar: CalendarRow): HueFamily {
-  return calendar.hueFamily && isHueFamily(calendar.hueFamily) ? calendar.hueFamily : "slate";
+function familyOf(collection: CollectionRow): HueFamily {
+  return collection.hueFamily && isHueFamily(collection.hueFamily) ? collection.hueFamily : "slate";
 }
 
 /**
- * Flattens the two-level calendar tree into the rows the picker draws: every
- * top-level calendar is always listed, and a calendar's sub-calendars appear
- * only once that calendar is expanded.
+ * Flattens the two-level collection tree into the rows the picker draws: every
+ * top-level collection is always listed, and a collection's sub-collections
+ * appear only once that collection is expanded.
  */
 export function buildPickerRows(
-  calendars: CalendarNode[],
+  collections: CollectionNode[],
   expandedIds: ReadonlySet<string>,
 ): PickerRow[] {
   const rows: PickerRow[] = [];
 
-  for (const root of calendars) {
+  for (const root of collections) {
     const family = familyOf(root);
     const expanded = expandedIds.has(root.id);
 
@@ -68,13 +68,13 @@ export function buildPickerRows(
 
 /**
  * The single branch that must be open for `selectedId` to be visible. Selecting
- * a top-level calendar needs no branch open, so the result is empty.
+ * a top-level collection needs no branch open, so the result is empty.
  */
 export function expandedForSelection(
-  calendars: CalendarNode[],
+  collections: CollectionNode[],
   selectedId: string,
 ): Set<string> {
-  for (const root of calendars) {
+  for (const root of collections) {
     if (root.id !== selectedId && root.children.some((child) => child.id === selectedId)) {
       return new Set([root.id]);
     }
@@ -93,12 +93,12 @@ export function toggleExpanded(expanded: ReadonlySet<string>, id: string): Set<s
   return next;
 }
 
-/** Name and swatch for the trigger, wherever in the tree the calendar sits. */
+/** Name and swatch for the trigger, wherever in the tree the collection sits. */
 export function calendarSwatch(
-  calendars: CalendarNode[],
+  collections: CollectionNode[],
   id: string,
 ): { name: string; color: string } | null {
-  for (const root of calendars) {
+  for (const root of collections) {
     const family = familyOf(root);
     if (root.id === id) {
       return { name: root.name, color: shadeTokens(family, PARENT_SHADE_INDEX).mainHex };

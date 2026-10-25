@@ -7,7 +7,7 @@ The HTTP boundary: `app/api/*/route.ts` handlers are thin adapters that run thro
 | File | Role |
 |---|---|
 | lib/api/route.ts | Session resolution, `ViewerContext` construction, DB access, `AppError` to HTTP mapping |
-| lib/api/handlers/calendars.ts | Calendar list/create/update/delete handlers |
+| lib/api/handlers/collections.ts | Calendar list/create/update/delete handlers |
 | lib/api/handlers/events.ts | Event range/list, search, create/update/delete handlers plus the default month range |
 | lib/api/handlers/preferences.ts | Per-user preference read/patch handlers |
 | lib/api/handlers/settings.ts | Household and profile patch handlers |
@@ -56,7 +56,7 @@ app/api/events/route.ts        GET/POST = withViewer(({ db, ctx, request }) => h
 
 **State & side effects** — Reads the session cookie through Better Auth and the `member` table (read-only); opens the shared DB via `getDb()`; logs unhandled errors to the server console with the `[api]` prefix. No writes, no transactions, no caching.
 
-**Depends on / Used by** — `next/server` `NextResponse`, `getAuth` from `lib/auth/server.ts`, `getDb` from `lib/db/index.ts`, `member` from `lib/db/schema.ts`, `env` from `lib/env.ts` (the trusted origin), `AppError` from `lib/errors.ts`, `ViewerContext` from `lib/services/permissions.ts`. Used by every `app/api/**/route.ts` (`calendars`, `calendars/[id]`, `events`, `events/[id]`, `events/search`, `settings/*`, `session`); `lib/api/handlers/support.ts` imports `apiError` from here; `tests/integration/calendars-api.test.ts` uses `withViewer` to assert the 401 envelope.
+**Depends on / Used by** — `next/server` `NextResponse`, `getAuth` from `lib/auth/server.ts`, `getDb` from `lib/db/index.ts`, `member` from `lib/db/schema.ts`, `env` from `lib/env.ts` (the trusted origin), `AppError` from `lib/errors.ts`, `ViewerContext` from `lib/services/permissions.ts`. Used by every `app/api/**/route.ts` (`collections`, `collections/[id]`, `events`, `events/[id]`, `events/search`, `settings/*`, `session`); `lib/api/handlers/support.ts` imports `apiError` from here; `tests/integration/collections-api.test.ts` uses `withViewer` to assert the 401 envelope.
 
 **Debugging**
 - Every route 401s locally -> no valid Better Auth cookie, or the auth handler and the route resolve different `getAuth()` settings -> start at `viewerFromRequest` (`getAuth().api.getSession`).
@@ -65,32 +65,32 @@ app/api/events/route.ts        GET/POST = withViewer(({ db, ctx, request }) => h
 - A route returns 500 with `[api] unhandled error` in the log -> a non-`AppError` escaped a service (`TypeError`, SQL constraint, `JSON.parse`) -> read the logged stack, then the service named there.
 - A client fails to parse the response on a delete -> 204 routes return `new Response(null, { status: 204 })`, which has no JSON body.
 
-**Tests** — `tests/integration/calendars-api.test.ts` (unauthenticated 401 envelope, directly through `withViewer`); `tests/unit/route-origin.test.ts` (same-origin, no-Origin, foreign-Origin, `Sec-Fetch-Site`, read bypass); every handler integration test exercises `withViewer`'s error mapping indirectly.
+**Tests** — `tests/integration/collections-api.test.ts` (unauthenticated 401 envelope, directly through `withViewer`); `tests/unit/route-origin.test.ts` (same-origin, no-Origin, foreign-Origin, `Sec-Fetch-Site`, read bypass); every handler integration test exercises `withViewer`'s error mapping indirectly.
 
-### lib/api/handlers/calendars.ts
+### lib/api/handlers/collections.ts
 
-**Purpose** — The four calendar verbs: list the caller's tree, create a calendar or sub-calendar, patch one, delete one.
+**Purpose** — The four collection verbs: list the caller's tree, create a collection or sub-collection, patch one, delete one.
 
 **Public API** — All four are `guarded`, so each returns `Promise<Response>`.
 
-- `listCalendars(db: Database, ctx: ViewerContext): Promise<Response>` -> `{ calendars: CalendarNode[] }`, 200.
-- `createCalendarHandler(db, ctx, request: Request): Promise<Response>` -> `{ calendar: CalendarRow }`, 201.
-- `updateCalendarHandler(db, ctx, id: string, request: Request): Promise<Response>` -> `{ calendar: CalendarRow }`, 200.
-- `deleteCalendarHandler(db, ctx, id: string): Promise<Response>` -> empty body, 204.
+- `listCollections(db: Database, ctx: ViewerContext): Promise<Response>` -> `{ collections: CollectionNode[] }`, 200.
+- `createCollectionHandler(db, ctx, request: Request): Promise<Response>` -> `{ collection: CollectionRow }`, 201.
+- `updateCollectionHandler(db, ctx, id: string, request: Request): Promise<Response>` -> `{ collection: CollectionRow }`, 200.
+- `deleteCollectionHandler(db, ctx, id: string): Promise<Response>` -> empty body, 204.
 
-Validation: `createCalendarSchema` / `updateCalendarSchema` (`lib/validation/calendars.ts`). Any Zod failure becomes `VALIDATION` 400 with `fields` keyed by the issue path. Everything else (409 eighth child, 403 view-only, 400 colour-on-child, 404 foreign id) is thrown by `lib/services/calendars.ts` and passes through unchanged.
+Validation: `createCollectionSchema` / `updateCollectionSchema` (`lib/validation/collections.ts`). Any Zod failure becomes `VALIDATION` 400 with `fields` keyed by the issue path. Everything else (409 eighth child, 403 view-only, 400 colour-on-child, 404 foreign id) is thrown by `lib/services/collections.ts` and passes through unchanged.
 
-**State & side effects** — No direct DB access; writes happen inside `createCalendar` / `updateCalendar` / `deleteCalendar`. `deleteCalendarHandler` returns 204 even though the service cascades to sub-calendars and their events (FK `onDelete: "cascade"`).
+**State & side effects** — No direct DB access; writes happen inside `createCollection` / `updateCollection` / `deleteCollection`. `deleteCollectionHandler` returns 204 even though the service cascades to sub-collections and their events (FK `onDelete: "cascade"`).
 
-**Depends on / Used by** — `lib/services/calendars.ts`, `lib/validation/calendars.ts`, `ViewerContext`, `NextResponse`, and `fieldErrors`/`guarded`/`readJson` from `./support`. Called by `app/api/calendars/route.ts` (`GET`, `POST`) and `app/api/calendars/[id]/route.ts` (`PATCH`, `DELETE`); called directly by `tests/integration/calendars-api.test.ts`; the client side is `lib/query/calendars.ts`.
+**Depends on / Used by** — `lib/services/collections.ts`, `lib/validation/collections.ts`, `ViewerContext`, `NextResponse`, and `fieldErrors`/`guarded`/`readJson` from `./support`. Called by `app/api/collections/route.ts` (`GET`, `POST`) and `app/api/collections/[id]/route.ts` (`PATCH`, `DELETE`); called directly by `tests/integration/collections-api.test.ts`; the client side is `lib/query/collections.ts`.
 
 **Debugging**
-- 400 with `fields.name` -> the Zod schema trims and rejects empty names over 60 characters -> `createCalendarSchema` / `updateCalendarSchema`.
-- 404 instead of 403 for another household's id -> `getCalendar` is household-scoped before any permission check -> `getCalendar`.
-- 409 on create -> the parent already has seven children -> `createCalendar`'s `MAX_CHILDREN` guard.
-- Client shows a stale tree after a mutation -> invalidation lives in `lib/query/calendars.ts`, not here.
+- 400 with `fields.name` -> the Zod schema trims and rejects empty names over 60 characters -> `createCollectionSchema` / `updateCollectionSchema`.
+- 404 instead of 403 for another household's id -> `getCollection` is household-scoped before any permission check -> `getCollection`.
+- 409 on create -> the parent already has seven children -> `createCollection`'s `MAX_CHILDREN` guard.
+- Client shows a stale tree after a mutation -> invalidation lives in `lib/query/collections.ts`, not here.
 
-**Tests** — `tests/integration/calendars-api.test.ts` (status codes, envelope, 404 scoping); `tests/integration/calendars.test.ts` covers the underlying service.
+**Tests** — `tests/integration/collections-api.test.ts` (status codes, envelope, 404 scoping); `tests/integration/collections.test.ts` covers the underlying service.
 
 ### lib/api/handlers/events.ts
 
@@ -186,7 +186,7 @@ Private helpers: `pad2`, `currentMonthRange` (household timezone -> first of thi
 
 **State & side effects** — None; no DB, no logging, no side effects beyond consuming the request body (`readJson` can only be called once per request).
 
-**Depends on / Used by** — `apiError` from `lib/api/route.ts`, `AppError`, `ZodError` type, `NextResponse`. Imported by `handlers/calendars.ts`, `handlers/events.ts`, `handlers/import.ts`, `handlers/preferences.ts`, `handlers/settings.ts`.
+**Depends on / Used by** — `apiError` from `lib/api/route.ts`, `AppError`, `ZodError` type, `NextResponse`. Imported by `handlers/collections.ts`, `handlers/events.ts`, `handlers/import.ts`, `handlers/preferences.ts`, `handlers/settings.ts`.
 
 **Debugging**
 - 400 "Send a JSON body." with no `fields` -> the body was empty or not JSON, so validation never ran -> `readJson` at the top of the handler.
@@ -198,6 +198,6 @@ Private helpers: `pad2`, `currentMonthRange` (household timezone -> first of thi
 ## Focused verification
 
 ```bash
-npx vitest run tests/integration/calendars-api.test.ts tests/integration/events-api.test.ts tests/integration/preferences-api.test.ts tests/integration/settings-api.test.ts
+npx vitest run tests/integration/collections-api.test.ts tests/integration/events-api.test.ts tests/integration/preferences-api.test.ts tests/integration/settings-api.test.ts
 npm run lint && npm run typecheck
 ```

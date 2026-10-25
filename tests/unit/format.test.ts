@@ -16,7 +16,7 @@ function base(overrides: Partial<EventView>): EventView {
   return {
     id: "e1",
     householdId: "h1",
-    calendarId: "c1",
+    collectionId: "c1",
     title: "Event",
     description: null,
     location: null,

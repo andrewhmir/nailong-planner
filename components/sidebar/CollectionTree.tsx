@@ -12,20 +12,24 @@ import {
   shadeTokens,
   type HueFamily,
 } from "@/lib/color/palette";
-import type { CalendarRow as CalendarRowType } from "@/lib/db/schema";
-import type { CalendarNode } from "@/lib/services/calendars";
+import type { CollectionRow as CollectionRowType } from "@/lib/db/schema";
+import type { CollectionNode } from "@/lib/services/collections";
 import {
-  useCalendars,
-  useCreateCalendar,
-  useDeleteCalendar,
-  useUpdateCalendar,
-} from "@/lib/query/calendars";
-import { GROUP_ORDER, groupOf, isCalendarVisible, type GroupKey } from "@/lib/ui/visibility";
+  useCollections,
+  useCreateCollection,
+  useDeleteCollection,
+  useUpdateCollection,
+} from "@/lib/query/collections";
+import { GROUP_ORDER, groupOf, isCollectionVisible, type GroupKey } from "@/lib/ui/visibility";
 import type { TreeFoldApi } from "@/lib/ui/useTreeFold";
 import type { VisibilityApi } from "@/lib/ui/useVisibility";
 import { cn } from "@/lib/utils";
-import { CalendarDialog, type CalendarDialogResult, type CalendarDialogState } from "./CalendarDialog";
-import { CalendarRow } from "./CalendarRow";
+import {
+  CollectionDialog,
+  type CollectionDialogResult,
+  type CollectionDialogState,
+} from "./CollectionDialog";
+import { CollectionRow } from "./CollectionRow";
 
 /** Canvas group headings are sentence case: the shared bucket, then each person's name. */
 const GROUP_LABEL: Record<GroupKey, (viewerName: string, partnerName: string) => string> = {
@@ -34,7 +38,7 @@ const GROUP_LABEL: Record<GroupKey, (viewerName: string, partnerName: string) =>
   partner: (_viewerName, partnerName) => partnerName,
 };
 
-function hueOf(root: CalendarNode): HueFamily {
+function hueOf(root: CollectionNode): HueFamily {
   return root.hueFamily && isHueFamily(root.hueFamily) ? root.hueFamily : "slate";
 }
 
@@ -44,13 +48,13 @@ interface Effective {
 }
 
 function effectivePermission(
-  calendar: CalendarRowType,
-  root?: Pick<CalendarRowType, "ownerId" | "visibility"> | null,
+  collection: CollectionRowType,
+  root?: Pick<CollectionRowType, "ownerId" | "visibility"> | null,
 ): Effective {
   return {
-    ownerId: root?.ownerId ?? calendar.ownerId,
+    ownerId: root?.ownerId ?? collection.ownerId,
     viewOnly:
-      (root?.visibility ?? "shared") !== "shared" || calendar.visibility !== "shared",
+      (root?.visibility ?? "shared") !== "shared" || collection.visibility !== "shared",
   };
 }
 
@@ -59,7 +63,7 @@ function isReadOnlyFor(viewerId: string, effective: Effective): boolean {
 }
 
 /** Three shades for the root's preview strip: real children first, then the ramp. */
-function previewShades(root: CalendarNode): string[] {
+function previewShades(root: CollectionNode): string[] {
   const hue = hueOf(root);
   const taken = new Set(root.children.map((child) => child.shadeIndex));
   const shades = root.children.map((child) => shadeTokens(hue, child.shadeIndex).main);
@@ -82,19 +86,19 @@ interface Props {
   partnerName: string;
 }
 
-export function CalendarTree({
+export function CollectionTree({
   visibility,
   fold,
   currentUserId,
   currentUserName,
   partnerName,
 }: Props) {
-  const { data, isLoading, isError } = useCalendars();
-  const createCalendar = useCreateCalendar();
-  const updateCalendar = useUpdateCalendar();
-  const deleteCalendar = useDeleteCalendar();
-  const [dialog, setDialog] = useState<CalendarDialogState | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<CalendarRowType | null>(null);
+  const { data, isLoading, isError } = useCollections();
+  const createCollection = useCreateCollection();
+  const updateCollection = useUpdateCollection();
+  const deleteCollection = useDeleteCollection();
+  const [dialog, setDialog] = useState<CollectionDialogState | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<CollectionRowType | null>(null);
   // The desktop aside and the phone sheet each mount this tree, so `aria-controls`
   // ids must be per instance or the sheet would point at the hidden aside's list.
   const instanceId = useId();
@@ -105,41 +109,48 @@ export function CalendarTree({
   const onlyName = only
     ? roots
         .flatMap((root) => [root, ...root.children])
-        .find((calendar) => calendar.id === only)?.name
+        .find((collection) => collection.id === only)?.name
     : undefined;
 
-  function toggle(calendar: CalendarRowType, children: CalendarRowType[] = []) {
-    const parent = calendar.parentId ? roots.find((root) => root.id === calendar.parentId) : undefined;
-    const currentlyVisible = isCalendarVisible(visibility.state, calendar, currentUserId, parent);
-    const ids = [calendar.id, ...children.map((child) => child.id)];
-    visibility.setCalendars(ids, !currentlyVisible);
+  function toggle(collection: CollectionRowType, children: CollectionRowType[] = []) {
+    const parent = collection.parentId
+      ? roots.find((root) => root.id === collection.parentId)
+      : undefined;
+    const currentlyVisible = isCollectionVisible(
+      visibility.state,
+      collection,
+      currentUserId,
+      parent,
+    );
+    const ids = [collection.id, ...children.map((child) => child.id)];
+    visibility.setCollections(ids, !currentlyVisible);
   }
 
-  function submit(values: CalendarDialogResult) {
+  function submit(values: CollectionDialogResult) {
     if (!dialog) {
       return;
     }
     const onError = (error: Error) => toast.error(error.message);
 
     if (dialog.mode === "edit") {
-      const calendar = dialog.calendar;
-      updateCalendar.mutate(
+      const collection = dialog.collection;
+      updateCollection.mutate(
         {
-          id: calendar.id,
+          id: collection.id,
           name: values.name,
-          ...(calendar.parentId === null
+          ...(collection.parentId === null
             ? {
                 hueFamily: values.hueFamily,
                 ownerId: values.ownerId ?? null,
-                isViewOnlyForPartner: values.isViewOnlyForPartner ?? false,
+                visibility: values.visibility ?? "shared",
               }
             : {}),
         },
         {
           onSuccess: (result) => {
             // A rename or owner change must not end up hidden inside a folded
-            // group; open wherever the calendar now lives.
-            fold.expandGroup(groupOf(result.calendar, currentUserId));
+            // group; open wherever the collection now lives.
+            fold.expandGroup(groupOf(result.collection, currentUserId));
             setDialog(null);
           },
           onError,
@@ -149,21 +160,21 @@ export function CalendarTree({
     }
 
     const parentId = dialog.mode === "create-child" ? dialog.parentId : null;
-    createCalendar.mutate(
+    createCollection.mutate(
       {
         name: values.name,
         parentId,
         hueFamily: values.hueFamily,
         ownerId: dialog.mode === "create-root" ? (values.ownerId ?? null) : undefined,
-        isViewOnlyForPartner: values.isViewOnlyForPartner,
+        visibility: values.visibility,
       },
       {
         onSuccess: (result) => {
-          // A new calendar must never be created inside a folded branch and
+          // A new collection must never be created inside a folded branch and
           // therefore invisible: open its group, and its parent for a child.
-          fold.expandGroup(groupOf(result.calendar, currentUserId));
+          fold.expandGroup(groupOf(result.collection, currentUserId));
           if (parentId) {
-            fold.expandCalendar(parentId);
+            fold.expandCollection(parentId);
           }
           setDialog(null);
         },
@@ -172,17 +183,17 @@ export function CalendarTree({
     );
   }
 
-  function confirmDelete(calendar: CalendarRowType) {
+  function confirmDelete(collection: CollectionRowType) {
     // Canvas dialog, not window.confirm: the cascade is irreversible so it still
     // asks, but it asks inside the design system.
-    setPendingDelete(calendar);
+    setPendingDelete(collection);
   }
 
   function runDelete() {
     if (!pendingDelete) {
       return;
     }
-    deleteCalendar.mutate(pendingDelete.id, {
+    deleteCollection.mutate(pendingDelete.id, {
       onSuccess: () => {
         toast.success(`Deleted ${pendingDelete.name}`);
         setPendingDelete(null);
@@ -235,7 +246,7 @@ export function CalendarTree({
         }
         const label = GROUP_LABEL[group](currentUserName, partnerName);
         const open = fold.isGroupOpen(group);
-        const listId = `calendar-group-${instanceId}-${group}`;
+        const listId = `collection-group-${instanceId}-${group}`;
         return (
           <section key={group} aria-label={label}>
             <h3 className="px-3 pt-3 pb-1">
@@ -260,14 +271,14 @@ export function CalendarTree({
             <ul id={listId} hidden={!open}>
               {groupRoots.map((root) => {
                 const rootEffective = effectivePermission(root);
-                const openRoot = fold.isCalendarOpen(root.id);
-                const childrenId = `calendar-children-${instanceId}-${root.id}`;
+                const openRoot = fold.isCollectionOpen(root.id);
+                const childrenId = `collection-children-${instanceId}-${root.id}`;
                 return (
                   <li key={root.id}>
                     <ul>
-                      <CalendarRow
-                        calendar={root}
-                        checked={isCalendarVisible(visibility.state, root, currentUserId)}
+                      <CollectionRow
+                        collection={root}
+                        checked={isCollectionVisible(visibility.state, root, currentUserId)}
                         isChild={false}
                         ownerHue={hueOf(root)}
                         childShades={previewShades(root)}
@@ -276,10 +287,10 @@ export function CalendarTree({
                         foldable={root.children.length > 0}
                         expanded={openRoot}
                         controlsId={root.children.length > 0 ? childrenId : undefined}
-                        onToggleFold={() => fold.toggleCalendar(root.id)}
+                        onToggleFold={() => fold.toggleCollection(root.id)}
                         onToggle={() => toggle(root, root.children)}
                         onAddChild={() => setDialog({ mode: "create-child", parentId: root.id })}
-                        onEdit={() => setDialog({ mode: "edit", calendar: root })}
+                        onEdit={() => setDialog({ mode: "edit", collection: root })}
                         onDelete={() => confirmDelete(root)}
                         onlyId={only}
                         onShowOnly={() => visibility.setOnly(root.id)}
@@ -291,10 +302,15 @@ export function CalendarTree({
                         {root.children.map((child) => {
                           const childEffective = effectivePermission(child, root);
                           return (
-                            <CalendarRow
+                            <CollectionRow
                               key={child.id}
-                              calendar={child}
-                              checked={isCalendarVisible(visibility.state, child, currentUserId, root)}
+                              collection={child}
+                              checked={isCollectionVisible(
+                                visibility.state,
+                                child,
+                                currentUserId,
+                                root,
+                              )}
                               isChild
                               ownerHue={hueOf(root)}
                               childShades={[]}
@@ -302,7 +318,7 @@ export function CalendarTree({
                               showViewOnlyBadge={isReadOnlyFor(currentUserId, childEffective)}
                               onToggle={() => toggle(child)}
                               onAddChild={() => undefined}
-                              onEdit={() => setDialog({ mode: "edit", calendar: child })}
+                              onEdit={() => setDialog({ mode: "edit", collection: child })}
                               onDelete={() => confirmDelete(child)}
                               onlyId={only}
                               onShowOnly={() => visibility.setOnly(child.id)}
@@ -344,7 +360,7 @@ export function CalendarTree({
                 aria-label="Delete calendar"
                 className="border border-danger-ink bg-danger-soft text-danger-ink hover:bg-danger-soft/80"
                 onClick={runDelete}
-                disabled={deleteCalendar.isPending}
+                disabled={deleteCollection.isPending}
               >
                 Delete calendar
               </Button>
@@ -353,9 +369,9 @@ export function CalendarTree({
         </Dialog>
       ) : null}
 
-      <CalendarDialog
+      <CollectionDialog
         state={dialog}
-        pending={createCalendar.isPending || updateCalendar.isPending}
+        pending={createCollection.isPending || updateCollection.isPending}
         currentUserId={currentUserId}
         currentUserName={currentUserName}
         onClose={() => setDialog(null)}

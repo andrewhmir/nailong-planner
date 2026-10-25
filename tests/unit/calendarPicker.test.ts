@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PARENT_SHADE_INDEX, shadeTokens } from "@/lib/color/palette";
-import type { CalendarRow } from "@/lib/db/schema";
-import type { CalendarNode } from "@/lib/services/calendars";
+import type { CollectionRow } from "@/lib/db/schema";
+import type { CollectionNode } from "@/lib/services/collections";
 import {
   buildPickerRows,
   calendarSwatch,
@@ -9,7 +9,7 @@ import {
   toggleExpanded,
 } from "@/lib/ui/calendarPicker";
 
-function row(overrides: Partial<CalendarRow> & Pick<CalendarRow, "id" | "name">): CalendarRow {
+function row(overrides: Partial<CollectionRow> & Pick<CollectionRow, "id" | "name">): CollectionRow {
   return {
     householdId: "household-1",
     parentId: null,
@@ -25,18 +25,18 @@ function row(overrides: Partial<CalendarRow> & Pick<CalendarRow, "id" | "name">)
   };
 }
 
-function root(id: string, name: string, extra: Partial<CalendarRow> = {}): CalendarNode {
+function root(id: string, name: string, extra: Partial<CollectionRow> = {}): CollectionNode {
   return { ...row({ id, name, ...extra }), children: [] };
 }
 
-function sub(parentId: string, id: string, name: string, shadeIndex: number): CalendarRow {
+function sub(parentId: string, id: string, name: string, shadeIndex: number): CollectionRow {
   return row({ id, name, parentId, hueFamily: null, shadeIndex });
 }
 
 const school = root("c-school", "School");
 school.children = [sub("c-school", "c-bio", "Biology", 4), sub("c-school", "c-math", "Math", 2)];
 const household = root("c-house", "Household", { hueFamily: "amber" });
-const tree: CalendarNode[] = [household, school];
+const tree: CollectionNode[] = [household, school];
 
 describe("buildPickerRows", () => {
   it("lists every top-level calendar collapsed when nothing is expanded", () => {

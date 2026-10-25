@@ -13,8 +13,8 @@ Everything the Next.js App Router exposes: the root layout and the global styles
 | `app/(app)/page.tsx` | `/` — the calendar page, renders `CalendarShell` |
 | `app/(app)/settings/page.tsx` | `/settings` — household, profile, preferences and security form |
 | `app/api/auth/[...all]/route.ts` | Better Auth catch-all (sign-in, sign-out, two-factor, password, session) |
-| `app/api/calendars/route.ts` | `GET` calendar tree, `POST` calendar (top-level or sub-calendar) |
-| `app/api/calendars/[id]/route.ts` | `PATCH` and `DELETE` one calendar |
+| `app/api/collections/route.ts` | `GET` calendar tree, `POST` calendar (top-level or sub-calendar) |
+| `app/api/collections/[id]/route.ts` | `PATCH` and `DELETE` one calendar |
 | `app/api/events/route.ts` | `GET` events in a range, `POST` event |
 | `app/api/events/search/route.ts` | `GET` household-wide event search |
 | `app/api/events/[id]/route.ts` | `PATCH` one event, `DELETE` the series or one occurrence |
@@ -195,37 +195,37 @@ Two exceptions to the shared pipeline: the Better Auth catch-all speaks its own 
 
 **Tests** — No direct test coverage.
 
-## Calendar routes
+## Collection routes
 
-Both routes are thin `withViewer` re-exports over `lib/api/handlers/calendars.ts`; every rule (nesting limit, shade assignment, view-only inheritance) lives in `lib/services/calendars.ts`.
+Both routes are thin `withViewer` re-exports over `lib/api/handlers/collections.ts`; every rule (nesting limit, shade assignment, visibility inheritance) lives in `lib/services/collections.ts`.
 
-### app/api/calendars/route.ts
+### app/api/collections/route.ts
 
-**Purpose** — Lists the household's calendar tree and creates a top-level or sub-calendar.
+**Purpose** — Lists the household's collection tree and creates a top-level collection or a sub-collection.
 
-**API** — `GET` → `listCalendars`, `200` `{ calendars: CalendarNode[] }` where `CalendarNode` is a `CalendarRow` plus `children: CalendarRow[]` (roots first, ordered by `sortOrder` then `createdAt`; children ordered by `shadeIndex`). `POST` → `createCalendarHandler`, body `createCalendarSchema` (`name` required, trimmed, 1-60 chars; optional `parentId`, `hueFamily`, `ownerId`, `isViewOnlyForPartner`) → `201 { calendar }`. Errors: 401 unauthenticated, 403 when the account has no household, 403 `FORBIDDEN` when `ownerId` is the partner's id ("You can only create calendars for yourself or shared ones."), 409 `CONFLICT` at the `MAX_CHILDREN` limit, and 400 `VALIDATION` with a `fields` map for: a missing `hueFamily` on a top-level calendar ("Top-level calendars need a color family."), a shared calendar marked view-only, a parent that is itself a sub-calendar (nesting stops at two levels), or an empty/over-long name.
+**API** — `GET` → `listCollections`, `200` `{ collections: CollectionNode[] }` where `CollectionNode` is a `CollectionRow` plus `children: CollectionRow[]` (roots first, ordered by `sortOrder` then `createdAt`; children ordered by `shadeIndex`). `POST` → `createCollectionHandler`, body `createCollectionSchema` (`name` required, trimmed, 1-60 chars; optional `parentId`, `kind`, `hueFamily`, `ownerId`, `visibility`) → `201 { collection }`. Errors: 401 unauthenticated, 403 when the account has no household, 403 `FORBIDDEN` when `ownerId` is the partner's id ("You can only create calendars for yourself or shared ones."), 409 `CONFLICT` at the `MAX_CHILDREN` limit, and 400 `VALIDATION` with a `fields` map for: a missing `hueFamily` on a top-level collection ("Top-level calendars need a color family."), a non-shared `visibility` without an owner, a parent that is itself a sub-collection (nesting stops at two levels), or an empty/over-long name.
 
-**State & side effects** — Reads all `calendar` rows for `ctx.householdId`; writes one row with a generated UUID, `sortOrder = max + 1` among its siblings, and either `PARENT_SHADE_INDEX` (top-level, needs `hueFamily`) or the first free `CHILD_SHADE_ORDER` index (sub-calendar). A sub-calendar inherits `ownerId` from its parent and is always created with `isViewOnlyForPartner = 0`; `hueFamily` and `isViewOnlyForPartner` sent for a sub-calendar are silently ignored. No revalidation.
+**State & side effects** — Reads all `collection` rows for `ctx.householdId`; writes one row with a generated UUID, `sortOrder = max + 1` among its siblings, and either `PARENT_SHADE_INDEX` (top-level, needs `hueFamily`) or the first free `CHILD_SHADE_ORDER` index (sub-collection). A sub-collection inherits `ownerId` and `kind` from its parent and is always created with `visibility: "shared"`; `hueFamily`, `kind` and `visibility` sent for a sub-collection are silently ignored. No revalidation.
 
-**Depends on / Used by** — `withViewer`; `listCalendarTree`, `createCalendar`; `createCalendarSchema`. Clients: `useCalendars` and `useCreateCalendar` in `lib/query/calendars.ts` (query key `["calendars"]`, invalidated on success), consumed by `components/sidebar/CalendarTree.tsx`, `components/sidebar/SidebarMiniMonth.tsx`, `components/calendar/CalendarShell.tsx`, `components/calendar/SearchResultsOverlay.tsx` and `components/settings/CalendarPreferencesCard.tsx`.
+**Depends on / Used by** — `withViewer`; `listCollectionTree`, `createCollection`; `createCollectionSchema`. Clients: `useCollections` and `useCreateCollection` in `lib/query/collections.ts` (query key `["collections"]`, invalidated on success), consumed by `components/sidebar/CollectionTree.tsx`, `components/sidebar/SidebarMiniMonth.tsx`, `components/calendar/CalendarShell.tsx`, `components/calendar/SearchResultsOverlay.tsx` and `components/settings/CalendarPreferencesCard.tsx`.
 
-**Debugging** — `400` "Top-level calendars need a color family." -> the picker sent no `parentId` and no `hueFamily` -> check the caller's payload. A new sub-calendar does not appear -> the `["calendars"]` invalidation was removed -> `useCreateCalendar`. `409` on a parent that looks empty -> orphaned children still reference it -> count `calendar` rows by `parent_id`. Two roots share a colour -> expected: every top-level calendar uses the parent shade index of its own family.
+**Debugging** — `400` "Top-level calendars need a color family." -> the picker sent no `parentId` and no `hueFamily` -> check the caller's payload. A new sub-calendar does not appear -> the `["collections"]` invalidation was removed -> `useCreateCollection`. `409` on a parent that looks empty -> orphaned children still reference it -> count `collection` rows by `parent_id`. Two roots share a colour -> expected: every top-level calendar uses the parent shade index of its own family.
 
-**Tests** — `tests/integration/calendars-api.test.ts`, `tests/e2e/sidebar.spec.ts`.
+**Tests** — `tests/integration/collections-api.test.ts`, `tests/e2e/sidebar.spec.ts`.
 
-### app/api/calendars/[id]/route.ts
+### app/api/collections/[id]/route.ts
 
-**Purpose** — Updates or deletes a single calendar; the dynamic route unwraps `params` itself because Next 16 hands it a `Promise`.
+**Purpose** — Updates or deletes a single collection; the dynamic route unwraps `params` itself because Next 16 hands it a `Promise`.
 
-**API** — `PATCH` body `updateCalendarSchema` (`name`, `hueFamily`, `ownerId` nullable, `isViewOnlyForPartner`, `sortOrder`; all optional) → `200 { calendar }`. `DELETE` takes no body → `204` with an empty body. Errors: 401/403 from `withViewer`, 404 `NOT_FOUND` ("Calendar not found.") for an id outside the household, 403 `FORBIDDEN` "This calendar is view-only." when the effective permissions deny the write, 403 for changing the owner of a calendar owned by someone else, 403 for assigning ownership to the partner or toggling view-only when the viewer is not the owner, 400 `VALIDATION` when `hueFamily`, `isViewOnlyForPartner` or `ownerId` is sent for a sub-calendar (all three are inherited from the root).
+**API** — `PATCH` body `updateCollectionSchema` (`name`, `hueFamily`, `ownerId` nullable, `visibility`, `sortOrder`; all optional) → `200 { collection }`. `DELETE` takes no body → `204` with an empty body. Errors: 401/403 from `withViewer`, 404 `NOT_FOUND` ("Calendar not found.") for an id outside the household, 403 `FORBIDDEN` "This calendar is view-only." when the effective permissions deny the write, 403 for changing the owner of a collection owned by someone else, 403 for assigning ownership to the partner or changing `visibility` when the viewer is not the owner, 400 `VALIDATION` when `hueFamily`, `visibility` or `ownerId` is sent for a sub-collection (all three are inherited from the root).
 
-**State & side effects** — `PATCH` builds a patch from the defined fields only; an empty patch returns the existing row unchanged without bumping `updatedAt`. Clearing `ownerId` to `null` also forces `isViewOnlyForPartner` to 0, and a root's owner change is copied to its sub-calendars in one transaction. `DELETE` removes the row; the schema's foreign keys are `onDelete: "cascade"` and `lib/db/client.ts` sets `PRAGMA foreign_keys = ON`, so deleting a root also deletes its sub-calendars and every event in them. No revalidation.
+**State & side effects** — `PATCH` builds a patch from the defined fields only; an empty patch returns the existing row unchanged without bumping `updatedAt`. Clearing `ownerId` to `null` also resets `visibility` to `shared`, and a root's owner change is copied to its sub-collections in one transaction. `DELETE` removes the row; the schema's foreign keys are `onDelete: "cascade"` and `lib/db/client.ts` sets `PRAGMA foreign_keys = ON`, so deleting a root also deletes its sub-collections and every event in them. No revalidation.
 
-**Depends on / Used by** — `withViewer<{ id: string }>`; `updateCalendarHandler`, `deleteCalendarHandler`; `updateCalendarSchema`. Clients: `useUpdateCalendar` and `useDeleteCalendar` in `lib/query/calendars.ts`; delete also invalidates `["events"]` because cascade removed events.
+**Depends on / Used by** — `withViewer<{ id: string }>`; `updateCollectionHandler`, `deleteCollectionHandler`; `updateCollectionSchema`. Clients: `useUpdateCollection` and `useDeleteCollection` in `lib/query/collections.ts`; delete also invalidates `["events"]` because cascade removed events.
 
-**Debugging** — `403` "This calendar is view-only." while the patch only renames it -> the parent root is view-only and the flag is inherited -> inspect `getCalendarAccess`/`effective`. `400` on `hueFamily` -> the request targeted a sub-calendar -> change the root instead. A rename appears to do nothing -> the body was empty or every value was already stored -> the handler returns the unchanged row with `200`.
+**Debugging** — `403` "This calendar is view-only." while the patch only renames it -> the parent root is non-shared and the visibility is inherited -> inspect `getCollectionAccess`/`effective`. `400` on `hueFamily` -> the request targeted a sub-calendar -> change the root instead. A rename appears to do nothing -> the body was empty or every value was already stored -> the handler returns the unchanged row with `200`.
 
-**Tests** — `tests/integration/calendars-api.test.ts`, `tests/integration/regressions.test.ts`, `tests/e2e/viewonly.spec.ts`.
+**Tests** — `tests/integration/collections-api.test.ts`, `tests/integration/regressions.test.ts`, `tests/e2e/viewonly.spec.ts`.
 
 ## Event routes
 
@@ -235,7 +235,7 @@ Handlers in `lib/api/handlers/events.ts`; range parsing, search clamping and the
 
 **Purpose** — Lists events for a time range and creates an event.
 
-**API** — `GET` query `from` and `to` as epoch milliseconds → `200 { events: EventView[] }` (`EventView` is the row plus resolved `color` shade tokens). Send both bounds or neither: neither means "the household's current month", computed in the household timezone as `[first of this month, first of next month)`; one missing, a non-finite number, or `from >= to` is `400 VALIDATION` with a `fields.from` message. `POST` body `createEventSchema` (`calendarId`, `title` 1-200, `allDay` defaulting to `false`, plus `description`, `location`, `startAt`/`endAt` for timed, `startDate`/`endDate` as `YYYY-MM-DD` for all-day, `rrule`, `exdates`) → `201 { event }`. Errors: 401/403 from `withViewer`, 404 when the calendar is not in the household, 403 when the target calendar is view-only for this viewer, 400 for a Zod failure, an all-day/timed shape violation ("All-day events need a start and end date.", "Timed events need a start and end time.", an end not after the start, a date that does not exist) or an RRULE without `FREQ=` / unparseable by `RRule.fromString`.
+**API** — `GET` query `from` and `to` as epoch milliseconds → `200 { events: EventView[] }` (`EventView` is the row plus resolved `color` shade tokens). Send both bounds or neither: neither means "the household's current month", computed in the household timezone as `[first of this month, first of next month)`; one missing, a non-finite number, or `from >= to` is `400 VALIDATION` with a `fields.from` message. `POST` body `createEventSchema` (`collectionId`, `title` 1-200, `allDay` defaulting to `false`, plus `description`, `location`, `startAt`/`endAt` for timed, `startDate`/`endDate` as `YYYY-MM-DD` for all-day, `rrule`, `exdates`) → `201 { event }`. Errors: 401/403 from `withViewer`, 404 when the calendar is not in the household, 403 when the target calendar is view-only for this viewer, 400 for a Zod failure, an all-day/timed shape violation ("All-day events need a start and end date.", "Timed events need a start and end time.", an end not after the start, a date that does not exist) or an RRULE without `FREQ=` / unparseable by `RRule.fromString`.
 
 **State & side effects** — `GET` reads every recurring row in the household **regardless of the requested range** plus the non-recurring rows that intersect it, then sorts them (all-day rows by `startDate`, timed rows by zero-padded `startAt`) — recurring series are expanded on the client so they are never truncated at the range edge. `POST` inserts one row with a generated UUID, `householdId` from the context, `createdBy` from the session, and `exdates` stored as JSON. No revalidation.
 
@@ -263,7 +263,7 @@ Handlers in `lib/api/handlers/events.ts`; range parsing, search clamping and the
 
 **Purpose** — Edits one event, or deletes the whole event or one occurrence of a recurring series.
 
-**API** — `PATCH` body `updateEventSchema` (every field optional; `allDay` carries no default, so omitting it keeps the stored value) → `200 { event }`. `DELETE` reads an optional JSON body `{ scope?: "all" | "this", occurrenceStart?: string }`; `scope` defaults to `"all"` unless it is exactly the string `"this"`, and `scope: "this"` without a non-empty `occurrenceStart` string is `400 VALIDATION` with `fields.occurrenceStart` → `204` empty body. Errors: 401/403 from `withViewer`, 404 "Event not found." for an id outside the household, 403 "This calendar is view-only." when the event's calendar denies the write, 400 for a shape/RRULE violation. Moving an event with `calendarId` requires write access on both the source and the target calendar.
+**API** — `PATCH` body `updateEventSchema` (every field optional; `allDay` carries no default, so omitting it keeps the stored value) → `200 { event }`. `DELETE` reads an optional JSON body `{ scope?: "all" | "this", occurrenceStart?: string }`; `scope` defaults to `"all"` unless it is exactly the string `"this"`, and `scope: "this"` without a non-empty `occurrenceStart` string is `400 VALIDATION` with `fields.occurrenceStart` → `204` empty body. Errors: 401/403 from `withViewer`, 404 "Event not found." for an id outside the household, 403 "This calendar is view-only." when the event's calendar denies the write, 400 for a shape/RRULE violation. Moving an event with `collectionId` requires write access on both the source and the target calendar.
 
 **State & side effects** — `PATCH` recomputes the all-day/timed shape from the merged row (`allDay` falls back to the stored value, `startAt`/`endAt`/`startDate`/`endDate` fall back per field), nulls the fields that do not belong to the resulting shape, bumps `updatedAt`, and writes only the fields present in the body. `DELETE` with `scope: "this"` appends `occurrenceStart` to the JSON `exdates` array (idempotent — a repeat does not duplicate it); **on an event with no `rrule`, `scope: "this"` still deletes the whole row**. `DELETE` with `scope: "all"` removes the row. No revalidation.
 
@@ -295,11 +295,11 @@ Google Calendar import over `lib/api/handlers/import.ts`: the browser uploads ex
 
 **Purpose** — Applies the mapping and writes the events in one transaction.
 
-**API** — `POST` multipart: the same `files` fields plus a required JSON `mapping` field (`{ [sourceCalendarName]: { mode: "new" } | { mode: "existing", calendarId } }`) → `201 { report: ImportReport }` with `{ batchId, created, updated, unchanged, calendarsCreated, warnings, dropped }`. Errors: 400 for a missing/malformed `mapping` ("Send the calendar mapping as JSON.", "Choose where each calendar goes."), a missing entry per source calendar (`fields["mapping.<name>"]`), or the preview's file errors; 403 "This calendar is view-only." when a chosen existing target denies the write (nothing is written — the transaction is rolled back); 404 for a calendar outside the household.
+**API** — `POST` multipart: the same `files` fields plus a required JSON `mapping` field (`{ [sourceCalendarName]: { mode: "new" } | { mode: "existing", collectionId } }`) → `201 { report: ImportReport }` with `{ batchId, created, updated, unchanged, calendarsCreated, warnings, dropped }`. Errors: 400 for a missing/malformed `mapping` ("Send the calendar mapping as JSON.", "Choose where each calendar goes."), a missing entry per source calendar (`fields["mapping.<name>"]`), or the preview's file errors; 403 "This calendar is view-only." when a chosen existing target denies the write (nothing is written — the transaction is rolled back); 404 for a calendar outside the household.
 
 **State & side effects** — One SQLite transaction: creates `From Google` roots/children as needed (reusing a same-named child on a re-import), inserts or updates events by `external_key`, writes one `import_batch` plus one `import_change` per event. `unchanged` events are not written.
 
-**Depends on / Used by** — `withViewer`; `commitImportHandler`; `commitImport` from `lib/services/import.ts`. Client: step 3 of `ImportWizard.tsx`, which then shows the report and invalidates `["events"]`/`["calendars"]`.
+**Depends on / Used by** — `withViewer`; `commitImportHandler`; `commitImport` from `lib/services/import.ts`. Client: step 3 of `ImportWizard.tsx`, which then shows the report and invalidates `["events"]`/`["collections"]`.
 
 **Debugging** — Commit 403s -> the target calendar is view-only for the viewer -> pick a writable calendar; nothing was written. Commit succeeds but the calendar shows no events -> the events landed in the mapped calendar, which may be collapsed in the sidebar -> check `calendarsCreated` and the calendar tree. Re-import counts everything as `unchanged` after editing an event in Nailong -> the import compares the source file's hash, not the row.
 
@@ -398,7 +398,7 @@ Three one-handler routes over `lib/api/handlers/settings.ts` and `lib/api/handle
 ## Focused verification
 
 ```bash
-npx vitest run tests/integration/auth.test.ts tests/integration/calendars-api.test.ts tests/integration/events-api.test.ts tests/integration/search-api.test.ts tests/integration/settings-api.test.ts tests/integration/preferences-api.test.ts
+npx vitest run tests/integration/auth.test.ts tests/integration/collections-api.test.ts tests/integration/events-api.test.ts tests/integration/search-api.test.ts tests/integration/settings-api.test.ts tests/integration/preferences-api.test.ts
 npx playwright test tests/e2e/auth.spec.ts tests/e2e/shell.spec.ts tests/e2e/viewport-fit.spec.ts tests/e2e/design-tokens.spec.ts
 npm run docs:check && npm run lint && npm run typecheck
 ```

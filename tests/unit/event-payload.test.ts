@@ -13,7 +13,7 @@ function options(overrides: Partial<RepeatOptions> = {}): RepeatOptions {
 function values(overrides: Partial<EventFormValues> = {}): EventFormValues {
   return {
     title: "Weekly class",
-    calendarId: "cal-1",
+    collectionId: "cal-1",
     description: "",
     location: "",
     allDay: false,

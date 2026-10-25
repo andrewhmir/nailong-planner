@@ -12,9 +12,9 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 | `components/shell/ComingSoonDialog.tsx` | "What's coming" dialog behind a gated roadmap destination |
 | `components/shell/GlobalNavRail.tsx` | 54px dark rail: live destinations, greyed roadmap icons, account menu |
 | `components/shell/VisibilityProvider.tsx` | React context carrying the `VisibilityApi` to descendants |
-| `components/sidebar/CalendarDialog.tsx` | Create/rename calendar form (owner, view-only, hue) |
-| `components/sidebar/CalendarRow.tsx` | One sidebar calendar row: checkbox, swatch, shade strip, menu |
-| `components/sidebar/CalendarTree.tsx` | Grouped calendar tree, CRUD wiring, delete confirmation |
+| `components/sidebar/CollectionDialog.tsx` | Create/rename calendar form (owner, view-only, hue) |
+| `components/sidebar/CollectionRow.tsx` | One sidebar calendar row: checkbox, swatch, shade strip, menu |
+| `components/sidebar/CollectionTree.tsx` | Grouped calendar tree, CRUD wiring, delete confirmation |
 | `components/sidebar/PersonPills.tsx` | Ours/me/partner cross-check toggle pills |
 | `components/sidebar/SidebarMiniMonth.tsx` | Sidebar mini month with event dots and `/?date=` navigation |
 
@@ -26,16 +26,16 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 
 **Public API** — `export interface MemberSummary { id: string; name: string; isSelf: boolean }`; `export function AppShell(props: Props)`. Props: `currentUser: { id; name }`, `members: MemberSummary[]`, `householdName: string`, `timezone: string`, `timeFormat: TimeFormat`, `children: React.ReactNode`. Route labels live in module scope: `ROUTE_CRUMBS`, built from `LIVE_ENTRIES` in `lib/roadmap.ts`, and `FALLBACK_CRUMB = "Calendar"`.
 
-**State & side effects** — `usePathname()` for the crumb and rail highlight; `sidebarOpen` state for the sheet; `comingSoon: RoadmapEntry | null` plus a `comingSoonTrigger` ref drive the shared "what's coming" dialog — the rail and the phone drawer both call `openComingSoon(entry, trigger)`, and `closeComingSoon` restores focus to that trigger once the dialog has unmounted; `useVisibility(currentUser.id)` owns the visibility state (persisted under `localStorage` key `nailong.visibility.<userId>` by that hook); `useTreeFold(currentUser.id)` owns the sidebar's fold state (persisted under `nailong.treeFold.<userId>`) and is passed to both tree copies as `fold`, so folding moves them in lockstep; `VisibilityProvider` publishes the visibility API. No queries and no URL writes. The `CalendarTree` element is created once and rendered twice (desktop `aside` and the sheet), so both copies share the TanStack cache and the fold state but have independent local dialog state. Focus is not trapped in the sheet.
+**State & side effects** — `usePathname()` for the crumb and rail highlight; `sidebarOpen` state for the sheet; `comingSoon: RoadmapEntry | null` plus a `comingSoonTrigger` ref drive the shared "what's coming" dialog — the rail and the phone drawer both call `openComingSoon(entry, trigger)`, and `closeComingSoon` restores focus to that trigger once the dialog has unmounted; `useVisibility(currentUser.id)` owns the visibility state (persisted under `localStorage` key `nailong.visibility.<userId>` by that hook); `useTreeFold(currentUser.id)` owns the sidebar's fold state (persisted under `nailong.treeFold.<userId>`) and is passed to both tree copies as `fold`, so folding moves them in lockstep; `VisibilityProvider` publishes the visibility API. No queries and no URL writes. The `CollectionTree` element is created once and rendered twice (desktop `aside` and the sheet), so both copies share the TanStack cache and the fold state but have independent local dialog state. Focus is not trapped in the sheet.
 
-**Depends on / Used by** — `next/link`, `next/navigation`, `components/sidebar/CalendarTree`, `components/sidebar/SidebarMiniMonth`, `components/ui/button`, `components/ui/icons`, `lib/roadmap` (`LIVE_ENTRIES`, `ROADMAP`, `gateLabel`, `RoadmapEntry`), `lib/services/preferences` (`TimeFormat`), `lib/ui/useTreeFold`, `lib/ui/useVisibility`. Plus `./Brand`, `./BreadcrumbBar`, `./ComingSoonDialog`, `./GlobalNavRail`, `./VisibilityProvider`. Rendered by `app/(app)/layout.tsx`, which resolves the session, members, household name/timezone and preferences.
+**Depends on / Used by** — `next/link`, `next/navigation`, `components/sidebar/CollectionTree`, `components/sidebar/SidebarMiniMonth`, `components/ui/button`, `components/ui/icons`, `lib/roadmap` (`LIVE_ENTRIES`, `ROADMAP`, `gateLabel`, `RoadmapEntry`), `lib/services/preferences` (`TimeFormat`), `lib/ui/useTreeFold`, `lib/ui/useVisibility`. Plus `./Brand`, `./BreadcrumbBar`, `./ComingSoonDialog`, `./GlobalNavRail`, `./VisibilityProvider`. Rendered by `app/(app)/layout.tsx`, which resolves the session, members, household name/timezone and preferences.
 
 **Debugging** —
 - A new `(app)` route shows "Calendar" as its crumb -> its roadmap entry is still `status: "planned"` (route-derived labels are the only mechanism) -> flip `lib/roadmap.ts`, not this file.
 - A gated dialog closes onto the document body instead of its trigger -> the opening control unmounted before the close (the phone drawer closed first) -> `openComingSoon`/`closeComingSoon`.
 - The document scrolls on a phone -> the `h-dvh overflow-hidden` frame or `min-h-0` on an inner flex child was dropped -> this file's top-level `div` and `main`.
 - The sidebar sheet opens on desktop -> `lg:hidden` on the overlay wrapper was lost -> the `sidebarOpen` block.
-- Calendar mutations from the sheet seem to reset -> two `CalendarTree` instances with separate `dialog`/`pendingDelete` state -> expected; the shared cache keeps data consistent.
+- Calendar mutations from the sheet seem to reset -> two `CollectionTree` instances with separate `dialog`/`pendingDelete` state -> expected; the shared cache keeps data consistent.
 
 **Tests** — `tests/e2e/shell.spec.ts`, `tests/e2e/mobile.spec.ts`, `tests/e2e/viewport-fit.spec.ts`, `tests/e2e/sidebar.spec.ts`, `tests/e2e/roadmap-nav.spec.ts`.
 
@@ -115,80 +115,80 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 
 ### components/shell/VisibilityProvider.tsx
 
-**Purpose** — A one-value React context that publishes the `VisibilityApi` (state + `setGroup`, `toggleCalendar`, `setCalendars`, `setOnly`) so the grid, sidebar and mini month read the same visibility state without prop drilling.
+**Purpose** — A one-value React context that publishes the `VisibilityApi` (state + `setGroup`, `toggleCollection`, `setCollections`, `setOnly`) so the grid, sidebar and mini month read the same visibility state without prop drilling.
 
 **Public API** — `export function VisibilityProvider(props: { value: VisibilityApi; children: React.ReactNode })` and `export function useVisibilityApi(): VisibilityApi`. The hook throws `"useVisibilityApi must be used inside VisibilityProvider"` when the context is missing.
 
-**State & side effects** — None of its own: no state, effects, queries, storage or URL params. The state lives in `useVisibility` (called by `AppShell`); this file only distributes it. Its meaning is defined elsewhere: `lib/ui/visibility.ts` owns `VisibilityState`, `GroupKey`, `GROUP_ORDER`, `DEFAULT_VISIBILITY`, `groupOf` and `isCalendarVisible`, and `lib/ui/visibleCalendars.ts` owns `visibleCalendarIds`, the single implementation used by `CalendarShell` and `SidebarMiniMonth` so the grid and sidebar dots cannot disagree.
+**State & side effects** — None of its own: no state, effects, queries, storage or URL params. The state lives in `useVisibility` (called by `AppShell`); this file only distributes it. Its meaning is defined elsewhere: `lib/ui/visibility.ts` owns `VisibilityState`, `GroupKey`, `GROUP_ORDER`, `DEFAULT_VISIBILITY`, `groupOf` and `isCollectionVisible`, and `lib/ui/visibleCollections.ts` owns `visibleCollectionIds`, the single implementation used by `CalendarShell` and `SidebarMiniMonth` so the grid and sidebar dots cannot disagree.
 
-**Depends on / Used by** — `react` (`createContext`, `useContext`) and `lib/ui/useVisibility` (`VisibilityApi`). Provided by `AppShell`; consumed by `CalendarShell`, `SidebarMiniMonth` and, indirectly via `AppShell` props, `CalendarTree`/`BreadcrumbBar`/`PersonPills` (they take the API as a prop, not from the context).
+**Depends on / Used by** — `react` (`createContext`, `useContext`) and `lib/ui/useVisibility` (`VisibilityApi`). Provided by `AppShell`; consumed by `CalendarShell`, `SidebarMiniMonth` and, indirectly via `AppShell` props, `CollectionTree`/`BreadcrumbBar`/`PersonPills` (they take the API as a prop, not from the context).
 
 **Debugging** —
 - "useVisibilityApi must be used inside VisibilityProvider" -> a component was rendered outside the `(app)` layout (or in a story/test without the provider) -> this file / `AppShell`.
-- Grid and sidebar mini month disagree about visible calendars -> one of them filters by hand instead of calling `visibleCalendarIds` -> `lib/ui/visibleCalendars.ts`.
-- Toggling a pill leaves an isolated calendar showing -> `setOnly` is not cleared by `setOnly`; only `setGroup`/`toggleCalendar`/`setCalendars` clear it -> `lib/ui/useVisibility.ts`.
+- Grid and sidebar mini month disagree about visible calendars -> one of them filters by hand instead of calling `visibleCollectionIds` -> `lib/ui/visibleCollections.ts`.
+- Toggling a pill leaves an isolated calendar showing -> `setOnly` is not cleared by `setOnly`; only `setGroup`/`toggleCollection`/`setCollections` clear it -> `lib/ui/useVisibility.ts`.
 
-**Tests** — No direct test coverage of the provider; its semantics are covered by `tests/unit/visibility.test.ts`, `tests/unit/visibleCalendars.test.ts`, `tests/e2e/sidebar.spec.ts` and `tests/e2e/only-this-calendar.spec.ts`.
+**Tests** — No direct test coverage of the provider; its semantics are covered by `tests/unit/visibility.test.ts`, `tests/unit/visibleCollections.test.ts`, `tests/e2e/sidebar.spec.ts` and `tests/e2e/only-this-calendar.spec.ts`.
 
-## Calendar sidebar
+## Collection sidebar
 
-### components/sidebar/CalendarDialog.tsx
+### components/sidebar/CollectionDialog.tsx
 
-**Purpose** — The calendar create/rename dialog. Roots also get owner, view-only and colour controls; sub-calendars only get a name because they inherit colour and sharing.
+**Purpose** — The collection create/rename dialog. Roots also get owner, view-only and colour controls; sub-collections only get a name because they inherit colour and sharing.
 
-**Public API** — `export type CalendarDialogState = { mode: "create-root" } | { mode: "create-child"; parentId: string } | { mode: "edit"; calendar: CalendarRow }`; `export interface CalendarDialogResult { name: string; hueFamily?: HueFamily; ownerId?: string | null; isViewOnlyForPartner?: boolean }`; `export function CalendarDialog(props: Props)`. Props: `state: CalendarDialogState | null`, `pending: boolean`, `currentUserId`, `currentUserName`, `onClose()`, `onSubmit(values: CalendarDialogResult)`. Returns `null` when `state` is null.
+**Public API** — `export type CollectionDialogState = { mode: "create-root" } | { mode: "create-child"; parentId: string } | { mode: "edit"; collection: CollectionRow }`; `export interface CollectionDialogResult { name: string; hueFamily?: HueFamily; ownerId?: string | null; visibility?: "shared" | "view_only" }`; `export function CollectionDialog(props: Props)`. Props: `state: CollectionDialogState | null`, `pending: boolean`, `currentUserId`, `currentUserName`, `onClose()`, `onSubmit(values: CollectionDialogResult)`. Returns `null` when `state` is null.
 
-**State & side effects** — `CalendarForm` (internal, keyed by mode/parent/calendar id so switching targets remounts it) holds `name`, `hueFamily` (default `"teal"`), `ownerId` and `viewOnly`. The owner select only offers `"ours"` (→ `null`) and the current user — the partner cannot be assigned. The view-only checkbox is disabled and forced unticked unless the calendar belongs to the current user (`isMine`), and submit sends `isViewOnlyForPartner: isMine ? viewOnly : false`. Non-root submits send `hueFamily`/`ownerId`/`isViewOnlyForPartner` as `undefined`. Save is disabled while `pending` or the trimmed name is empty. No queries: mutation wiring is the caller's.
+**State & side effects** — `CollectionForm` (internal, keyed by mode/parent/collection id so switching targets remounts it) holds `name`, `hueFamily` (default `"teal"`), `ownerId` and `viewOnly`. The owner select only offers `"ours"` (→ `null`) and the current user — the partner cannot be assigned. The view-only checkbox is disabled and forced unticked unless the collection belongs to the current user (`isMine`), and submit sends `visibility: "view_only" | "shared"` (the only two values this control can produce; `private` is not offered yet). Non-root submits send `hueFamily`/`ownerId`/`visibility` as `undefined`. Save is disabled while `pending` or the trimmed name is empty. No queries: mutation wiring is the caller's.
 
-**Depends on / Used by** — `components/ui/button`, `components/ui/dialog`, `lib/color/palette` (`HUE_FAMILIES`, `PARENT_SHADE_INDEX`, `shadeTokens`), `lib/db/schema` (`CalendarRow`), `lib/utils`. Rendered by `CalendarTree` with `pending={createCalendar.isPending || updateCalendar.isPending}`.
+**Depends on / Used by** — `components/ui/button`, `components/ui/dialog`, `lib/color/palette` (`HUE_FAMILIES`, `PARENT_SHADE_INDEX`, `shadeTokens`), `lib/db/schema` (`CollectionRow`), `lib/utils`. Rendered by `CollectionTree` with `pending={createCollection.isPending || updateCollection.isPending}`.
 
 **Debugging** —
-- Editing a sub-calendar wipes its parent's colour/sharing -> a root-only field was submitted for a child -> `isRoot` in this file plus `CalendarTree.submit`'s `parentId === null` spread.
+- Editing a sub-calendar wipes its parent's colour/sharing -> a root-only field was submitted for a child -> `isRoot` in this file plus `CollectionTree.submit`'s `parentId === null` spread.
 - "View only" cannot be ticked -> the calendar is shared or owned by the partner (`isMine` false) -> `ownerId`/`viewOnly` state here.
 - The dialog keeps stale values after switching targets -> the `formKey` remount was removed -> this file.
 
 **Tests** — `tests/e2e/sidebar.spec.ts`, `tests/e2e/viewonly.spec.ts`.
 
-### components/sidebar/CalendarRow.tsx
+### components/sidebar/CollectionRow.tsx
 
 **Purpose** — One row of the sidebar tree: a disclosure control on roots, the visibility checkbox, colour swatch, name, optional view-only lock, a child-shade preview strip on roots, and an options menu.
 
-**Public API** — `export function CalendarRow(props: Props)`. Props: `calendar: CalendarRow`, `checked`, `isChild`, `ownerHue: HueFamily`, `childShades: string[]`, `readOnly`, `showViewOnlyBadge`, `onlyId: string | null`, and callbacks `onToggle`, `onAddChild`, `onEdit`, `onDelete`, `onShowOnly`, `onShowAll`. Fold props: `foldable?: boolean` (root has children), `expanded?: boolean` (default `true`), `controlsId?: string`, `onToggleFold?: () => void`.
+**Public API** — `export function CollectionRow(props: Props)`. Props: `collection: CollectionRow`, `checked`, `isChild`, `ownerHue: HueFamily`, `childShades: string[]`, `readOnly`, `showViewOnlyBadge`, `onlyId: string | null`, and callbacks `onToggle`, `onAddChild`, `onEdit`, `onDelete`, `onShowOnly`, `onShowAll`. Fold props: `foldable?: boolean` (root has children), `expanded?: boolean` (default `true`), `controlsId?: string`, `onToggleFold?: () => void`.
 
-**State & side effects** — No state; the row is fully controlled. A row with `foldable` and `onToggleFold` renders a leading button labelled `Collapse <name>` / `Expand <name>` carrying `aria-expanded` and `aria-controls`; every other row renders a same-width `aria-hidden` spacer, so checkboxes line up whether or not a root has children and whether or not a branch is open. Colour swatch is `shadeTokens(ownerHue, isChild ? calendar.shadeIndex : PARENT_SHADE_INDEX)`, i.e. the family hue always comes from the parent. `isOnly` adds a `bg-well` highlight and swaps the menu entry to "Display all calendars". The menu omits "Add sub-calendar" for children and for read-only rows, and omits Edit/Delete when `readOnly`. The menu button is invisible until group hover/focus or `data-[state=open]`. Roots with children render a strip with `data-testid="shade-strip-<lowercased name>"` and decreasing opacity per shade.
+**State & side effects** — No state; the row is fully controlled. A row with `foldable` and `onToggleFold` renders a leading button labelled `Collapse <name>` / `Expand <name>` carrying `aria-expanded` and `aria-controls`; every other row renders a same-width `aria-hidden` spacer, so checkboxes line up whether or not a root has children and whether or not a branch is open. Colour swatch is `shadeTokens(ownerHue, isChild ? collection.shadeIndex : PARENT_SHADE_INDEX)`, i.e. the family hue always comes from the parent. `isOnly` adds a `bg-well` highlight and swaps the menu entry to "Display all calendars". The menu omits "Add sub-calendar" for children and for read-only rows, and omits Edit/Delete when `readOnly`. The menu button is invisible until group hover/focus or `data-[state=open]`. Roots with children render a strip with `data-testid="shade-strip-<lowercased name>"` and decreasing opacity per shade.
 
-**Depends on / Used by** — `components/ui/dropdown-menu`, `components/ui/checkbox`, `components/ui/icons` (`ChevronRightIcon`), `lib/color/palette`, `lib/db/schema`, `lib/utils`. Rendered by `CalendarTree` for roots and their children; its fold props come from that tree's `fold` API.
+**Depends on / Used by** — `components/ui/dropdown-menu`, `components/ui/checkbox`, `components/ui/icons` (`ChevronRightIcon`), `lib/color/palette`, `lib/db/schema`, `lib/utils`. Rendered by `CollectionTree` for roots and their children; its fold props come from that tree's `fold` API.
 
 **Debugging** —
 - The options menu is unreachable by keyboard -> the `group-focus-within:opacity-100` class was removed -> this file's `DropdownMenuTrigger`.
-- A view-only row offers Edit/Delete -> the `readOnly` prop was computed without folding the parent's flags -> `CalendarTree.effectivePermission`.
-- Sub-calendar dots all look identical -> `shadeIndex` is duplicated in the DB or `ownerHue` fell back to `"slate"` -> `hueOf` in `CalendarTree`.
-- The disclosure chevron does nothing -> `foldable`/`onToggleFold` was not passed for that root, or the row is a child (children fold with their parent) -> this file's `canFold` plus `CalendarTree`.
+- A view-only row offers Edit/Delete -> the `readOnly` prop was computed without folding the parent's flags -> `CollectionTree.effectivePermission`.
+- Sub-calendar dots all look identical -> `shadeIndex` is duplicated in the DB or `ownerHue` fell back to `"slate"` -> `hueOf` in `CollectionTree`.
+- The disclosure chevron does nothing -> `foldable`/`onToggleFold` was not passed for that root, or the row is a child (children fold with their parent) -> this file's `canFold` plus `CollectionTree`.
 - Rows shift sideways when a branch folds -> the spacer branch was removed -> this file's spacer `span`.
 
 **Tests** — `tests/e2e/sidebar.spec.ts`, `tests/e2e/only-this-calendar.spec.ts`.
 
-### components/sidebar/CalendarTree.tsx
+### components/sidebar/CollectionTree.tsx
 
-**Purpose** — The sidebar calendar list: groups roots into Shared / me / partner, renders each root with its children, folds groups and roots, and wires create, rename, delete and "display only this calendar".
+**Purpose** — The sidebar collection list: groups roots into Shared / me / partner, renders each root with its children, folds groups and roots, and wires create, rename, delete and "display only this calendar".
 
-**Public API** — `export function CalendarTree(props: Props)`. Props: `visibility: VisibilityApi`, `fold: TreeFoldApi`, `currentUserId`, `currentUserName`, `partnerName`. Internal: `GROUP_LABEL`, `hueOf`, `Effective`, `effectivePermission`, `isReadOnlyFor`, `previewShades`; disclosure ids are built per mount from `useId()`.
+**Public API** — `export function CollectionTree(props: Props)`. Props: `visibility: VisibilityApi`, `fold: TreeFoldApi`, `currentUserId`, `currentUserName`, `partnerName`. Internal: `GROUP_LABEL`, `hueOf`, `Effective`, `effectivePermission`, `isReadOnlyFor`, `previewShades`; disclosure ids are built per mount from `useId()`.
 
-**State & side effects** — Queries/mutations: `useCalendars()` (`["calendars"]`), `useCreateCalendar`, `useUpdateCalendar`, `useDeleteCalendar` (which also invalidates `["events"]`). Local: `dialog: CalendarDialogState | null` and `pendingDelete: CalendarRow | null`. Visibility writes go through `visibility.setCalendars(ids, visible)` (toggling a root also toggles its children in one call) and `visibility.setOnly(id | null)`. Fold reads and writes go through the `fold` prop only: each group heading is a button with `aria-expanded`/`aria-controls` that toggles that group's list (`<ul id="calendar-group-<instance>-<group>" hidden>`), and each root with children gets a disclosure row controlling `<ul id="calendar-children-<instance>-<rootId>" hidden>`. `<instance>` is `useId()`, because the desktop aside and the phone sheet mount this tree twice — global ids would let the sheet's buttons point at the hidden aside's list. Everything starts expanded; a successful create or edit calls `fold.expandGroup` for the group the returned calendar landed in (a root can be created or re-owned into a folded group), and creating a sub-calendar also calls `fold.expandCalendar(parentId)`. Grouping uses `groupOf`/`GROUP_ORDER`; effective permission folds the root's `ownerId`/`isViewOnlyForPartner` into every child (`Math.max`), so a protected parent protects its children. `previewShades` lists real child shades first, then fills to three from `CHILD_SHADE_ORDER`. Edit submits root-only fields only when `parentId === null`. Delete opens a Canvas confirmation (never `window.confirm`) whose text differs for roots vs children, then toasts `Deleted <name>`. A `role="status"` banner shows "Showing only <name>" with a "Show all" button. Loading and error states are inline text.
+**State & side effects** — Queries/mutations: `useCollections()` (`["collections"]`), `useCreateCollection`, `useUpdateCollection`, `useDeleteCollection` (which also invalidates `["events"]`). Local: `dialog: CollectionDialogState | null` and `pendingDelete: CollectionRow | null`. Visibility writes go through `visibility.setCollections(ids, visible)` (toggling a root also toggles its children in one call) and `visibility.setOnly(id | null)`. Fold reads and writes go through the `fold` prop only: each group heading is a button with `aria-expanded`/`aria-controls` that toggles that group's list (`<ul id="collection-group-<instance>-<group>" hidden>`), and each root with children gets a disclosure row controlling `<ul id="collection-children-<instance>-<rootId>" hidden>`. `<instance>` is `useId()`, because the desktop aside and the phone sheet mount this tree twice — global ids would let the sheet's buttons point at the hidden aside's list. Everything starts expanded; a successful create or edit calls `fold.expandGroup` for the group the returned collection landed in (a root can be created or re-owned into a folded group), and creating a sub-collection also calls `fold.expandCollection(parentId)`. Grouping uses `groupOf`/`GROUP_ORDER`; effective permission folds the root's `ownerId` and the more restrictive `visibility` into every child (`effectivePermission`), so a protected parent protects its children. `previewShades` lists real child shades first, then fills to three from `CHILD_SHADE_ORDER`. Edit submits root-only fields only when `parentId === null`. Delete opens a Canvas confirmation (never `window.confirm`) whose text differs for roots vs children, then toasts `Deleted <name>`. A `role="status"` banner shows "Showing only <name>" with a "Show all" button. Loading and error states are inline text.
 
-**Depends on / Used by** — `sonner`, `components/ui/button`, `components/ui/dialog`, `components/ui/icons` (`ChevronRightIcon`, `PlusIcon`), `lib/color/palette`, `lib/db/schema`, `lib/services/calendars` (`CalendarNode`), `lib/query/calendars`, `lib/ui/visibility` (`GROUP_ORDER`, `groupOf`, `isCalendarVisible`), `lib/ui/useTreeFold` (`TreeFoldApi`), `lib/ui/useVisibility` (`VisibilityApi`), `lib/utils` (`cn`), `./CalendarDialog`, `./CalendarRow`. Rendered by `AppShell` (desktop sidebar and phone sheet), which passes the single `fold` instance.
+**Depends on / Used by** — `sonner`, `components/ui/button`, `components/ui/dialog`, `components/ui/icons` (`ChevronRightIcon`, `PlusIcon`), `lib/color/palette`, `lib/db/schema`, `lib/services/collections` (`CollectionNode`), `lib/query/collections`, `lib/ui/visibility` (`GROUP_ORDER`, `groupOf`, `isCollectionVisible`), `lib/ui/useTreeFold` (`TreeFoldApi`), `lib/ui/useVisibility` (`VisibilityApi`), `lib/utils` (`cn`), `./CollectionDialog`, `./CollectionRow`. Rendered by `AppShell` (desktop sidebar and phone sheet), which passes the single `fold` instance.
 
 **Debugging** —
 - A calendar is missing from the tree -> it is neither a root nor a direct child (only two levels are rendered) or its group bucket filtered it -> `GROUP_ORDER` filter in this file.
 - Unticking a parent leaves children visible -> the toggle passed no children -> `onToggle={() => toggle(root, root.children)}`.
-- Delete removes events from the grid but not the tree -> `["calendars"]` invalidation failed; `["events"]` is invalidated by the mutation -> `lib/query/calendars`.
+- Delete removes events from the grid but not the tree -> `["collections"]` invalidation failed; `["events"]` is invalidated by the mutation -> `lib/query/collections`.
 - The partner sees Edit on a protected child -> `effectivePermission` was called without the root -> the child map in this file.
-- Sub-calendars stay visible after collapsing a root -> the child `<ul>` lost its `hidden={!openRoot}` or the disclosure button was given the wrong `controlsId` -> the `calendar-children-<instance>-<rootId>` wiring in this file.
+- Sub-calendars stay visible after collapsing a root -> the child `<ul>` lost its `hidden={!openRoot}` or the disclosure button was given the wrong `controlsId` -> the `collection-children-<instance>-<rootId>` wiring in this file.
 - A group heading does not fold -> the heading button lost its `onClick`/`aria-expanded` -> this file's `h3` block.
 - The phone sheet's disclosure buttons expand a list in the hidden desktop sidebar -> the `useId()` instance prefix was dropped from the ids -> this file's `instanceId`.
-- A newly added sub-calendar is invisible -> the create success handler stopped calling `fold.expandCalendar(parentId)` -> this file's `submit`.
-- A new or re-owned root calendar is invisible -> its success handler stopped calling `fold.expandGroup(groupOf(result.calendar, currentUserId))` -> this file's `submit`.
-- A sub-calendar sits under a person's group but disappears with the "Ours" pill -> the checkbox `isCalendarVisible` call omitted the `root` argument, so the child's stale `ownerId` chose the group -> the child rows around `checked={isCalendarVisible(visibility.state, child, currentUserId, root)}` in this file.
+- A newly added sub-calendar is invisible -> the create success handler stopped calling `fold.expandCollection(parentId)` -> this file's `submit`.
+- A new or re-owned root calendar is invisible -> its success handler stopped calling `fold.expandGroup(groupOf(result.collection, currentUserId))` -> this file's `submit`.
+- A sub-calendar sits under a person's group but disappears with the "Ours" pill -> the checkbox `isCollectionVisible` call omitted the `root` argument, so the child's stale `ownerId` chose the group -> the child rows around `checked={isCollectionVisible(visibility.state, child, currentUserId, root)}` in this file.
 
 **Tests** — `tests/e2e/sidebar.spec.ts`, `tests/e2e/only-this-calendar.spec.ts`, `tests/e2e/mobile.spec.ts`, `tests/e2e/viewonly.spec.ts`.
 
@@ -203,7 +203,7 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 **Depends on / Used by** — `components/ui/button`, `lib/ui/visibility` (`GroupKey`), `lib/ui/useVisibility` (`VisibilityApi`). Rendered by `BreadcrumbBar`.
 
 **Debugging** —
-- Clicking a pill does not change the grid -> the pill group is filtered out by `isCalendarVisible`'s `only` branch; `setGroup` must clear `only` -> `lib/ui/useVisibility.ts`.
+- Clicking a pill does not change the grid -> the pill group is filtered out by `isCollectionVisible`'s `only` branch; `setGroup` must clear `only` -> `lib/ui/useVisibility.ts`.
 - A pill looks permanently pressed -> `aria-pressed`/class condition inverted -> this file's `on` derivation.
 - Pills show the wrong name -> `BreadcrumbBar` passed `me`/`partner` from `AppShell`'s `members` -> `AppShell`'s `partnerName` (`"Partner"` fallback).
 
@@ -215,9 +215,9 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 
 **Public API** — `export function SidebarMiniMonth(props: { currentUserId: string; timezone: string })`. Internal helpers `pad`, `monthRange`.
 
-**State & side effects** — Local `anchorDate` (today in the household zone) drives `monthRange`, which converts the month's local midnights to UTC bounds with `localWallTimeToUtc`. `useEvents(range)` fetches that month (`["events", from, to]`), `useVisibilityApi()` supplies the state, `visibleCalendarIds` filters events, and `expandOccurrences` expands series inside the range to build the `eventDates` set (all-day uses `occurrence.startKey`, timed uses the local date of `startAt`). Clicking pushes `/?date=<date>` with `router.push`; the grid's `?date=` effect does the navigation. No storage or mutations.
+**State & side effects** — Local `anchorDate` (today in the household zone) drives `monthRange`, which converts the month's local midnights to UTC bounds with `localWallTimeToUtc`. `useEvents(range)` fetches that month (`["events", from, to]`), `useVisibilityApi()` supplies the state, `visibleCollectionIds` filters events, and `expandOccurrences` expands series inside the range to build the `eventDates` set (all-day uses `occurrence.startKey`, timed uses the local date of `startAt`). Clicking pushes `/?date=<date>` with `router.push`; the grid's `?date=` effect does the navigation. No storage or mutations.
 
-**Depends on / Used by** — `next/navigation`, `components/calendar/MiniMonth`, `components/shell/VisibilityProvider` (`useVisibilityApi`), `lib/query/calendars`, `lib/query/events`, `lib/recurrence/expand`, `lib/services/calendars`, `lib/time/zone`, `lib/ui/visibleCalendars`. Rendered by `AppShell` (desktop sidebar and phone sheet, so two instances share the events cache).
+**Depends on / Used by** — `next/navigation`, `components/calendar/MiniMonth`, `components/shell/VisibilityProvider` (`useVisibilityApi`), `lib/query/collections`, `lib/query/events`, `lib/recurrence/expand`, `lib/services/collections`, `lib/time/zone`, `lib/ui/visibleCollections`. Rendered by `AppShell` (desktop sidebar and phone sheet, so two instances share the events cache).
 
 **Debugging** —
 - Dots are missing for events that the grid shows -> the mini month queries only the shown month, so an event spanning the boundary can fall outside `range` -> `monthRange` / `expandOccurrences` range argument.
@@ -229,7 +229,7 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 
 ## Focused verification
 ```bash
-npx vitest run tests/unit/visibility.test.ts tests/unit/visibleCalendars.test.ts
+npx vitest run tests/unit/visibility.test.ts tests/unit/visibleCollections.test.ts
 npx playwright test tests/e2e/shell.spec.ts
 npm run lint && npm run typecheck
 ```

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Database } from "@/lib/db/client";
-import { createCalendar } from "@/lib/services/calendars";
+import { createCollection } from "@/lib/services/collections";
 import { createEvent } from "@/lib/services/events";
 import type { ViewerContext } from "@/lib/services/permissions";
 import { searchEvents } from "@/lib/services/search";
@@ -13,11 +13,11 @@ const TZ = "Asia/Taipei";
 function timedEvent(
   db: Database,
   ctx: ViewerContext,
-  calendarId: string,
+  collectionId: string,
   overrides: Partial<CreateEventInput>,
 ): void {
   createEvent(db, ctx, {
-    calendarId,
+    collectionId,
     title: "Untitled",
     allDay: false,
     startAt: localWallTimeToUtc("2026-10-21T09:00", TZ),
@@ -30,8 +30,8 @@ describe("searchEvents", () => {
   it("matches title, location and description case-insensitively", async () => {
     const { db, close, ctxA } = await makeSeededDb();
     try {
-      const calendar = createCalendar(db, ctxA, { name: "Home", hueFamily: "teal" });
-      timedEvent(db, ctxA, calendar.id, {
+      const collection = createCollection(db, ctxA, { name: "Home", hueFamily: "teal" });
+      timedEvent(db, ctxA, collection.id, {
         title: "Holiday in Kyoto",
         location: "Kyoto Station",
         description: "book the train",
@@ -48,8 +48,8 @@ describe("searchEvents", () => {
   it("requires two characters and never crosses households", async () => {
     const { db, close, ctxA, ctxOther } = await makeSeededDb();
     try {
-      const calendar = createCalendar(db, ctxA, { name: "Home", hueFamily: "teal" });
-      timedEvent(db, ctxA, calendar.id, { title: "Holiday in Kyoto" });
+      const collection = createCollection(db, ctxA, { name: "Home", hueFamily: "teal" });
+      timedEvent(db, ctxA, collection.id, { title: "Holiday in Kyoto" });
 
       expect(searchEvents(db, ctxA, "k")).toEqual([]);
       expect(searchEvents(db, ctxA, "  k  ")).toEqual([]);
@@ -63,8 +63,8 @@ describe("searchEvents", () => {
   it("returns a recurring series once, not one row per occurrence", async () => {
     const { db, close, ctxA } = await makeSeededDb();
     try {
-      const calendar = createCalendar(db, ctxA, { name: "School", hueFamily: "indigo" });
-      timedEvent(db, ctxA, calendar.id, {
+      const collection = createCollection(db, ctxA, { name: "School", hueFamily: "indigo" });
+      timedEvent(db, ctxA, collection.id, {
         title: "Weekly class",
         rrule: "FREQ=WEEKLY;BYDAY=TU",
       });
@@ -78,9 +78,9 @@ describe("searchEvents", () => {
   it("escapes LIKE wildcards", async () => {
     const { db, close, ctxA } = await makeSeededDb();
     try {
-      const calendar = createCalendar(db, ctxA, { name: "Home", hueFamily: "teal" });
-      timedEvent(db, ctxA, calendar.id, { title: "100% sure" });
-      timedEvent(db, ctxA, calendar.id, { title: "100x sure" });
+      const collection = createCollection(db, ctxA, { name: "Home", hueFamily: "teal" });
+      timedEvent(db, ctxA, collection.id, { title: "100% sure" });
+      timedEvent(db, ctxA, collection.id, { title: "100x sure" });
 
       expect(searchEvents(db, ctxA, "100%").map((event) => event.title)).toEqual(["100% sure"]);
     } finally {
@@ -91,10 +91,10 @@ describe("searchEvents", () => {
   it("ranks title matches above description matches and honours the limit", async () => {
     const { db, close, ctxA } = await makeSeededDb();
     try {
-      const calendar = createCalendar(db, ctxA, { name: "Home", hueFamily: "teal" });
-      timedEvent(db, ctxA, calendar.id, { title: "Groceries", description: "pick up the milk" });
-      timedEvent(db, ctxA, calendar.id, { title: "Milk run" });
-      timedEvent(db, ctxA, calendar.id, { title: "Milk 2" });
+      const collection = createCollection(db, ctxA, { name: "Home", hueFamily: "teal" });
+      timedEvent(db, ctxA, collection.id, { title: "Groceries", description: "pick up the milk" });
+      timedEvent(db, ctxA, collection.id, { title: "Milk run" });
+      timedEvent(db, ctxA, collection.id, { title: "Milk 2" });
 
       const results = searchEvents(db, ctxA, "milk");
       expect(results.map((event) => event.title)).toEqual(["Milk 2", "Milk run", "Groceries"]);

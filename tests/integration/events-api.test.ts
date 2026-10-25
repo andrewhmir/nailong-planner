@@ -7,7 +7,7 @@ import {
   updateEventHandler,
 } from "@/lib/api/handlers/events";
 import { event } from "@/lib/db/schema";
-import { createCalendar, updateCalendar } from "@/lib/services/calendars";
+import { createCollection, updateCollection } from "@/lib/services/collections";
 import { createEvent } from "@/lib/services/events";
 import { localWallTimeToUtc } from "@/lib/time/zone";
 import { makeSeededDb } from "../helpers/fixtures";
@@ -29,12 +29,12 @@ async function body<T>(response: Response): Promise<T> {
 
 async function setup() {
   const seeded = await makeSeededDb();
-  const school = createCalendar(seeded.db, seeded.ctxA, {
+  const school = createCollection(seeded.db, seeded.ctxA, {
     name: "School",
     hueFamily: "indigo",
     ownerId: "user-a",
   });
-  const math = createCalendar(seeded.db, seeded.ctxA, { name: "Math", parentId: school.id });
+  const math = createCollection(seeded.db, seeded.ctxA, { name: "Math", parentId: school.id });
   return { ...seeded, school, math };
 }
 
@@ -64,7 +64,7 @@ describe("event API", () => {
     const { db, close, ctxA, math } = await setup();
     try {
       createEvent(db, ctxA, {
-        calendarId: math.id,
+        collectionId: math.id,
         title: "Quiz",
         allDay: false,
         startAt: at("2026-10-20T09:00"),
@@ -92,15 +92,15 @@ describe("event API", () => {
   it("blocks every verb on a view-only partner calendar with 403", async () => {
     const { db, close, ctxA, ctxB } = await setup();
     try {
-      const work = createCalendar(db, ctxA, {
+      const work = createCollection(db, ctxA, {
         name: "Work",
         hueFamily: "amber",
         ownerId: "user-a",
       });
-      expect(updateCalendar(db, ctxA, work.id, { isViewOnlyForPartner: true }).visibility).toBe("view_only");
+      expect(updateCollection(db, ctxA, work.id, { visibility: "view_only" }).visibility).toBe("view_only");
 
       const existing = createEvent(db, ctxA, {
-        calendarId: work.id,
+        collectionId: work.id,
         title: "On-call",
         allDay: false,
         startAt: at("2026-10-20T09:00"),
@@ -111,7 +111,7 @@ describe("event API", () => {
         db,
         ctxB,
         jsonRequest("/api/events", "POST", {
-          calendarId: work.id,
+          collectionId: work.id,
           title: "Sneaky",
           allDay: false,
           startAt: at("2026-10-21T09:00"),
@@ -144,7 +144,7 @@ describe("event API", () => {
     const { db, close, ctxA, math } = await setup();
     try {
       const series = createEvent(db, ctxA, {
-        calendarId: math.id,
+        collectionId: math.id,
         title: "Standup",
         allDay: true,
         startDate: "2026-01-31",
@@ -175,9 +175,9 @@ describe("event API", () => {
   it("returns 404 for another household's event", async () => {
     const { db, close, ctxA, ctxOther } = await setup();
     try {
-      const foreignCalendar = createCalendar(db, ctxOther, { name: "Theirs", hueFamily: "rose" });
+      const foreignCollection = createCollection(db, ctxOther, { name: "Theirs", hueFamily: "rose" });
       const foreign = createEvent(db, ctxOther, {
-        calendarId: foreignCalendar.id,
+        collectionId: foreignCollection.id,
         title: "Private",
         allDay: false,
         startAt: at("2026-10-20T09:00"),
@@ -209,7 +209,7 @@ describe("event API", () => {
         db,
         ctxA,
         jsonRequest("/api/events", "POST", {
-          calendarId: math.id,
+          collectionId: math.id,
           title: "Lecture",
           allDay: false,
           startAt: at("2026-10-20T09:00"),

@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { calendar, event, importBatch, importChange } from "@/lib/db/schema";
+import { collection, event, importBatch, importChange } from "@/lib/db/schema";
 import { makeSeededDb } from "../helpers/fixtures";
 
 /** A minimal valid event row; every new external-identity column stays null. */
@@ -8,7 +8,7 @@ function baseEvent(overrides: Partial<typeof event.$inferInsert> = {}): typeof e
   return {
     id: crypto.randomUUID(),
     householdId: "h1",
-    calendarId: "c1",
+    collectionId: "c1",
     title: "Imported",
     allDay: 0,
     startAt: 1,
@@ -23,7 +23,7 @@ function baseEvent(overrides: Partial<typeof event.$inferInsert> = {}): typeof e
 async function setup() {
   const seeded = await makeSeededDb();
   seeded.db
-    .insert(calendar)
+    .insert(collection)
     .values({ id: "c1", householdId: "h1", name: "Family", hueFamily: "teal" })
     .run();
   return seeded;

@@ -63,7 +63,7 @@ test("overlapping events sit side by side, not on top of each other", async ({ p
   const monday = new Date(week.getFullYear(), week.getMonth(), week.getDate() - week.getDay() + 1);
   const day = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`;
 
-  const calendarId = fixtures.calendars.household;
+  const collectionId = fixtures.calendars.household;
   const start = new Date(`${day}T10:00:00`);
   for (const [title, offset] of [
     ["Overlap A", 0],
@@ -71,7 +71,7 @@ test("overlapping events sit side by side, not on top of each other", async ({ p
   ] as const) {
     await page.request.post("/api/events", {
       data: {
-        calendarId,
+        collectionId,
         title,
         allDay: false,
         startAt: start.getTime() + offset * 30 * 60 * 1000,

@@ -91,9 +91,6 @@ export const collection = sqliteTable(
   ],
 );
 
-/** @deprecated Temporary alias until Task 2 renames the TypeScript layer. */
-export const calendar = collection;
-
 export const event = sqliteTable(
   "event",
   {
@@ -101,9 +98,7 @@ export const event = sqliteTable(
     householdId: text("household_id")
       .notNull()
       .references(() => household.id, { onDelete: "cascade" }),
-    // The SQL column is `collection_id` (migration 0005); the Drizzle property
-    // keeps its pre-rename name until Task 2 renames the TypeScript layer.
-    calendarId: text("collection_id")
+    collectionId: text("collection_id")
       .notNull()
       .references(() => collection.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
@@ -142,7 +137,7 @@ export const event = sqliteTable(
   (table) => [
     index("event_household_start_idx").on(table.householdId, table.startAt),
     index("event_household_start_date_idx").on(table.householdId, table.startDate),
-    index("event_collection_idx").on(table.calendarId),
+    index("event_collection_idx").on(table.collectionId),
     // SQLite permits any number of NULL keys, so native events stay unique-free.
     uniqueIndex("event_household_external_key_idx").on(table.householdId, table.externalKey),
   ],
@@ -207,7 +202,7 @@ export const taskChecklistItem = sqliteTable(
 
 /**
  * One row per committed Google Calendar import. `mapping` and `report` are JSON
- * snapshots kept for audit (the report also carries the calendar ids the
+ * snapshots kept for audit (the report also carries the collection ids the
  * rollback deletes); `status` flips to `rolled_back` when the batch is undone.
  */
 export const importBatch = sqliteTable(
@@ -258,8 +253,6 @@ export type UserPreferenceRow = typeof userPreference.$inferSelect;
 export type CollectionRow = typeof collection.$inferSelect;
 export type CollectionKind = "calendar" | "list";
 export type CollectionVisibility = "shared" | "view_only" | "private";
-/** @deprecated Temporary alias until Task 2 renames the TypeScript layer. */
-export type CalendarRow = CollectionRow;
 export type EventRow = typeof event.$inferSelect;
 export type TaskRow = typeof task.$inferSelect;
 export type TaskStatus = "open" | "done" | "dropped";

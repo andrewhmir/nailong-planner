@@ -42,8 +42,8 @@ interface Props {
   scrollTime: string;
   firstDay: number;
   occurrences: RenderableOccurrence[];
-  calendarNames: ReadonlyMap<string, string>;
-  readOnlyCalendarIds: ReadonlySet<string>;
+  collectionNames: ReadonlyMap<string, string>;
+  readOnlyCollectionIds: ReadonlySet<string>;
   onDatesSet: (info: DatesSetInfo) => void;
   onDateClick: (info: DateClickInfo) => void;
   onSelect: (info: DateSelectInfo) => void;
@@ -59,8 +59,8 @@ export function CalendarView({
   scrollTime,
   firstDay,
   occurrences,
-  calendarNames,
-  readOnlyCalendarIds,
+  collectionNames,
+  readOnlyCollectionIds,
   onDatesSet,
   onDateClick,
   onSelect,
@@ -68,8 +68,8 @@ export function CalendarView({
   onEventMove,
 }: Props) {
   const fcEvents = occurrences.map(({ occurrence, event }) => ({
-    ...occurrenceToFcEvent(occurrence, event, calendarNames.get(event.calendarId) ?? ""),
-    editable: !readOnlyCalendarIds.has(event.calendarId),
+    ...occurrenceToFcEvent(occurrence, event, collectionNames.get(event.collectionId) ?? ""),
+    editable: !readOnlyCollectionIds.has(event.collectionId),
   })) as EventInput[];
 
   // `min-h-0 flex-1` gives FullCalendar a definite height to fill; the shell

@@ -10,7 +10,7 @@ import {
   type EventInputPayload,
 } from "@/lib/query/events";
 import { useUpdatePreferences } from "@/lib/query/preferences";
-import type { CalendarNode } from "@/lib/services/calendars";
+import type { CollectionNode } from "@/lib/services/collections";
 import type { TimeFormat } from "@/lib/services/preferences";
 import { calendarSwatch } from "@/lib/ui/calendarPicker";
 import { formatWallDate, formatWallTime } from "@/lib/time/format";
@@ -30,14 +30,14 @@ export interface QuickCreateDraft extends QuickCreateRange {
 interface Props {
   draft: QuickCreateDraft;
   /** Writable calendars only. */
-  calendars: CalendarNode[];
-  defaultCalendarId: string | null;
+  collections: CollectionNode[];
+  defaultCollectionId: string | null;
   timezone: string;
   timeFormat: TimeFormat;
   onClose: () => void;
   onMoreOptions: (values: {
     title: string;
-    calendarId: string;
+    collectionId: string;
     startWall: string;
     endWall: string;
     allDay: boolean;
@@ -54,14 +54,14 @@ const CARD_HEIGHT_ESTIMATE = 260;
 function draftPayload(
   draft: QuickCreateDraft,
   title: string,
-  calendarId: string,
+  collectionId: string,
   timezone: string,
 ): EventInputPayload {
   if (draft.allDay) {
     const startDate = draft.startWall.slice(0, 10);
     const endDate = addDaysToDate(draft.endWall.slice(0, 10), -1);
     return {
-      calendarId,
+      collectionId,
       title,
       allDay: true,
       startDate,
@@ -70,7 +70,7 @@ function draftPayload(
     };
   }
   return {
-    calendarId,
+    collectionId,
     title,
     allDay: false,
     startAt: localWallTimeToUtc(draft.startWall, timezone),
@@ -85,8 +85,8 @@ function draftPayload(
  */
 export function QuickCreatePopover({
   draft,
-  calendars,
-  defaultCalendarId,
+  collections,
+  defaultCollectionId,
   timezone,
   timeFormat,
   onClose,
@@ -95,11 +95,11 @@ export function QuickCreatePopover({
   const isPhone = useMediaQuery("(max-width: 767px)");
 
   const [title, setTitle] = useState("");
-  // Only an explicit pick sticks. `null` follows `defaultCalendarId`, so a
+  // Only an explicit pick sticks. `null` follows `defaultCollectionId`, so a
   // change in "display only this calendar" (or in the saved default) reaches a
   // bubble that is already on screen — the shell reuses this instance for the
   // next draft, so a default frozen at mount would go stale.
-  const [pickedCalendarId, setPickedCalendarId] = useState<string | null>(null);
+  const [pickedCollectionId, setPickedCollectionId] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -130,20 +130,20 @@ export function QuickCreatePopover({
 
   // Calendars arrive after the bubble opens; fall back live instead of freezing
   // an empty selection.
-  const preferredCalendarId = pickedCalendarId ?? defaultCalendarId;
-  const effectiveCalendarId =
-    (preferredCalendarId && calendarSwatch(calendars, preferredCalendarId)
-      ? preferredCalendarId
+  const preferredCollectionId = pickedCollectionId ?? defaultCollectionId;
+  const effectiveCollectionId =
+    (preferredCollectionId && calendarSwatch(collections, preferredCollectionId)
+      ? preferredCollectionId
       : "") ||
-    calendars[0]?.id ||
+    collections[0]?.id ||
     "";
 
   function save(): void {
     const trimmed = title.trim();
-    if (!trimmed || !effectiveCalendarId) {
+    if (!trimmed || !effectiveCollectionId) {
       return;
     }
-    createEvent.mutate(draftPayload(draft, trimmed, effectiveCalendarId, timezone), {
+    createEvent.mutate(draftPayload(draft, trimmed, effectiveCollectionId, timezone), {
       onSuccess: ({ event }) => {
         pushUndo({
           label: "Create event",
@@ -156,7 +156,7 @@ export function QuickCreatePopover({
           duration: 10_000,
         });
         // Remember the calendar for next time (spec D3).
-        updatePreferences.mutate({ lastEventCalendarId: effectiveCalendarId });
+        updatePreferences.mutate({ lastEventCalendarId: effectiveCollectionId });
         onClose();
       },
       onError: (error) => toast.error(error.message),
@@ -211,9 +211,9 @@ export function QuickCreatePopover({
 
       <div className="flex items-center justify-between gap-2">
         <CalendarPicker
-          calendars={calendars}
-          value={effectiveCalendarId}
-          onChange={setPickedCalendarId}
+          collections={collections}
+          value={effectiveCollectionId}
+          onChange={setPickedCollectionId}
         />
 
         <div className="flex items-center gap-2">
@@ -224,7 +224,7 @@ export function QuickCreatePopover({
             onClick={() =>
               onMoreOptions({
                 title: title.trim(),
-                calendarId: effectiveCalendarId,
+                collectionId: effectiveCollectionId,
                 startWall: draft.startWall,
                 endWall: draft.endWall,
                 allDay: draft.allDay,
@@ -237,7 +237,7 @@ export function QuickCreatePopover({
             size="sm"
             variant="primary"
             type="submit"
-            disabled={title.trim().length === 0 || !effectiveCalendarId}
+            disabled={title.trim().length === 0 || !effectiveCollectionId}
           >
             Save
           </Button>

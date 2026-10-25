@@ -66,12 +66,12 @@ shifts by a day, or an API error carries the wrong code or status.
 
 **State & side effects** — None. Pure functions over module-level constant tables; no caching, no I/O.
 
-**Depends on / Used by** — No imports. Consumers: `lib/services/calendars.ts` (assigns the next free `CHILD_SHADE_ORDER` slot on create, enforces `MAX_CHILDREN`, and `resolveShade` for a row), `lib/services/events.ts` (`toView` attaches tokens to each event; `shadeTokens("slate", 3)` fallback), `lib/query/events.ts`, `lib/validation/calendars.ts` (`z.enum(HUE_FAMILIES)`), `components/sidebar/CalendarDialog.tsx`, `CalendarRow.tsx`, `CalendarTree.tsx`, `components/calendar/CalendarShell.tsx`, `lib/ui/calendarPicker.ts`.
+**Depends on / Used by** — No imports. Consumers: `lib/services/collections.ts` (assigns the next free `CHILD_SHADE_ORDER` slot on create, enforces `MAX_CHILDREN`, and `resolveShade` for a row), `lib/services/events.ts` (`toView` attaches tokens to each event; `shadeTokens("slate", 3)` fallback), `lib/query/events.ts`, `lib/validation/collections.ts` (`z.enum(HUE_FAMILIES)`), `components/sidebar/CollectionDialog.tsx`, `CollectionRow.tsx`, `CollectionTree.tsx`, `components/calendar/CalendarShell.tsx`, `lib/ui/calendarPicker.ts`.
 
 **Debugging**
-- Two sub-calendars of one family look identical -> two rows stored the same `shadeIndex` (or a row is a root, so it always renders slot 3) -> check `calendar.shade_index` for the parent's children and the assignment in `createCalendar`.
+- Two sub-calendars of one family look identical -> two rows stored the same `shadeIndex` (or a row is a root, so it always renders slot 3) -> check `collection.shade_index` for the parent's children and the assignment in `createCollection`.
 - A grid block renders FullCalendar blue instead of the family colour -> an `oklch()` string was handed to FullCalendar instead of the hex twin -> grep the caller's `backgroundColor`/`borderColor` for `main` vs `mainHex`.
-- `RangeError: shadeIndex must be an integer between 0 and 7` -> a child row was inserted with slot 3 or an out-of-range value -> check the insert in `lib/services/calendars.ts` and any migration seed.
+- `RangeError: shadeIndex must be an integer between 0 and 7` -> a child row was inserted with slot 3 or an out-of-range value -> check the insert in `lib/services/collections.ts` and any migration seed.
 
 **Tests** — `tests/unit/palette.test.ts`; `tests/unit/calendarPicker.test.ts` asserts swatch hexes for parent and child rows.
 
@@ -287,24 +287,24 @@ shifts by a day, or an API error carries the wrong code or status.
 
 | Code | Status used | Throw sites |
 |---|---|---|
-| `VALIDATION` | 400 | `lib/time/zone.ts`, `lib/validation/events.ts`, `lib/services/events.ts`, `lib/services/calendars.ts`, `lib/services/household.ts`, `lib/api/handlers/*` |
+| `VALIDATION` | 400 | `lib/time/zone.ts`, `lib/validation/events.ts`, `lib/services/events.ts`, `lib/services/collections.ts`, `lib/services/household.ts`, `lib/api/handlers/*` |
 | `UNAUTHENTICATED` | 401 | `lib/api/route.ts` (`viewerFromRequest`) |
-| `FORBIDDEN` | 403 | `lib/api/route.ts` (not a household member), `lib/services/calendars.ts` (view-only, ownership) |
-| `NOT_FOUND` | 404 | `lib/services/calendars.ts`, `events.ts`, `household.ts` lookups |
-| `CONFLICT` | 409 | `lib/services/calendars.ts` only — a parent already has `MAX_CHILDREN` sub-calendars |
+| `FORBIDDEN` | 403 | `lib/api/route.ts` (not a household member), `lib/services/collections.ts` (view-only, ownership) |
+| `NOT_FOUND` | 404 | `lib/services/collections.ts`, `events.ts`, `household.ts` lookups |
+| `CONFLICT` | 409 | `lib/services/collections.ts` only — a parent already has `MAX_CHILDREN` sub-calendars |
 
 **Route-wrapper mapping** — `apiError(error)` in `lib/api/route.ts`: an `AppError` becomes `{ error: { code, message, fields? } }` with `status` (the `fields` key is omitted when absent); anything else is logged as `[api] unhandled error` and returns `{ error: { code: "INTERNAL", message: "Something went wrong." } }` with 500. `INTERNAL` is *not* a member of `ErrorCode` — it exists only in that envelope. The wrappers are `withViewer` (session + db + `apiError`) and `guarded` (`lib/api/handlers/support.ts`, error mapping only). `fieldErrors(zodError)` collapses a `ZodError` into one `VALIDATION`/400 with the first message per `path.join(".")` key (`"form"` when the path is empty); `readJson` throws `VALIDATION`/400 "Send a JSON body.".
 
 **State & side effects** — None; a plain `Error` subclass. Stack traces come from `Error`; there is no serialisation method.
 
-**Depends on / Used by** — No imports. Thrown by `lib/time/zone.ts`, `lib/validation/events.ts`, `lib/services/{calendars,events,household}.ts`, `lib/api/route.ts`, `lib/api/handlers/{support,events}.ts`; consumed by `apiError` and by client form code reading `fields`.
+**Depends on / Used by** — No imports. Thrown by `lib/time/zone.ts`, `lib/validation/events.ts`, `lib/services/{collections,events,household}.ts`, `lib/api/route.ts`, `lib/api/handlers/{support,events}.ts`; consumed by `apiError` and by client form code reading `fields`.
 
 **Debugging**
 - The UI shows only "Something went wrong." for a handled failure -> the throw was not an `AppError` (a Drizzle or `TypeError`) -> `apiError` logged `[api] unhandled error`; read the server log for the original.
 - Field errors do not highlight the input -> no `fields` object was passed, or the key does not match the form field name -> inspect the `new AppError(...)` call and `fieldErrors`' key derivation.
 - The response status does not match the code -> `status` is a free constructor argument -> grep `new AppError(` for the throw and correct the literal.
 
-**Tests** — `code`/`status` are asserted through local `expectAppError` helpers in `tests/integration/calendars.test.ts`, `tests/integration/events.test.ts` and `tests/integration/regressions.test.ts`; no unit test for this file itself.
+**Tests** — `code`/`status` are asserted through local `expectAppError` helpers in `tests/integration/collections.test.ts`, `tests/integration/events.test.ts` and `tests/integration/regressions.test.ts`; no unit test for this file itself.
 
 ### lib/utils.ts
 
@@ -316,7 +316,7 @@ shifts by a day, or an API error carries the wrong code or status.
 
 **Derived rules** — `clsx` flattens and drops falsy values; `twMerge` then removes earlier utilities that a later argument overrides *within the same Tailwind group* (e.g. `px-2` followed by `px-4` keeps `px-4`), so argument order is the precedence order. Non-Tailwind class names pass through untouched, but a class that merely looks like a Tailwind utility can be mistaken for one and dropped.
 
-**Depends on / Used by** — `clsx`, `tailwind-merge`. Used by essentially every styled component: `components/ui/button.tsx`, `dialog.tsx`, `checkbox.tsx`, `dropdown-menu.tsx`, `components/shell/Brand.tsx`, `GlobalNavRail.tsx`, `components/sidebar/CalendarRow.tsx`, `CalendarDialog.tsx`, `components/settings/SettingsForm.tsx`, `CalendarPreferencesCard.tsx`, `components/calendar/Toolbar.tsx`, `MiniMonth.tsx`, `CalendarPicker.tsx`, `SearchResultsOverlay.tsx`.
+**Depends on / Used by** — `clsx`, `tailwind-merge`. Used by essentially every styled component: `components/ui/button.tsx`, `dialog.tsx`, `checkbox.tsx`, `dropdown-menu.tsx`, `components/shell/Brand.tsx`, `GlobalNavRail.tsx`, `components/sidebar/CollectionRow.tsx`, `CollectionDialog.tsx`, `components/settings/SettingsForm.tsx`, `CalendarPreferencesCard.tsx`, `components/calendar/Toolbar.tsx`, `MiniMonth.tsx`, `CalendarPicker.tsx`, `SearchResultsOverlay.tsx`.
 
 **Debugging**
 - A class you added is missing from the rendered `class` attribute -> `twMerge` treated it as a conflict overridden by a later argument -> move it after, or pass it via `className`.

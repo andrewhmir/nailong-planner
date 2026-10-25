@@ -11,14 +11,14 @@ The storage and transport foundation of the planner: the Drizzle/SQLite schema, 
 | lib/db/client.ts | Opens better-sqlite3 with WAL + foreign keys and wraps it in Drizzle |
 | lib/db/index.ts | Lazy app-wide database singleton that migrates on first use |
 | lib/db/migrate.ts | Applies the committed SQL migrations in `drizzle/` |
-| lib/query/calendars.ts | `useCalendars` plus create/update/delete calendar mutations |
+| lib/query/collections.ts | `useCollections` plus create/update/delete calendar mutations |
 | lib/query/events.ts | Range query, search-compatible cache keys, optimistic create/update/delete with rollback |
 | lib/query/eventCache.ts | Pure array helpers used by the optimistic event cache and the undo path |
 | lib/query/preferences.ts | Preferences query seeded from the server layout, plus a sequence-guarded patch mutation |
 | lib/query/search.ts | Event search query and the "where should a result open" helper |
 | lib/auth/server.ts | Better Auth factory and lazy app singleton (two-user cap, rate limiting, 2FA/admin plugins) |
 | lib/auth/users.ts | `MAX_USERS` and user-table reads used by the sign-up hook and provisioning |
-| lib/validation/calendars.ts | Zod schemas for calendar create/update |
+| lib/validation/collections.ts | Zod schemas for calendar create/update |
 | lib/validation/events.ts | Zod schemas for event create/update plus the all-day/timed shape invariant |
 | lib/validation/preferences.ts | Strict Zod schema for the per-user preference PATCH |
 | lib/validation/settings.ts | Zod schemas for household and profile updates |
@@ -32,8 +32,8 @@ Fourteen tables exist in the migrated database (six migrations: `0000_even_morg`
 | `household` | `id` (PK), `name` default `'Our Nest'`, `timezone` default `'Asia/Taipei'`, `week_starts_on` default `0`, `created_at` | No foreign keys. Single row in practice. |
 | `member` | `user_id` (PK), `household_id`, `role` default `'member'`, `created_at` | `household_id` -> `household.id` `ON DELETE cascade`. `user_id` is a logical reference to `user.id` — no FK. |
 | `user_preference` | `user_id` (PK), `default_view` default `'auto'`, `time_format` default `'24h'`, `show_week_numbers` default `0`, `shortcuts_enabled` default `1`, `last_event_calendar_id` nullable, `updated_at` | No FK. Row is lazy: absent means all defaults, and reads never insert. |
-| `collection` | `id` (PK), `household_id`, `parent_id` nullable, `kind` default `'calendar'`, `name`, `hue_family` nullable, `shade_index` default `0`, `owner_id` nullable, `visibility` default `'shared'`, `sort_order` default `0`, `created_at`, `updated_at` | `household_id` -> `household.id` cascade; `parent_id` -> `collection.id` cascade (self-referencing nesting). Indexes `collection_household_idx`, `collection_parent_idx`. `kind` is `calendar`/`list`; `visibility` is `shared`/`view_only`/`private` — migration `0005` replaced `is_view_only_for_partner` (`1` -> `view_only`) and added both columns. `hue_family` is meaningful on roots only; children inherit the family and carry `shade_index`. `owner_id` null means shared ("Ours"); a child mirrors its root's `owner_id` (`updateCalendar` cascades an owner move, migration `0004` backfilled legacy rows). Logical ref to `user.id`. |
-| `event` | `id` (PK), `household_id`, `collection_id`, `title`, `description`, `location`, `all_day` default `0`, `start_at`, `end_at`, `start_date`, `end_date`, `rrule`, `exdates`, `created_by`, `created_at`, `updated_at` | `household_id` and `collection_id` (SQL name since migration `0005`; the Drizzle property is still `calendarId` until Task 2) both cascade. Indexes `event_household_start_idx` (`household_id`,`start_at`), `event_household_start_date_idx` (`household_id`,`start_date`), `event_collection_idx`. `start_at`/`end_at` are UTC epoch ms for timed rows; `start_date`/`end_date` are household-local `YYYY-MM-DD` for all-day rows with an inclusive `end_date`. `exdates` is JSON text. `created_by` is a logical ref to `user.id`. |
+| `collection` | `id` (PK), `household_id`, `parent_id` nullable, `kind` default `'calendar'`, `name`, `hue_family` nullable, `shade_index` default `0`, `owner_id` nullable, `visibility` default `'shared'`, `sort_order` default `0`, `created_at`, `updated_at` | `household_id` -> `household.id` cascade; `parent_id` -> `collection.id` cascade (self-referencing nesting). Indexes `collection_household_idx`, `collection_parent_idx`. `kind` is `calendar`/`list`; `visibility` is `shared`/`view_only`/`private` — migration `0005` replaced `is_view_only_for_partner` (`1` -> `view_only`) and added both columns. `hue_family` is meaningful on roots only; children inherit the family and carry `shade_index`. `owner_id` null means shared ("Ours"); a child mirrors its root's `owner_id` (`updateCollection` cascades an owner move, migration `0004` backfilled legacy rows). Logical ref to `user.id`. |
+| `event` | `id` (PK), `household_id`, `collection_id`, `title`, `description`, `location`, `all_day` default `0`, `start_at`, `end_at`, `start_date`, `end_date`, `rrule`, `exdates`, `created_by`, `created_at`, `updated_at` | `household_id` and `collection_id` (SQL name since migration `0005`; the Drizzle property is still `collectionId` until Task 2) both cascade. Indexes `event_household_start_idx` (`household_id`,`start_at`), `event_household_start_date_idx` (`household_id`,`start_date`), `event_collection_idx`. `start_at`/`end_at` are UTC epoch ms for timed rows; `start_date`/`end_date` are household-local `YYYY-MM-DD` for all-day rows with an inclusive `end_date`. `exdates` is JSON text. `created_by` is a logical ref to `user.id`. |
 | `task` | `id` (PK), `household_id`, `collection_id`, `title`, `notes` nullable, `status` default `'open'`, `scheduled_on` nullable, `due_on` nullable, `completed_at` nullable, `dropped_at` nullable, `sort_order` default `0`, `created_by`, `created_at`, `updated_at` | Added by migration `0005`. `household_id` -> `household.id` cascade; `collection_id` -> `collection.id` cascade. Indexes `task_household_status_idx` (`household_id`,`status`), `task_collection_idx`, `task_scheduled_idx`, `task_due_idx`. `scheduled_on`/`due_on` are household-local **date-only** `YYYY-MM-DD` strings, never epochs; `status` is `open`/`done`/`dropped`; `completed_at`/`dropped_at` are epoch-ms audit stamps. `created_by` is a logical ref to `user.id`. |
 | `task_checklist_item` | `id` (PK), `task_id`, `title`, `done` default `0`, `sort_order` default `0` | Added by migration `0005`. `task_id` -> `task.id` cascade; index `task_checklist_task_idx`. Flat, no nesting. |
 | `user` | `id` (PK), `name`, `email` unique, `email_verified` default false, `image`, `created_at`, `updated_at`, `role`, `banned`, `ban_reason`, `ban_expires`, `two_factor_enabled` | Better Auth table. Unique index `user_email_unique`. |
@@ -55,14 +55,14 @@ Cross-table rules that are enforced in code rather than SQL:
 
 **Purpose** — Drizzle ORM table definitions for the nine domain tables, their inferred row types, and a re-export of Better Auth's tables so one schema map serves the app and the auth adapter.
 
-**Public API** — tables `household`, `member`, `userPreference`, `collection`, `event`, `task`, `taskChecklistItem`, `importBatch`, `importChange`; types `HouseholdRow`, `MemberRow`, `UserPreferenceRow`, `CollectionRow`, `CollectionKind`, `CollectionVisibility`, `EventRow`, `TaskRow`, `TaskStatus`, `TaskChecklistItemRow`, `ImportBatchRow`, `ImportChangeRow` (all `typeof table.$inferSelect`); `export * from "./auth-schema"` at the bottom, which re-exports `user`, `session`, `account`, `verification`, `twoFactor` and their `relations()` helpers. Two deprecated aliases keep the pre-rename TypeScript layer compiling until Task 2: `calendar` (the `collection` table) and `CalendarRow` (`CollectionRow`).
+**Public API** — tables `household`, `member`, `userPreference`, `collection`, `event`, `task`, `taskChecklistItem`, `importBatch`, `importChange`; types `HouseholdRow`, `MemberRow`, `UserPreferenceRow`, `CollectionRow`, `CollectionKind`, `CollectionVisibility`, `EventRow`, `TaskRow`, `TaskStatus`, `TaskChecklistItemRow`, `ImportBatchRow`, `ImportChangeRow` (all `typeof table.$inferSelect`); `export * from "./auth-schema"` at the bottom, which re-exports `user`, `session`, `account`, `verification`, `twoFactor` and their `relations()` helpers. Two deprecated aliases keep the pre-rename TypeScript layer compiling until Task 2: `calendar` (the `collection` table) and `CollectionRow` (`CollectionRow`).
 
 **State & side effects** — No connection, no I/O, no side effects. Column semantics that matter:
 - Every domain table's `createdAt`/`updatedAt` is `integer(...).$defaultFn(() => Date.now())`, so inserts get epoch milliseconds from JS and selects return `number`, not `Date`. `collection.updatedAt` and `task.updatedAt` also carry `$onUpdate(() => Date.now())`.
 - `collection.parentId` uses `references((): AnySQLiteColumn => collection.id)` to express the self-FK; `onDelete: "cascade"`.
 - `collection.kind` (`calendar`/`list`, default `calendar`) and `collection.visibility` (`shared`/`view_only`/`private`, default `shared`) are the v0.2 columns; `visibility` replaced the old `is_view_only_for_partner` integer in migration `0005`.
 - `event.allDay`, `task.done`, `userPreference.showWeekNumbers` and `shortcutsEnabled` are `integer` (0/1), not `boolean`.
-- `event.calendarId` keeps its pre-rename Drizzle property name but maps to the SQL column `collection_id` (migration `0005`); every query reaches the renamed FK without a TypeScript rename. Task 2 renames the property.
+- `event.collectionId` keeps its pre-rename Drizzle property name but maps to the SQL column `collection_id` (migration `0005`); every query reaches the renamed FK without a TypeScript rename. Task 2 renames the property.
 - `event.exdates` is nullable JSON text; `event.startAt`/`endAt` and `startDate`/`endDate` are both nullable because all-day and timed rows populate different pairs.
 - `event.tzid` is the IANA zone a recurring timed series is expanded in; null means the household zone. Imported Google series store their source `TZID`, so the recurrence engine keeps their wall-clock time across a DST change.
 - `event.externalSource`/`externalUid`/`externalRecurrenceId`/`externalKey`/`externalContentHash` are import provenance, all null for events created in Nailong. `event_household_external_key_idx` is a unique index on `(household_id, external_key)`; SQLite allows unlimited NULL keys, so native events never collide.
@@ -75,7 +75,7 @@ Cross-table rules that are enforced in code rather than SQL:
 **Debugging** —
 - All-day event missing from the grid while it exists in the table -> the range filter converts `range.from`/`range.to` to local `YYYY-MM-DD` with the household timezone and compares them to `startDate`/`endDate` -> check `household.timezone` and `listEvents` in `lib/services/events.ts`.
 - `createdAt` prints as `[object Object]` or throws on `.getTime()` -> the code treated `EventRow.createdAt` as a `Date`; domain tables return `number` (contrast with `auth-schema.ts`).
-- Calendar delete removes more rows than expected -> `parent_id` is a cascading self-FK; check the child tree before deleting (`lib/services/calendars.ts`).
+- Calendar delete removes more rows than expected -> `parent_id` is a cascading self-FK; check the child tree before deleting (`lib/services/collections.ts`).
 - A task lands on the wrong day around midnight or DST -> `scheduled_on`/`due_on` are household-local date strings, so compare them as strings; never convert them to epochs or UTC instants.
 - Re-importing the same Google export creates duplicates -> the upsert is keyed on `(household_id, external_key)`; a duplicate means `external_key` was null or rebuilt differently -> check `parseIcs` in `lib/import/ics.ts`.
 - A recurring imported event shifts by an hour after a DST change -> `event.tzid` is null or expansion is UTC-anchored -> check `expandOccurrences` in `lib/recurrence/expand.ts`.
@@ -160,22 +160,22 @@ Cross-table rules that are enforced in code rather than SQL:
 
 Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_000`, `refetchOnWindowFocus: false`, `retry: 1`. All hooks in this group are `"use client"` and each file defines its own small `requestJson` helper that unwraps `{ error: { message } }` into an `Error`.
 
-### lib/query/calendars.ts
+### lib/query/collections.ts
 
 **Purpose** — Fetches the household calendar tree and exposes create/update/delete calendar mutations.
 
-**Public API** — `interface CalendarInput { name; parentId?; hueFamily?; ownerId?; isViewOnlyForPartner? }`; hooks `useCalendars()`, `useCreateCalendar()`, `useUpdateCalendar()`, `useDeleteCalendar()`. Mutations resolve to `{ calendar: CalendarRow }` (create/update) or `void` (delete).
+**Public API** — `interface CollectionInput { name; parentId?; kind?; hueFamily?; ownerId?; visibility? }`; hooks `useCollections()` (query key `["collections"]`), `useCreateCollection()`, `useUpdateCollection()`, `useDeleteCollection()`. Mutations resolve to `{ collection: CollectionRow }` (create/update) or `void` (delete).
 
-**State & side effects** — Query key: `["calendars"]` (single entry, holds `CalendarNode[]` from `lib/services/calendars`). GET `/api/calendars`; POST `/api/calendars`; PATCH `/api/calendars/{id}` (accepts `sortOrder` in addition to the create fields); DELETE `/api/calendars/{id}`. Invalidation: create and update invalidate `["calendars"]` only; delete invalidates `["calendars"]` **and** `["events"]` because child calendars and their events are cascaded away. No optimistic updates in this file.
+**State & side effects** — Query key: `["collections"]` (single entry, holds `CollectionNode[]` from `lib/services/collections`). GET `/api/collections`; POST `/api/collections`; PATCH `/api/collections/{id}` (accepts `sortOrder` in addition to the create fields); DELETE `/api/collections/{id}`. Invalidation: create and update invalidate `["collections"]` only; delete invalidates `["collections"]` **and** `["events"]` because child calendars and their events are cascaded away. No optimistic updates in this file.
 
-**Depends on / Used by** — `@tanstack/react-query`, `CalendarRow` type, `CalendarNode` type. Used by `components/calendar/CalendarShell.tsx` (`useCalendars`), `components/sidebar/CalendarTree.tsx` (all four hooks), `components/sidebar/SidebarMiniMonth.tsx`, `components/settings/CalendarPreferencesCard.tsx` and `components/calendar/SearchResultsOverlay.tsx` (`useCalendars`). `components/sidebar/CalendarDialog.tsx` only imports the `CalendarRow` type from `lib/db/schema`.
+**Depends on / Used by** — `@tanstack/react-query`, `CollectionRow` type, `CollectionNode` type. Used by `components/calendar/CalendarShell.tsx` (`useCollections`), `components/sidebar/CollectionTree.tsx` (all four hooks), `components/sidebar/SidebarMiniMonth.tsx`, `components/settings/CalendarPreferencesCard.tsx` and `components/calendar/SearchResultsOverlay.tsx` (`useCollections`). `components/sidebar/CollectionDialog.tsx` only imports the `CollectionRow` type from `lib/db/schema`.
 
 **Debugging** —
-- Sidebar shows a stale calendar name after a rename -> the PATCH succeeded but the tree query is within its 10 s `staleTime` and nothing invalidated it -> check `useUpdateCalendar().onSuccess`.
-- Deleted calendar's events linger on the grid -> only `["calendars"]` was invalidated by a custom call site -> compare with `useDeleteCalendar`.
+- Sidebar shows a stale calendar name after a rename -> the PATCH succeeded but the tree query is within its 10 s `staleTime` and nothing invalidated it -> check `useUpdateCollection().onSuccess`.
+- Deleted calendar's events linger on the grid -> only `["collections"]` was invalidated by a custom call site -> compare with `useDeleteCollection`.
 - `hueFamily` missing on a child -> children inherit the family from the root; only roots carry `hueFamily` (`calendar.hue_family` is nullable).
 
-**Tests** — No direct test coverage (the hooks are exercised through `tests/e2e/sidebar.spec.ts`, `tests/e2e/calendar-picker.spec.ts` and the API suite `tests/integration/calendars-api.test.ts`).
+**Tests** — No direct test coverage (the hooks are exercised through `tests/e2e/sidebar.spec.ts`, `tests/e2e/calendar-picker.spec.ts` and the API suite `tests/integration/collections-api.test.ts`).
 
 ### lib/query/events.ts
 
@@ -322,28 +322,28 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 
 All four modules export plain Zod schemas (no I/O). Handlers parse the JSON body with them and let `AppError`/`ZodError` mapping in `lib/api` produce the 400 envelope; the schemas themselves never touch the database.
 
-### lib/validation/calendars.ts
+### lib/validation/collections.ts
 
 **Purpose** — Zod schemas for creating and updating a calendar.
 
-**Public API** — `createCalendarSchema` (`name` 1–60 after trim, `parentId` non-empty string or null/undefined, `hueFamily` member of `HUE_FAMILIES` or null/undefined, `ownerId` non-empty or null/undefined, `isViewOnlyForPartner` optional boolean); `updateCalendarSchema` (all optional: `name`, `hueFamily`, `ownerId` nullable, `isViewOnlyForPartner`, `sortOrder` int ≥ 0); types `CreateCalendarInput`, `UpdateCalendarInput`.
+**Public API** — `collectionKindSchema` (`"calendar" | "list"`), `collectionVisibilitySchema` (`"shared" | "view_only" | "private"`); `createCollectionSchema` (`name` 1–60 after trim, `parentId` non-empty string or null/undefined, `kind` optional member of the kind enum, `hueFamily` member of `HUE_FAMILIES` or null/undefined, `ownerId` non-empty or null/undefined, `visibility` optional member of the visibility enum); `updateCollectionSchema` (all optional: `name`, `hueFamily`, `ownerId` nullable, `visibility`, `sortOrder` int ≥ 0); types `CreateCollectionInput`, `UpdateCollectionInput`.
 
-**State & side effects** — None; pure parsing. Notes: `updateCalendarSchema` deliberately omits `parentId`, so a PATCH cannot re-parent a calendar through this schema. Neither schema is `.strict()`, so unknown keys are stripped rather than rejected. `hueFamily` is validated against `HUE_FAMILIES` from `lib/color/palette`; the "roots only" rule is enforced in the service layer, not here.
+**State & side effects** — None; pure parsing. Notes: `updateCollectionSchema` deliberately omits `parentId`, so a PATCH cannot re-parent a calendar through this schema. Neither schema is `.strict()`, so unknown keys are stripped rather than rejected. `hueFamily` is validated against `HUE_FAMILIES` from `lib/color/palette`; the "roots only" rule is enforced in the service layer, not here.
 
-**Depends on / Used by** — `zod`, `@/lib/color/palette`. `createCalendarSchema`/`updateCalendarSchema` are parsed in `lib/api/handlers/calendars.ts`; the inferred types are imported by `lib/services/calendars.ts` (`createCalendar`, `updateCalendar`).
+**Depends on / Used by** — `zod`, `@/lib/color/palette`. `createCollectionSchema`/`updateCollectionSchema` are parsed in `lib/api/handlers/collections.ts`; the inferred types are imported by `lib/services/collections.ts` (`createCollection`, `updateCollection`).
 
 **Debugging** —
-- Creating a sub-calendar is rejected although `parentId` was sent -> the create schema accepts it but the service rejects nesting depth or ownership -> look at `lib/services/calendars.ts`, not here.
+- Creating a sub-calendar is rejected although `parentId` was sent -> the create schema accepts it but the service rejects nesting depth or ownership -> look at `lib/services/collections.ts`, not here.
 - A PATCH renaming to 61 characters returns 400 with a custom message -> `max(60)` after `trim()`; the message is the second `max` argument.
 - Colour family silently ignored -> the value was not in `HUE_FAMILIES` and the key got stripped instead of throwing (schemas are not strict) -> check `lib/color/palette.ts`.
 
-**Tests** — No direct unit test. Validation is exercised through `tests/integration/calendars-api.test.ts` (asserts `error.code === "VALIDATION"`) and `tests/integration/calendars.test.ts`.
+**Tests** — No direct unit test. Validation is exercised through `tests/integration/collections-api.test.ts` (asserts `error.code === "VALIDATION"`) and `tests/integration/collections.test.ts`.
 
 ### lib/validation/events.ts
 
 **Purpose** — Zod schemas for event create/update plus `assertEventShape`, the invariant that keeps all-day rows on local dates and timed rows on UTC instants.
 
-**Public API** — `createEventSchema` (`calendarId` min 1, `title` 1–200 trimmed, `description` ≤4000, `location` ≤200, `allDay` boolean defaulting to `false`, `startAt`/`endAt` integer or nullish, `startDate`/`endDate` matching `^\d{4}-\d{2}-\d{2}$` or nullish, `rrule` ≤500, `exdates` array of non-empty strings or nullish); `updateEventSchema` (same fields, `calendarId` optional, whole object `.partial()`, so `allDay` has **no** default); `assertEventShape(input: EventShapeInput): void`; types `CreateEventInput`, `UpdateEventInput`, `EventShapeInput`.
+**Public API** — `createEventSchema` (`collectionId` min 1, `title` 1–200 trimmed, `description` ≤4000, `location` ≤200, `allDay` boolean defaulting to `false`, `startAt`/`endAt` integer or nullish, `startDate`/`endDate` matching `^\d{4}-\d{2}-\d{2}$` or nullish, `rrule` ≤500, `exdates` array of non-empty strings or nullish); `updateEventSchema` (same fields, `collectionId` optional, whole object `.partial()`, so `allDay` has **no** default); `assertEventShape(input: EventShapeInput): void`; types `CreateEventInput`, `UpdateEventInput`, `EventShapeInput`.
 
 **State & side effects** — Pure parsing and throwing only; `assertEventShape` raises `AppError("VALIDATION", …, 400, { field })`.
 - All-day branch: requires both dates, rejects impossible calendar dates via `isRealDate` (UTC round-trip), and rejects any `startAt`/`endAt`. It computes `toAllDayRange(startDate, endDate)` and discards it (`void range`) — the range is used for validation only.
@@ -401,10 +401,10 @@ All four modules export plain Zod schemas (no I/O). Handlers parse the JSON body
 - **`event.end_date` is inclusive.** All-day rows carry local `YYYY-MM-DD` in `start_date`/`end_date`; `CalendarShell` subtracts one day when a drag produces FullCalendar's exclusive end. Timed rows carry UTC ms in `start_at`/`end_at` and leave both date columns null.
 - **WAL + one writer.** `createDb` sets `journal_mode = WAL`, `foreign_keys = ON` and `busy_timeout = 15000`; there is one connection per server process (`getDb`) but each script opens its own, so a running dev server and a script both writing will block each other (up to 15 s before `database is locked`). `data/planner.db-wal`/`-shm` are expected files; a stale `-wal` after an abrupt kill is not corruption.
 - **Migrations run on the first request, not at build.** `getDb()` creates the directory, opens the database and calls `migrate()` lazily, and the default migrations folder is `resolve(process.cwd(), "drizzle")` — cwd-sensitive for scripts.
-- **Query keys are three families plus a prefix trick.** `["calendars"]`, `["events", from, to]`, `["events", "search", normalized]`, `["preferences"]`. Event mutations use `setQueriesData`/`invalidateQueries` with the `["events"]` prefix, so they also write optimistic temp rows into and refetch search results. Calendar delete invalidates both families; preferences mutations never invalidate (they `setQueryData` the PATCH response, guarded by a `latestIssued` sequence ref).
+- **Query keys are three families plus a prefix trick.** `["collections"]`, `["events", from, to]`, `["events", "search", normalized]`, `["preferences"]`. Event mutations use `setQueriesData`/`invalidateQueries` with the `["events"]` prefix, so they also write optimistic temp rows into and refetch search results. Calendar delete invalidates both families; preferences mutations never invalidate (they `setQueryData` the PATCH response, guarded by a `latestIssued` sequence ref).
 - **Optimistic writes are global, rollback is wholesale.** Every cached `["events"]` range is patched, and rollback restores the full snapshot taken in `onMutate` — undo is a separate mechanism (`lib/ui/undo.ts`) that replays the opposite mutation, so an undone create produces a new event id.
 - **No FK ties domain rows to `user`.** `member.user_id`, `calendar.owner_id` and `event.created_by` are logical references validated in services; `event.created_by` is not indexed. The two-account cap is a `databaseHooks.user.create.before` check in `createAuth`, not a constraint.
-- **`updateEventSchema` must never gain an `allDay` default**, and `updateCalendarSchema` intentionally has no `parentId`; both absences are load-bearing.
+- **`updateEventSchema` must never gain an `allDay` default**, and `updateCollectionSchema` intentionally has no `parentId`; both absences are load-bearing.
 
 ## Focused verification
 

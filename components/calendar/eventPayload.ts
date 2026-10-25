@@ -23,7 +23,7 @@ export function deriveRepeat(rule: string | null | undefined): RepeatPreset {
 
 export interface EventFormValues {
   title: string;
-  calendarId: string;
+  collectionId: string;
   description: string;
   location: string;
   allDay: boolean;
@@ -55,7 +55,7 @@ export function buildEventPayload(values: EventFormValues): EventInputPayload {
 
   const payload: EventInputPayload = {
     title: values.title,
-    calendarId: values.calendarId,
+    collectionId: values.collectionId,
     description: values.description.trim() ? values.description : null,
     location: values.location.trim() ? values.location : null,
     allDay: values.allDay,

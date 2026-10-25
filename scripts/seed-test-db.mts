@@ -14,7 +14,7 @@ const { createDb } = await import("../lib/db/client");
 const { migrate } = await import("../lib/db/migrate");
 const { createAuth } = await import("../lib/auth/server");
 const { ensureHousehold, addMember } = await import("../lib/services/household");
-const { createCalendar, updateCalendar } = await import("../lib/services/calendars");
+const { createCollection, updateCollection } = await import("../lib/services/collections");
 const { createEvent } = await import("../lib/services/events");
 const { localWallTimeToUtc } = await import("../lib/time/zone");
 const schema = await import("../lib/db/schema");
@@ -36,7 +36,7 @@ async function main(): Promise<void> {
   for (const table of [
     schema.userPreference,
     schema.event,
-    schema.calendar,
+    schema.collection,
     schema.member,
     schema.twoFactor,
     schema.session,
@@ -64,22 +64,22 @@ async function main(): Promise<void> {
   const partner = { userId: userIds.partner!, householdId: household.id };
 
   // Ours
-  const householdCalendar = createCalendar(db, andrew, { name: "Household", hueFamily: "teal" });
-  const chores = createCalendar(db, andrew, { name: "Chores", parentId: householdCalendar.id });
-  const trips = createCalendar(db, andrew, { name: "Trips", parentId: householdCalendar.id });
+  const householdCollection = createCollection(db, andrew, { name: "Household", hueFamily: "teal" });
+  const chores = createCollection(db, andrew, { name: "Chores", parentId: householdCollection.id });
+  const trips = createCollection(db, andrew, { name: "Trips", parentId: householdCollection.id });
 
   // Mine
-  const school = createCalendar(db, andrew, { name: "School", hueFamily: "indigo", ownerId: andrew.userId });
-  const math = createCalendar(db, andrew, { name: "Math", parentId: school.id });
-  const biology = createCalendar(db, andrew, { name: "Biology", parentId: school.id });
-  const work = createCalendar(db, andrew, { name: "Work", hueFamily: "amber", ownerId: andrew.userId });
-  const onCall = createCalendar(db, andrew, { name: "On-call", parentId: work.id });
+  const school = createCollection(db, andrew, { name: "School", hueFamily: "indigo", ownerId: andrew.userId });
+  const math = createCollection(db, andrew, { name: "Math", parentId: school.id });
+  const biology = createCollection(db, andrew, { name: "Biology", parentId: school.id });
+  const work = createCollection(db, andrew, { name: "Work", hueFamily: "amber", ownerId: andrew.userId });
+  const onCall = createCollection(db, andrew, { name: "On-call", parentId: work.id });
   // View-only lives on the root and cascades to its sub-calendars.
-  updateCalendar(db, andrew, work.id, { isViewOnlyForPartner: true });
+  updateCollection(db, andrew, work.id, { visibility: "view_only" });
 
   // Hers
-  const health = createCalendar(db, partner, { name: "Health", hueFamily: "rose", ownerId: partner.userId });
-  createCalendar(db, partner, { name: "Gym", parentId: health.id });
+  const health = createCollection(db, partner, { name: "Health", hueFamily: "rose", ownerId: partner.userId });
+  createCollection(db, partner, { name: "Gym", parentId: health.id });
 
   const now = new Date();
   const year = now.getFullYear();
@@ -88,21 +88,21 @@ async function main(): Promise<void> {
   const dayLater = `${year}-${month}-20`;
 
   const mathQuiz = createEvent(db, andrew, {
-    calendarId: math.id,
+    collectionId: math.id,
     title: "Math quiz",
     allDay: false,
     startAt: localWallTimeToUtc(`${dayLater}T09:00`, household.timezone),
     endAt: localWallTimeToUtc(`${dayLater}T10:00`, household.timezone),
   });
   const trip = createEvent(db, andrew, {
-    calendarId: householdCalendar.id,
+    collectionId: householdCollection.id,
     title: "Kyoto trip",
     allDay: true,
     startDate: dayMid,
     endDate: dayMid,
   });
   const weeklyClass = createEvent(db, andrew, {
-    calendarId: school.id,
+    collectionId: school.id,
     title: "Weekly class",
     allDay: false,
     startAt: localWallTimeToUtc(`${dayMid}T13:00`, household.timezone),
@@ -110,7 +110,7 @@ async function main(): Promise<void> {
     rrule: "FREQ=WEEKLY;BYDAY=TU",
   });
   const onCallShift = createEvent(db, andrew, {
-    calendarId: onCall.id,
+    collectionId: onCall.id,
     title: "On-call shift",
     allDay: false,
     startAt: localWallTimeToUtc(`${dayMid}T18:00`, household.timezone),
@@ -122,7 +122,7 @@ async function main(): Promise<void> {
     password: PASSWORD,
     users: { andrew: andrew.userId, partner: partner.userId },
     calendars: {
-      household: householdCalendar.id,
+      household: householdCollection.id,
       chores: chores.id,
       trips: trips.id,
       school: school.id,
@@ -136,7 +136,7 @@ async function main(): Promise<void> {
   };
   writeFileSync(".playwright/fixtures.json", JSON.stringify(fixtures, null, 2));
 
-  console.log(`Seeded ${env.DATABASE_URL} with 2 users, 10 calendars, 4 events.`);
+  console.log(`Seeded ${env.DATABASE_URL} with 2 users, 10 collections, 4 events.`);
   sqlite.close();
 }
 

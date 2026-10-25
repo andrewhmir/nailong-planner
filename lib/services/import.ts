@@ -2,12 +2,12 @@ import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { HUE_FAMILIES, MAX_CHILDREN, isHueFamily, type HueFamily } from "@/lib/color/palette";
 import type { Database } from "@/lib/db/client";
 import {
-  calendar,
+  collection,
   event,
   household,
   importBatch,
   importChange,
-  type CalendarRow,
+  type CollectionRow,
   type EventRow,
 } from "@/lib/db/schema";
 import { AppError } from "@/lib/errors";
@@ -18,7 +18,7 @@ import {
   type IcsEvent,
   type IcsWarning,
 } from "@/lib/import/ics";
-import { assertCalendarWritable, createCalendar, getCalendarAccess } from "./calendars";
+import { assertCollectionWritable, createCollection, getCollectionAccess } from "./collections";
 import type { ViewerContext } from "./permissions";
 
 /**
@@ -40,7 +40,7 @@ export interface ImportFile {
   text: string;
 }
 
-export type ImportCalendarMode = { mode: "new" } | { mode: "existing"; calendarId: string };
+export type ImportCalendarMode = { mode: "new" } | { mode: "existing"; collectionId: string };
 export type ImportMapping = Record<string, ImportCalendarMode>;
 
 export interface ImportPreviewCalendar {
@@ -226,15 +226,15 @@ function existingByKey(
   return found;
 }
 
-function isImportRoot(row: CalendarRow): boolean {
+function isImportRoot(row: CollectionRow): boolean {
   return row.name === IMPORT_ROOT_NAME || row.name.startsWith(`${IMPORT_ROOT_NAME} `);
 }
 
-function importRoots(db: Database, householdId: string): CalendarRow[] {
+function importRoots(db: Database, householdId: string): CollectionRow[] {
   return db
     .select()
-    .from(calendar)
-    .where(and(eq(calendar.householdId, householdId), isNull(calendar.parentId)))
+    .from(collection)
+    .where(and(eq(collection.householdId, householdId), isNull(collection.parentId)))
     .all();
 }
 
@@ -243,18 +243,18 @@ function importRoots(db: Database, householdId: string): CalendarRow[] {
  * partner's `From Google` tree is never reused, so imported events stay in the
  * importer's person group and hiding "Ours" does not hide them.
  */
-function ownedImportRoots(db: Database, ctx: ViewerContext): CalendarRow[] {
+function ownedImportRoots(db: Database, ctx: ViewerContext): CollectionRow[] {
   return importRoots(db, ctx.householdId).filter(
     (row) => isImportRoot(row) && row.ownerId === ctx.userId,
   );
 }
 
-function findImportChild(db: Database, ctx: ViewerContext, name: string): CalendarRow | null {
+function findImportChild(db: Database, ctx: ViewerContext, name: string): CollectionRow | null {
   for (const root of ownedImportRoots(db, ctx)) {
     const child = db
       .select()
-      .from(calendar)
-      .where(and(eq(calendar.parentId, root.id), eq(calendar.name, name)))
+      .from(collection)
+      .where(and(eq(collection.parentId, root.id), eq(collection.name, name)))
       .get();
     if (child) {
       return child;
@@ -277,19 +277,19 @@ function ensureImportRoot(
   ctx: ViewerContext,
   createdNames: string[],
   createdIds: string[],
-): CalendarRow {
+): CollectionRow {
   // Only this viewer's own import trees are candidates: creating or reusing a
   // partner's tree would put the imported events in their person group.
   const roots = ownedImportRoots(db, ctx);
   for (const root of roots) {
-    const children = db.select().from(calendar).where(eq(calendar.parentId, root.id)).all();
+    const children = db.select().from(collection).where(eq(collection.parentId, root.id)).all();
     if (children.length < MAX_CHILDREN) {
       return root;
     }
   }
 
   const suffix = roots.length === 0 ? "" : ` ${roots.length + 1}`;
-  const root = createCalendar(db, ctx, {
+  const root = createCollection(db, ctx, {
     name: `${IMPORT_ROOT_NAME}${suffix}`,
     hueFamily: nextHueFamily(db, ctx.householdId),
     ownerId: ctx.userId,
@@ -310,7 +310,7 @@ function validateMapping(
         [`mapping.${name}`]: "Pick a calendar.",
       });
     }
-    if (entry.mode === "existing" && entry.calendarId.trim().length === 0) {
+    if (entry.mode === "existing" && entry.collectionId.trim().length === 0) {
       throw new AppError("VALIDATION", `Choose a target calendar for “${name}”.`, 400, {
         [`mapping.${name}`]: "Pick a calendar.",
       });
@@ -336,9 +336,9 @@ function resolveTargets(
   for (const name of names) {
     const entry = mapping[name]!;
     if (entry.mode === "existing") {
-      const access = getCalendarAccess(db, ctx, entry.calendarId);
-      assertCalendarWritable(ctx, access);
-      byName.set(name, access.calendar.id);
+      const access = getCollectionAccess(db, ctx, entry.collectionId);
+      assertCollectionWritable(ctx, access);
+      byName.set(name, access.collection.id);
       continue;
     }
 
@@ -347,14 +347,14 @@ function resolveTargets(
       // Reuse is limited to the viewer's own tree, but still runs the permission
       // pair used for an explicit mapping: a tree can be re-owned or turned
       // view-only, and a refusal must write nothing.
-      const access = getCalendarAccess(db, ctx, existingChild.id);
-      assertCalendarWritable(ctx, access);
-      byName.set(name, access.calendar.id);
+      const access = getCollectionAccess(db, ctx, existingChild.id);
+      assertCollectionWritable(ctx, access);
+      byName.set(name, access.collection.id);
       continue;
     }
 
     const root = ensureImportRoot(db, ctx, createdNames, createdIds);
-    const child = createCalendar(db, ctx, { name, parentId: root.id });
+    const child = createCollection(db, ctx, { name, parentId: root.id });
     byName.set(name, child.id);
     createdNames.push(child.name);
     createdIds.push(child.id);
@@ -370,13 +370,13 @@ function titleForImport(title: string): string {
 function eventRowFromIcs(
   item: IcsEvent,
   ctx: ViewerContext,
-  calendarId: string,
+  collectionId: string,
   now: number,
 ): EventRow {
   return {
     id: crypto.randomUUID(),
     householdId: ctx.householdId,
-    calendarId,
+    collectionId,
     title: titleForImport(item.title),
     description: item.description,
     location: item.location,
@@ -401,11 +401,11 @@ function eventRowFromIcs(
 
 function eventPatchFromIcs(
   item: IcsEvent,
-  calendarId: string,
+  collectionId: string,
   now: number,
 ): Partial<EventRow> {
   return {
-    calendarId,
+    collectionId,
     title: titleForImport(item.title),
     description: item.description,
     location: item.location,
@@ -545,10 +545,10 @@ export function commitImport(
     let unchanged = 0;
 
     for (const item of parsed.events) {
-      const calendarId = targets.byName.get(item.calendarName)!;
+      const collectionId = targets.byName.get(item.calendarName)!;
       const row = existing.get(item.externalKey);
       if (!row) {
-        const inserted = eventRowFromIcs(item, ctx, calendarId, now);
+        const inserted = eventRowFromIcs(item, ctx, collectionId, now);
         txn.insert(event).values(inserted).run();
         changes.push({
           id: crypto.randomUUID(),
@@ -563,12 +563,12 @@ export function commitImport(
       }
       // A mapping change is a real update even when the event content is
       // identical: the row has to move to the newly chosen calendar.
-      const moved = row.calendarId !== calendarId;
+      const moved = row.collectionId !== collectionId;
       if (row.externalContentHash === item.contentHash && !moved) {
         unchanged += 1;
         continue;
       }
-      txn.update(event).set(eventPatchFromIcs(item, calendarId, now)).where(eq(event.id, row.id)).run();
+      txn.update(event).set(eventPatchFromIcs(item, collectionId, now)).where(eq(event.id, row.id)).run();
       changes.push({
         id: crypto.randomUUID(),
         batchId,
@@ -650,28 +650,28 @@ export function rollbackImportBatch(
     // row (possibly into a different calendar). Every affected calendar must
     // still be writable by this viewer; without this check the partner could roll
     // back an import into the owner's view-only calendar.
-    const affectedCalendars = new Set<string>();
+    const affectedCollections = new Set<string>();
     for (const change of changes) {
       const row = txn.select().from(event).where(eq(event.id, change.eventId)).get();
       if (row) {
-        affectedCalendars.add(row.calendarId);
+        affectedCollections.add(row.collectionId);
       }
       try {
         const before = JSON.parse(change.beforeJson ?? "{}") as Partial<EventRow>;
-        if (before.calendarId) {
-          affectedCalendars.add(before.calendarId);
+        if (before.collectionId) {
+          affectedCollections.add(before.collectionId);
         }
       } catch {
         // A corrupt snapshot is handled by the restore path below; it cannot name
         // a calendar, so it adds nothing to the permission check.
       }
     }
-    for (const calendarId of affectedCalendars) {
-      const exists = txn.select().from(calendar).where(eq(calendar.id, calendarId)).get();
+    for (const collectionId of affectedCollections) {
+      const exists = txn.select().from(collection).where(eq(collection.id, collectionId)).get();
       if (!exists) {
         continue; // an earlier rollback (or a manual delete) removed it
       }
-      assertCalendarWritable(ctx, getCalendarAccess(txn, ctx, calendarId));
+      assertCollectionWritable(ctx, getCollectionAccess(txn, ctx, collectionId));
     }
 
     let deleted = 0;
@@ -705,7 +705,7 @@ export function rollbackImportBatch(
           rrule: before.rrule ?? null,
           exdates: before.exdates ?? null,
           tzid: before.tzid ?? null,
-          calendarId: before.calendarId,
+          collectionId: before.collectionId,
           externalSource: before.externalSource ?? null,
           externalUid: before.externalUid ?? null,
           externalRecurrenceId: before.externalRecurrenceId ?? null,
@@ -721,15 +721,15 @@ export function rollbackImportBatch(
     }
 
     const calendarsDeleted: string[] = [];
-    for (const calendarId of [...stored.createdCalendarIds].reverse()) {
-      const row = txn.select().from(calendar).where(eq(calendar.id, calendarId)).get();
+    for (const collectionId of [...stored.createdCalendarIds].reverse()) {
+      const row = txn.select().from(collection).where(eq(collection.id, collectionId)).get();
       if (!row) {
         continue;
       }
-      const remainingEvents = txn.select().from(event).where(eq(event.calendarId, calendarId)).all();
-      const children = txn.select().from(calendar).where(eq(calendar.parentId, calendarId)).all();
+      const remainingEvents = txn.select().from(event).where(eq(event.collectionId, collectionId)).all();
+      const children = txn.select().from(collection).where(eq(collection.parentId, collectionId)).all();
       if (remainingEvents.length === 0 && children.length === 0) {
-        txn.delete(calendar).where(eq(calendar.id, calendarId)).run();
+        txn.delete(collection).where(eq(collection.id, collectionId)).run();
         calendarsDeleted.push(row.name);
       }
     }

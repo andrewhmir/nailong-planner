@@ -3,13 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { MiniMonth } from "@/components/calendar/MiniMonth";
-import { useCalendars } from "@/lib/query/calendars";
+import { useCollections } from "@/lib/query/collections";
 import { useEvents } from "@/lib/query/events";
 import { expandOccurrences } from "@/lib/recurrence/expand";
-import type { CalendarNode } from "@/lib/services/calendars";
+import type { CollectionNode } from "@/lib/services/collections";
 import { localWallTimeToUtc, utcToLocalDate } from "@/lib/time/zone";
 import { useVisibilityApi } from "@/components/shell/VisibilityProvider";
-import { visibleCalendarIds } from "@/lib/ui/visibleCalendars";
+import { visibleCollectionIds } from "@/lib/ui/visibleCollections";
 
 interface Props {
   currentUserId: string;
@@ -40,20 +40,20 @@ function monthRange(anchorDate: string, timezone: string): { from: number; to: n
 export function SidebarMiniMonth({ currentUserId, timezone }: Props) {
   const router = useRouter();
   const visibility = useVisibilityApi();
-  const { data: calendars } = useCalendars();
+  const { data: collections } = useCollections();
   const [anchorDate, setAnchorDate] = useState(() => utcToLocalDate(Date.now(), timezone));
 
   const range = useMemo(() => monthRange(anchorDate, timezone), [anchorDate, timezone]);
   const { data: events } = useEvents(range);
   const visibleIds = useMemo(
-    () => visibleCalendarIds((calendars ?? []) as CalendarNode[], visibility.state, currentUserId),
-    [calendars, visibility.state, currentUserId],
+    () => visibleCollectionIds((collections ?? []) as CollectionNode[], visibility.state, currentUserId),
+    [collections, visibility.state, currentUserId],
   );
 
   const eventDates = useMemo(() => {
     const dates = new Set<string>();
     for (const event of events ?? []) {
-      if (!visibleIds.has(event.calendarId)) {
+      if (!visibleIds.has(event.collectionId)) {
         continue;
       }
       for (const occurrence of expandOccurrences(event, range, timezone)) {

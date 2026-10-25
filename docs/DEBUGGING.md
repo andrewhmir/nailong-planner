@@ -131,7 +131,7 @@ The request pipeline in one line:
 
 - Root calendar (`parentId = null`) owns a hue family at shade 3 of 8.
   Sub-calendars take the next unused shade from `[4, 2, 5, 1, 6, 0, 7]` — at most
-  7 children per root (`lib/color/palette.ts`, `lib/services/calendars.ts`).
+  7 children per root (`lib/color/palette.ts`, `lib/services/collections.ts`).
   Recolouring a root re-shades its family; do not "fix" a child's shade by hand.
 - New `From Google` import trees are **owned by the importer** and reused only by
   them, so imported events sit in that person's group, not "Ours". A tree imported
@@ -144,22 +144,22 @@ The request pipeline in one line:
   legacy rows. Visibility folds the same way (`effectiveOwnerOf`/`groupOf(parent)`),
   so a stale child row can no longer hide behind "Ours" — see the trap below.
 
-**Permissions** (`lib/services/permissions.ts`, `lib/services/calendars.ts`)
+**Permissions** (`lib/services/permissions.ts`, `lib/services/collections.ts`)
 
-- `canWriteCalendar` is the one write predicate. A collection with
+- `canWriteCollection` is the one write predicate. A collection with
   `visibility = 'view_only'` (or `'private'`) is writable only by its owner;
   `shared` ("Ours") collections are always writable — the predicate fails closed
   if an ownerless non-shared row appears.
-- **Visibility is inherited from the root**: `getCalendarAccess` returns
+- **Visibility is inherited from the root**: `getCollectionAccess` returns
   `ownerId = root.ownerId ?? row.ownerId` and the most restrictive of the root's
-  and row's `visibility`. Nesting is capped at two levels; `updateCalendar`
+  and row's `visibility`. Nesting is capped at two levels; `updateCollection`
   rejects setting view-only or `hueFamily` on a child, and setting `ownerId: null`
   also resets `visibility` to `shared`. An ownerless view-only collection
   therefore has no writer at all.
 - **Household scoping happens before the permission check**, and out-of-household
   ids surface as `NOT_FOUND` 404 — never 403. A 403 means "your account is not in
   this household" (missing `member` row).
-- Import commit/rollback and the root-owner cascade in `updateCalendar` are the
+- Import commit/rollback and the root-owner cascade in `updateCollection` are the
   `db.transaction` users; ordinary calendar/event writes are single statements. A
   multi-statement non-import change (event upsert + `exdates` append) is still not
   atomic — do not assume all-or-nothing writes outside the importer and the owner
@@ -170,16 +170,15 @@ The request pipeline in one line:
 **Collections and tasks (migration 0005)**
 
 - `calendar` was renamed in place to `collection`; SQL queries must use
-  `collection`. The TypeScript layer still imports the deprecated `calendar` alias
-  of the `collection` table (and `CalendarRow`) until Task 2, so a TypeScript hit on
-  `calendar` is not proof the table still exists.
+  `collection`. The TypeScript layer imports `collection` and its row type is
+  `CollectionRow` — there is no `calendar` alias left to import.
 - `collection.kind` (`calendar`/`list`, default `calendar`) says what the node
   holds. `collection.visibility` (`shared`/`view_only`/`private`, default `shared`)
   replaced `is_view_only_for_partner`; migration `0005` backfilled `1` →
   `view_only`. There is no `is_view_only_for_partner` column any more — a query or
   a snapshot that mentions it is stale.
-- `event.calendar_id` is now `event.collection_id`; the Drizzle property is still
-  `calendarId` until Task 2, and the index is `event_collection_idx`.
+- `event.calendar_id` is now `event.collection_id`; the Drizzle property is
+  `collectionId` and the index is `event_collection_idx`.
 - `task.scheduled_on`/`task.due_on` are **date-only** household-local `YYYY-MM-DD`
   strings, not epochs: never pass `startAt`-style milliseconds. `task.status` is
   `open`/`done`/`dropped`; `task.sort_order` is the manual order; deleting a
@@ -191,16 +190,16 @@ The request pipeline in one line:
 
 **Visibility** (client-only, `lib/ui/visibility.ts`)
 
-- `groups` (person pills) + `calendars` (per-calendar overrides, missing =
+- `groups` (person pills) + `collections` (per-collection overrides, missing =
   visible) + the parent's checkbox must all agree; `only` ("display only this
   calendar") **outranks everything**. Visibility is never a security boundary.
 - View/visibility/undo client state is persisted in `localStorage` via
-  `lib/ui/view.ts`, `lib/ui/lastView.ts`, `lib/ui/visibleCalendars.ts`; the undo
+  `lib/ui/view.ts`, `lib/ui/lastView.ts`, `lib/ui/visibleCollections.ts`; the undo
   stack (`lib/ui/undo.ts`) is **session-only** and disappears on reload.
 
 **Client cache and database** (`lib/query/*`, `lib/db/*`)
 
-- Query keys: `["calendars"]`, `["events", from, to]`,
+- Query keys: `["collections"]`, `["events", from, to]`,
   `["events", "search", normalized]`, `["preferences"]`.
 - Event mutations work on the `["events"]` **prefix**, so optimistic
   `temp-<uuid>` rows also appear in search results and search refetches after
@@ -240,12 +239,12 @@ any wrapper in the shell/calendar tree.
 | The repeat editor says "Does not repeat" for a repeating series | `parseRepeatRule` returned `null` because `FREQ` is outside DAILY/WEEKLY/MONTHLY/YEARLY (e.g. `FREQ=HOURLY` from an import); the stored rule is preserved until Repeat changes | `lib/recurrence/rule.ts` `parseRepeatRule`, the unsupported-rule note in `EventDialog.tsx` |
 | A weekly series does not appear on its own start date | stored `BYDAY`/`BYMONTHDAY` disagrees with `DTSTART`; move the start date or re-pick the repeat days | `parseRepeatRule`/`anchorRepeat` in `lib/recurrence/rule.ts` |
 | The repeat summary hides the end date | a timed `UNTIL` was rendered without the household `timezone` context, so the summary fell back to UTC or dropped it | `describeRrule` call in `components/calendar/EventDetails.tsx` |
-| Drag/resize/create snaps back | optimistic update rolled back: API rejected (view-only, validation, 4xx) | browser network panel, then `lib/query/eventCache.ts` + `canWriteCalendar` |
+| Drag/resize/create snaps back | optimistic update rolled back: API rejected (view-only, validation, 4xx) | browser network panel, then `lib/query/eventCache.ts` + `canWriteCollection` |
 | Undo toast does nothing | undo stack is session-only and per-view; failed mutation already rolled back | `lib/ui/undo.ts`, `lib/ui/useUndoHotkey.ts` |
 | Cannot edit a calendar/event | collection `visibility = 'view_only'` or `'private'` and the viewer is not the owner; server re-checks on write | `lib/services/permissions.ts`, `lib/services/events.ts` |
-| Calendar row/checkbox does nothing | parent checkbox or `only` mode overriding it | `lib/ui/visibility.ts` `isCalendarVisible` |
-| A sub-calendar renders under a person's heading but its events still vanish with the "Ours" pill | the child row's `owner_id` is NULL (or otherwise disagrees with its root) — an owner move from before the cascade fix; visibility must fold the root | that row's `owner_id` vs its root's; `effectiveOwnerOf`/`groupOf(parent)` in `lib/ui/visibility.ts`, migration `0004`, `updateCalendar`'s owner cascade |
-| Sub-calendar has the wrong colour | shade assigned on create from the parent's family; palette exhausted at 7 children | `lib/color/palette.ts`, `lib/services/calendars.ts` |
+| Calendar row/checkbox does nothing | parent checkbox or `only` mode overriding it | `lib/ui/visibility.ts` `isCollectionVisible` |
+| A sub-calendar renders under a person's heading but its events still vanish with the "Ours" pill | the child row's `owner_id` is NULL (or otherwise disagrees with its root) — an owner move from before the cascade fix; visibility must fold the root | that row's `owner_id` vs its root's; `effectiveOwnerOf`/`groupOf(parent)` in `lib/ui/visibility.ts`, migration `0004`, `updateCollection`'s owner cascade |
+| Sub-calendar has the wrong colour | shade assigned on create from the parent's family; palette exhausted at 7 children | `lib/color/palette.ts`, `lib/services/collections.ts` |
 | Person 2's imported events sit under "Ours" and vanish when the Ours pill is hidden | the import-created calendar's `owner_id` is NULL — a tree imported before imports became personal per importer | that calendar row's `owner_id`; re-import (creates the importer's own tree and moves the rows) or change the calendar's owner; `lib/services/import.ts` `ownedImportRoots` |
 | Page scrolls / grid height wrong | shell wrapper lost `h-dvh`/`min-h-0`, or `main` got `overflow-visible` | `app/(app)/layout.tsx`, `components/shell/AppShell.tsx`, `tests/e2e/viewport-fit.spec.ts` |
 | 401 on an API call | no session cookie (signed out, cookie origin/TTL) | `lib/api/route.ts` `viewerFromRequest`, `BETTER_AUTH_URL` |
@@ -257,20 +256,20 @@ any wrapper in the shell/calendar tree.
 | Wrong month on load / deep link | `?date=` / `?event=` parsing and remembered last view | `lib/ui/view.ts`, `lib/ui/lastView.ts`, `app/(app)/page.tsx` |
 | Two popups at once (event details over a new-event bubble, or the reverse) | two surfaces were opened without dismissing each other: the search deep-link poll landed after the user started creating, or an opener skipped clearing the other state | `components/calendar/CalendarShell.tsx` (`overlaySeqRef`/`linkSeqRef`; `openQuickCreate`, `openDialog`, `requestDeleteFor`, `handleEventClick` each clear the others) |
 | Clicking a toolbar or sidebar control leaves the quick-create bubble on screen | the desktop bubble's capture-phase `pointerdown` dismissal was removed, or the clicked element carries `data-dismiss-ignore` | `components/calendar/QuickCreatePopover.tsx` (the `pointerdown` effect), `CalendarPicker.tsx`'s portalled content |
-| A new-event bubble proposes the previous calendar right after "display only this calendar" changes | the bubble is reused across drafts, so a default frozen in state at mount goes stale | `QuickCreatePopover.effectiveCalendarId` (`pickedCalendarId ?? defaultCalendarId`), `defaultEventCalendarId` in `CalendarShell.tsx` |
+| A new-event bubble proposes the previous calendar right after "display only this calendar" changes | the bubble is reused across drafts, so a default frozen in state at mount goes stale | `QuickCreatePopover.effectiveCalendarId` (`pickedCalendarId ?? defaultCollectionId`), `defaultEventCollectionId` in `CalendarShell.tsx` |
 | Mini-month dots do not match the grid | mini month derives its own event summary from the same visible-range query | `components/calendar/MiniMonth.tsx`, `components/sidebar/SidebarMiniMonth.tsx` |
 | Hydration mismatch in the calendar | `localStorage`/`matchMedia` read during render instead of in an effect | `lib/ui/useMediaQuery.ts`, `useVisibility.ts`, `view.ts` |
-| A calendar renders editable though it is view-only | `CalendarShell` calls `canWriteCalendar` with a viewer of `{ userId, householdId: "" }`; the predicate only reads `userId` today | `components/calendar/CalendarShell.tsx` (`readOnlyCalendarIds`), `lib/services/permissions.ts` |
+| A calendar renders editable though it is view-only | `CalendarShell` calls `canWriteCollection` with a viewer of `{ userId, householdId: "" }`; the predicate only reads `userId` today | `components/calendar/CalendarShell.tsx` (`readOnlyCollectionIds`), `lib/services/permissions.ts` |
 | "Default view" setting seems ignored | `localStorage["nailong.lastView.<userId>"]` wins over the `defaultView` preference; only a fresh session falls back to it | `lib/ui/lastView.ts`, `lib/ui/view.ts`; clear storage as `tests/e2e/view-preference.spec.ts` does |
 | `g` shortcut does nothing, or undo still fires with shortcuts disabled | `ShortcutHelpDialog` advertises `g` but `CalendarShell` never passes `onOpenDatePicker`; `useUndoHotkey()` is mounted unconditionally | `components/calendar/ShortcutHelpDialog.tsx`, `Components/calendar/CalendarShell.tsx`, `lib/ui/useUndoHotkey.ts` |
 | Escape in the calendar picker loses the quick-create draft | `CalendarPicker`'s portalled popover must `stopPropagation` Escape so it does not bubble to `QuickCreatePopover` | `components/calendar/CalendarPicker.tsx`, `QuickCreatePopover.tsx` |
 | Mini month weekday order or "today" differs from the grid; clicking a grey adjacent-month day does nothing | `MiniMonth` hardcodes a Sunday-first grid and uses the device clock, ignoring the household `weekStartsOn`/timezone that FullCalendar honours; leading/trailing adjacent days are decorative `aria-hidden` spans, not gridcells; the picker's Today button is household-local only when the caller passes `today` | `components/calendar/MiniMonth.tsx`, `DatePickerPopover.tsx`, `DateField.tsx`, `lib/time/zone.ts` |
 | Clicking Undo loses the action | `undoLast()` pops the entry before running it, and the stack is session-only (max 20); a failed undo is not re-queued | `lib/ui/undo.ts`, `lib/ui/useUndoHotkey.ts` |
 | Toast text/colours overridden by sonner's stylesheet | there is no project toast wrapper — call sites import `toast` from `sonner`; the `!` important modifiers in `TOASTER_PROPS` are load-bearing | `components/ui/toast.tsx` |
-| A sidebar bug reproduces in only one place | `AppShell` renders the calendar tree twice (desktop aside + phone sheet): shared query cache and one shared fold state, separate local dialog state | `components/shell/AppShell.tsx`, `components/sidebar/CalendarTree.tsx` |
+| A sidebar bug reproduces in only one place | `AppShell` renders the calendar tree twice (desktop aside + phone sheet): shared query cache and one shared fold state, separate local dialog state | `components/shell/AppShell.tsx`, `components/sidebar/CollectionTree.tsx` |
 | A folded sidebar branch is open again after reload, or folds by itself | fold state lives in `localStorage` under `nailong.treeFold.<userId>`; a failed write (private mode) degrades to session-only, and corrupt stored JSON falls back to everything expanded | `lib/ui/useTreeFold.ts`, `lib/ui/treeFold.ts` |
-| The phone sheet's fold chevron expands the wrong list | both tree copies are in the DOM (hidden desktop aside + sheet), so disclosure ids must be per instance | `components/sidebar/CalendarTree.tsx` (`instanceId` from `useId`) |
-| Sub-calendars stay visible after collapsing their root, or a group heading does not fold | the child/group `<ul>` lost its `hidden={!open}` or the heading button lost its toggle handler — folding never touches `isCalendarVisible` | `components/sidebar/CalendarTree.tsx`, `components/sidebar/CalendarRow.tsx` |
+| The phone sheet's fold chevron expands the wrong list | both tree copies are in the DOM (hidden desktop aside + sheet), so disclosure ids must be per instance | `components/sidebar/CollectionTree.tsx` (`instanceId` from `useId`) |
+| Sub-calendars stay visible after collapsing their root, or a group heading does not fold | the child/group `<ul>` lost its `hidden={!open}` or the heading button lost its toggle handler — folding never touches `isCollectionVisible` | `components/sidebar/CollectionTree.tsx`, `components/sidebar/CollectionRow.tsx` |
 | A new `(app)` route shows the "Calendar" breadcrumb | `AppShell.ROUTE_CRUMBS` is derived from `LIVE_ENTRIES`; the route's roadmap entry is still `status: "planned"` | `lib/roadmap.ts` |
 | A gated rail icon still says "Coming in v0.2.0" after it shipped, or says the wrong release | destinations, `version` and the gate label live in one array and nowhere else | `lib/roadmap.ts`, `ROADMAP[].status`/`ROADMAP[].version` |
 | "Delete this occurrence" wiped the whole series | a DELETE sent with **no JSON body** defaults to `scope: "all"` in the handler; `scope: "this"` needs a non-empty `occurrenceStart` | `lib/api/handlers/events.ts` `deleteEventHandler`, the client mutation in `lib/query/events.ts` |
@@ -278,7 +277,7 @@ any wrapper in the shell/calendar tree.
 | Recurring events appear outside the requested range | `listEvents` returns **every** recurring row and lets the client expand it; only non-recurring rows are range-filtered. All-day overlap is compared against the local date of the exclusive `to` bound | `lib/services/events.ts` `listEvents` |
 | Event list looks shifted when the client omits `from`/`to` | the handler defaults to the household-timezone **current month**, falling back to `Asia/Taipei` if the household row is missing | `lib/api/handlers/events.ts` |
 | `z` / `Ctrl+Z` undoes an event while editing a rich-text field | two divergent typing guards (`isTextEntryTarget`, `isEditableTarget`) and neither recognises `div[role="textbox"]` | `lib/ui/useKeyboardShortcuts.ts`, `lib/ui/useUndoHotkey.ts` |
-| Child calendar renders identical to its parent | `shadeIndex` 3 is reserved for the root; children must come from `[4,2,5,1,6,0,7]`, so a child stored as 3 collides with the parent | `lib/color/palette.ts`, `lib/services/calendars.ts` |
+| Child calendar renders identical to its parent | `shadeIndex` 3 is reserved for the root; children must come from `[4,2,5,1,6,0,7]`, so a child stored as 3 collides with the parent | `lib/color/palette.ts`, `lib/services/collections.ts` |
 | An error response's status does not match its code | `AppError.status` is an explicit constructor argument, not derived from `code` | `lib/errors.ts`; the throw site |
 | Changing `TZ` has no runtime effect | `TZ` is validated in `lib/env.ts` but nothing reads it; the household zone comes from `household.timezone` | `lib/env.ts`, `lib/time/zone.ts`, household settings |
 | Content flashes the desktop layout on a phone | `useMediaQuery`'s server snapshot is `false`, so the first paint takes the desktop branch | `lib/ui/useMediaQuery.ts`, `components/shell/AppShell.tsx` |
@@ -300,7 +299,7 @@ any wrapper in the shell/calendar tree.
 | Import 500s with a SQLite UNIQUE error | two uploaded files carried the same UID; `parseFiles` should dedupe and warn before the transaction | `lib/services/import.ts` `parseFiles`, the preview warnings |
 | Importing an event with an unknown timezone silently drops it | by design: the parser skips it and lists it under `warnings` (R4) | the preview warning list, `parseIcs` |
 | "Undo this import" leaves events behind | they were edited in Nailong after the import (`updatedAt > batch.createdAt`) and are reported as `skipped`; or they belong to an earlier batch | `import_change.batch_id`, `lib/services/import.ts` `rollbackImportBatch` |
-| Import commit returns 403 | the mapped target calendar is view-only for this viewer; the whole transaction rolled back | the mapping step, `canWriteCalendar`, `lib/services/import.ts` `resolveTargets` |
+| Import commit returns 403 | the mapped target calendar is view-only for this viewer; the whole transaction rolled back | the mapping step, `canWriteCollection`, `lib/services/import.ts` `resolveTargets` |
 | Migration/column missing | committed SQL migrations not applied; generated migration not committed | `npm run db:migrate`, `drizzle/`, `lib/db/schema.ts` |
 | Header search field widens when clicked/focused | the results panel's `w-[26rem]` sat on an in-flow wrapper inside the shrink-to-fit header block, so the `w-full` field grew with it | `components/calendar/SearchBox.tsx`, `components/calendar/SearchResultsOverlay.tsx`; `tests/e2e/search.spec.ts` "does not resize the search field" |
 | A focused field's ring is clipped on one side inside a dialog | an `overflow-y-auto` scroll area clips at its padding box; the 2px outline sits 2px outside the field, so a field flush with that edge loses 4px of ring. Give the scroll area horizontal padding, never just the side the scrollbar sits on | the scroll area's `px-*` in `components/calendar/EventDialog.tsx`; `tests/e2e/events.spec.ts` "keeps the focused field's ring clear of its scroll edges" |
@@ -314,7 +313,7 @@ any wrapper in the shell/calendar tree.
 | Sign-in fails with "Incorrect email or password" but the log shows `403 INVALID_ORIGIN` / `MISSING_OR_NULL_ORIGIN` | `BETTER_AUTH_URL` is not the exact origin the browser sends (scheme, host, trailing slash) — `LoginForm` collapses every non-429 failure into the password message | set `BETTER_AUTH_URL` to the public origin; a `curl` with `-H "Origin: <origin>"` against `/api/auth/sign-in/email` reproduces it |
 | A browser write returns 403 `Cross-origin request rejected` while curl/tests work | `assertSameOrigin` rejected a foreign `Origin` (or `Sec-Fetch-Site: cross-site`); a proxy may be rewriting `Host` | `lib/api/route.ts` `assertSameOrigin`, then fix `BETTER_AUTH_URL` / proxy host forwarding |
 | A migration error repeats on every request and the deploy keeps restarting | intended fail-fast: `getDb()` no longer caches a connection whose `migrate()` threw, so health stays 503 | fix the migration; `/api/health` recovers only after it applies |
-| "Undo this import" returns 403 for the partner | the import targeted a calendar that is view-only for them; rollback re-checks `canWriteCalendar` for every affected calendar | `lib/services/import.ts` `rollbackImportBatch`; try it as the calendar owner |
+| "Undo this import" returns 403 for the partner | the import targeted a calendar that is view-only for them; rollback re-checks `canWriteCollection` for every affected calendar | `lib/services/import.ts` `rollbackImportBatch`; try it as the calendar owner |
 | Backup writes into the container filesystem and vanishes on redeploy | default `--out` is `backups/` relative to the image workdir | set `BACKUP_DIR=/data/backups` or pass `--out /data/backups`; `node ops/backup.mjs` in the container |
 | `npm run backup` prints success but the archive is tiny/empty | `DATABASE_URL` was wrong, so the script created a new empty database | the empty-database guard now exits 1; check `DATABASE_URL`, or pass `--allow-empty` deliberately |
 | E2E fails only in some months | a spec hardcoded a month/day instead of deriving it (the October 2026 literals were removed) | use `currentMonthLabel()`/`dayMonthLabel()` from `tests/e2e/helpers.ts`; CI pins `TZ=Asia/Taipei` for the runner |

@@ -6,7 +6,7 @@ import { addDaysToDate } from "@/lib/time/zone";
 export interface PlannerFcEvent extends EventInput {
   extendedProps: {
     eventId: string;
-    calendarId: string;
+    collectionId: string;
     /** The occurrence this renderable represents: a local date or an ISO instant. */
     occurrenceStart: string;
     description: string | null;
@@ -64,7 +64,7 @@ export function occurrenceToFcEvent(
         : new Date(occurrence.endAt).toISOString(),
     extendedProps: {
       eventId: event.id,
-      calendarId: event.calendarId,
+      collectionId: event.collectionId,
       occurrenceStart: occurrence.startKey,
       description: event.description,
       location: event.location,

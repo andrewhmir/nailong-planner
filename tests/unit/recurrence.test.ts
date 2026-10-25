@@ -12,7 +12,7 @@ function timedRule(overrides: Partial<EventRow> = {}): EventRow {
   return {
     id: "e1",
     householdId: "h1",
-    calendarId: "c1",
+    collectionId: "c1",
     title: "Weekly class",
     description: null,
     location: null,

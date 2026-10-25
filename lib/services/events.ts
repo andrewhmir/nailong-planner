@@ -2,7 +2,7 @@ import { and, eq, gt, gte, isNotNull, lt, lte, or } from "drizzle-orm";
 import { RRule } from "rrule";
 import { shadeTokens, type ShadeTokens } from "@/lib/color/palette";
 import type { Database } from "@/lib/db/client";
-import { calendar, event, household, type EventRow } from "@/lib/db/schema";
+import { collection, event, household, type EventRow } from "@/lib/db/schema";
 import { AppError } from "@/lib/errors";
 import { utcToLocalDate } from "@/lib/time/zone";
 import {
@@ -10,8 +10,8 @@ import {
   type UpdateEventInput,
   assertEventShape,
 } from "@/lib/validation/events";
-import { getCalendarAccess, resolveShade, assertCalendarWritable } from "./calendars";
-import { canWriteCalendar, type ViewerContext } from "./permissions";
+import { getCollectionAccess, resolveShade, assertCollectionWritable } from "./collections";
+import { canWriteCollection, type ViewerContext } from "./permissions";
 
 export interface EventView extends EventRow {
   color: ShadeTokens;
@@ -49,7 +49,7 @@ function householdTimezone(db: Database, ctx: ViewerContext): string {
 
 /** Builds the client-facing row (adds the resolved colour tokens). */
 export function toView(db: Database, row: EventRow): EventView {
-  const owner = db.select().from(calendar).where(eq(calendar.id, row.calendarId)).get();
+  const owner = db.select().from(collection).where(eq(collection.id, row.collectionId)).get();
   const color = owner ? resolveShade(db, owner) : shadeTokens("slate", 3);
   return { ...row, color };
 }
@@ -68,8 +68,8 @@ export function getEvent(db: Database, ctx: ViewerContext, id: string): EventRow
 
 function writableEvent(db: Database, ctx: ViewerContext, id: string) {
   const row = getEvent(db, ctx, id);
-  const access = getCalendarAccess(db, ctx, row.calendarId);
-  assertCalendarWritable(ctx, access);
+  const access = getCollectionAccess(db, ctx, row.collectionId);
+  assertCollectionWritable(ctx, access);
   return row;
 }
 
@@ -112,8 +112,8 @@ export function createEvent(
   ctx: ViewerContext,
   input: CreateEventInput,
 ): EventView {
-  const access = getCalendarAccess(db, ctx, input.calendarId);
-  assertCalendarWritable(ctx, access);
+  const access = getCollectionAccess(db, ctx, input.collectionId);
+  assertCollectionWritable(ctx, access);
   assertEventShape(input);
   assertValidRrule(input.rrule);
 
@@ -121,7 +121,7 @@ export function createEvent(
   const row: EventRow = {
     id: crypto.randomUUID(),
     householdId: ctx.householdId,
-    calendarId: access.calendar.id,
+    collectionId: access.collection.id,
     title: input.title.trim(),
     description: input.description ?? null,
     location: input.location ?? null,
@@ -156,9 +156,9 @@ export function updateEvent(
   const row = writableEvent(db, ctx, id);
 
   // Moving an event between calendars needs write access on both ends.
-  if (input.calendarId !== undefined && input.calendarId !== row.calendarId) {
-    const targetAccess = getCalendarAccess(db, ctx, input.calendarId);
-    assertCalendarWritable(ctx, targetAccess);
+  if (input.collectionId !== undefined && input.collectionId !== row.collectionId) {
+    const targetAccess = getCollectionAccess(db, ctx, input.collectionId);
+    assertCollectionWritable(ctx, targetAccess);
   }
 
   const allDay = input.allDay ?? row.allDay === 1;
@@ -190,8 +190,8 @@ export function updateEvent(
     exdates,
     updatedAt: Date.now(),
   };
-  if (input.calendarId !== undefined) {
-    patch.calendarId = input.calendarId;
+  if (input.collectionId !== undefined) {
+    patch.collectionId = input.collectionId;
   }
   if (input.title !== undefined) {
     patch.title = input.title.trim();

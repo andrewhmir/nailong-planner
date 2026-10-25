@@ -7,7 +7,7 @@ function makeEvent(overrides: Partial<EventView>): EventView {
   return {
     id: "e1",
     householdId: "h1",
-    calendarId: "c1",
+    collectionId: "c1",
     title: "Dentist",
     description: null,
     location: null,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AppError } from "@/lib/errors";
-import { createCalendar } from "@/lib/services/calendars";
+import { createCollection } from "@/lib/services/collections";
 import { createEvent, deleteEvent, listEvents, updateEvent } from "@/lib/services/events";
 import { localWallTimeToUtc } from "@/lib/time/zone";
 import { makeSeededDb } from "../helpers/fixtures";
@@ -25,8 +25,8 @@ function expectAppError(fn: () => unknown, code: string, status: number) {
 
 async function setup() {
   const seeded = await makeSeededDb();
-  const root = createCalendar(seeded.db, seeded.ctxA, { name: "School", hueFamily: "indigo" });
-  const child = createCalendar(seeded.db, seeded.ctxA, { name: "Math", parentId: root.id });
+  const root = createCollection(seeded.db, seeded.ctxA, { name: "School", hueFamily: "indigo" });
+  const child = createCollection(seeded.db, seeded.ctxA, { name: "Math", parentId: root.id });
   return { ...seeded, root, child };
 }
 
@@ -37,7 +37,7 @@ describe("event service", () => {
       expectAppError(
         () =>
           createEvent(db, ctxA, {
-            calendarId: child.id,
+            collectionId: child.id,
             title: "Broken",
             allDay: true,
             startAt: at("2026-10-20T09:00"),
@@ -57,7 +57,7 @@ describe("event service", () => {
       expectAppError(
         () =>
           createEvent(db, ctxA, {
-            calendarId: child.id,
+            collectionId: child.id,
             title: "Backwards",
             allDay: false,
             startAt: at("2026-10-20T10:00"),
@@ -75,14 +75,14 @@ describe("event service", () => {
     const { db, close, ctxA, child } = await setup();
     try {
       const timed = createEvent(db, ctxA, {
-        calendarId: child.id,
+        collectionId: child.id,
         title: "Quiz",
         allDay: false,
         startAt: at("2026-10-20T09:00"),
         endAt: at("2026-10-20T10:00"),
       });
       const allDay = createEvent(db, ctxA, {
-        calendarId: child.id,
+        collectionId: child.id,
         title: "Trip",
         allDay: true,
         startDate: "2026-10-21",
@@ -103,14 +103,14 @@ describe("event service", () => {
     const { db, close, ctxA, child } = await setup();
     try {
       createEvent(db, ctxA, {
-        calendarId: child.id,
+        collectionId: child.id,
         title: "January lecture",
         allDay: false,
         startAt: at("2026-01-15T09:00"),
         endAt: at("2026-01-15T10:00"),
       });
       createEvent(db, ctxA, {
-        calendarId: child.id,
+        collectionId: child.id,
         title: "Weekly class",
         allDay: false,
         startAt: at("2026-01-06T09:00"),
@@ -138,7 +138,7 @@ describe("event service", () => {
     const { db, close, ctxA, child } = await setup();
     try {
       const created = createEvent(db, ctxA, {
-        calendarId: child.id,
+        collectionId: child.id,
         title: "Quiz",
         allDay: false,
         startAt: at("2026-10-20T09:00"),
@@ -155,7 +155,7 @@ describe("event service", () => {
     const { db, close, ctxA, child } = await setup();
     try {
       const series = createEvent(db, ctxA, {
-        calendarId: child.id,
+        collectionId: child.id,
         title: "Standup",
         allDay: true,
         startDate: "2026-01-31",
@@ -181,7 +181,7 @@ describe("event service", () => {
     const { db, close, ctxA, child } = await setup();
     try {
       const series = createEvent(db, ctxA, {
-        calendarId: child.id,
+        collectionId: child.id,
         title: "Standup",
         allDay: false,
         startAt: at("2026-01-06T09:00"),
@@ -200,16 +200,16 @@ describe("event service", () => {
   it("blocks every write to an event in a view-only partner calendar", async () => {
     const { db, close, ctxA, ctxB } = await setup();
     try {
-      const work = createCalendar(db, ctxA, {
+      const work = createCollection(db, ctxA, {
         name: "Work",
         hueFamily: "amber",
         ownerId: "user-a",
       });
-      const { updateCalendar } = await import("@/lib/services/calendars");
-      updateCalendar(db, ctxA, work.id, { isViewOnlyForPartner: true });
+      const { updateCollection } = await import("@/lib/services/collections");
+      updateCollection(db, ctxA, work.id, { visibility: "view_only" });
 
       const event = createEvent(db, ctxA, {
-        calendarId: work.id,
+        collectionId: work.id,
         title: "On-call",
         allDay: false,
         startAt: at("2026-10-20T09:00"),
@@ -219,7 +219,7 @@ describe("event service", () => {
       expectAppError(
         () =>
           createEvent(db, ctxB, {
-            calendarId: work.id,
+            collectionId: work.id,
             title: "Sneaky",
             allDay: false,
             startAt: at("2026-10-21T09:00"),
@@ -244,7 +244,7 @@ describe("event service", () => {
       expectAppError(
         () =>
           createEvent(db, ctxA, {
-            calendarId: child.id,
+            collectionId: child.id,
             title: "Bad rule",
             allDay: false,
             startAt: at("2026-10-20T09:00"),
@@ -262,9 +262,9 @@ describe("event service", () => {
   it("never reads events from another household", async () => {
     const { db, close, ctxA, ctxOther } = await makeSeededDb();
     try {
-      const root = createCalendar(db, ctxA, { name: "School", hueFamily: "indigo" });
+      const root = createCollection(db, ctxA, { name: "School", hueFamily: "indigo" });
       createEvent(db, ctxA, {
-        calendarId: root.id,
+        collectionId: root.id,
         title: "Mine",
         allDay: false,
         startAt: at("2026-10-20T09:00"),

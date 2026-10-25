@@ -65,7 +65,7 @@ test("z is undo, but Delete removes the selected event", async ({ page }) => {
   start.setHours(15, 0, 0, 0);
   const created = await page.request.post("/api/events", {
     data: {
-      calendarId: fixtures.calendars.math,
+      collectionId: fixtures.calendars.math,
       title,
       allDay: false,
       startAt: start.getTime(),

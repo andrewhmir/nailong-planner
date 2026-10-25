@@ -5,7 +5,7 @@ import type Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { migrate } from "@/lib/db/migrate";
 import { makeTestDb } from "../helpers/db";
-import { calendar, event, household } from "@/lib/db/schema";
+import { collection, event, household } from "@/lib/db/schema";
 
 function query<T>(sqlite: Database.Database, sql: string): T[] {
   return sqlite.prepare(sql).all() as T[];
@@ -23,17 +23,17 @@ describe("database schema", () => {
       expect(h?.timezone).toBe("Asia/Taipei");
       expect(h?.weekStartsOn).toBe(0);
 
-      db.insert(calendar)
+      db.insert(collection)
         .values({ id: "c1", householdId: "h1", name: "School", hueFamily: "indigo" })
         .run();
-      db.insert(calendar)
+      db.insert(collection)
         .values({ id: "c2", householdId: "h1", parentId: "c1", name: "Math", shadeIndex: 4 })
         .run();
       db.insert(event)
         .values({
           id: "e1",
           householdId: "h1",
-          calendarId: "c2",
+          collectionId: "c2",
           title: "Quiz",
           startAt: 1_700_000_000_000,
           endAt: 1_700_000_360_000,
@@ -41,10 +41,10 @@ describe("database schema", () => {
         })
         .run();
 
-      db.delete(calendar).where(eq(calendar.id, "c1")).run();
+      db.delete(collection).where(eq(collection.id, "c1")).run();
 
       expect(db.select().from(event).all()).toHaveLength(0);
-      expect(db.select().from(calendar).all()).toHaveLength(0);
+      expect(db.select().from(collection).all()).toHaveLength(0);
     } finally {
       close();
     }
@@ -60,7 +60,7 @@ describe("database schema", () => {
           .values({
             id: "e1",
             householdId: "h1",
-            calendarId: "missing",
+            collectionId: "missing",
             title: "Orphan",
             startAt: 1,
             endAt: 2,
@@ -77,14 +77,14 @@ describe("database schema", () => {
     const { db, close } = await makeTestDb();
     try {
       db.insert(household).values({ id: "h1" }).run();
-      db.insert(calendar)
+      db.insert(collection)
         .values({ id: "c1", householdId: "h1", name: "Household", hueFamily: "teal" })
         .run();
       db.insert(event)
         .values({
           id: "e-all-day",
           householdId: "h1",
-          calendarId: "c1",
+          collectionId: "c1",
           title: "Trip",
           allDay: 1,
           startDate: "2026-10-20",

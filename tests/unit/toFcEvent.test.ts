@@ -15,7 +15,7 @@ function event(overrides: Partial<EventView> = {}): EventView {
   return {
     id: "e1",
     householdId: "h1",
-    calendarId: "c1",
+    collectionId: "c1",
     title: "Quiz",
     description: "Chapter 3",
     location: null,
@@ -58,7 +58,7 @@ describe("occurrenceToFcEvent", () => {
     expect(fc.contrastColor).toBe("#273540");
     expect(fc.extendedProps.accent).toBe(COLOR.mainHex);
     expect(fc.extendedProps.eventId).toBe("e1");
-    expect(fc.extendedProps.calendarId).toBe("c1");
+    expect(fc.extendedProps.collectionId).toBe("c1");
     expect(fc.extendedProps.occurrenceStart).toBe("2023-11-14T22:13:20.000Z");
   });
 

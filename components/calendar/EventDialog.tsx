@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import type { CalendarNode } from "@/lib/services/calendars";
+import type { CollectionNode } from "@/lib/services/collections";
 import type { EventView } from "@/lib/services/events";
 import type { TimeFormat } from "@/lib/services/preferences";
 import { useCreateEvent, useDeleteEvent, useUpdateEvent } from "@/lib/query/events";
@@ -63,9 +63,9 @@ interface Props {
   timeFormat: TimeFormat;
   /** Household week start (0 = Sunday), so the weekday picker matches the grid. */
   weekStartsOn: number;
-  calendars: CalendarNode[];
+  collections: CollectionNode[];
   /** Where a new event starts unless the user picks otherwise ("only this calendar"). */
-  defaultCalendarId?: string | null;
+  defaultCollectionId?: string | null;
   /** Success or programmatic close (dirty state is dropped). */
   onClose: () => void;
   /** User asked to close; the shell runs the unsaved-changes guard. */
@@ -90,8 +90,8 @@ export function EventDialog({
   timezone,
   timeFormat,
   weekStartsOn,
-  calendars,
-  defaultCalendarId,
+  collections,
+  defaultCollectionId,
   onClose,
   onCancel,
   onDirtyChange,
@@ -108,24 +108,24 @@ export function EventDialog({
   // does instead of the device's day. Frozen at open, like the shell's anchors.
   const [today] = useState(() => utcToLocalDate(Date.now(), timezone));
 
-  const fallbackCalendarId = calendars[0]?.id ?? "";
+  const fallbackCollectionId = collections[0]?.id ?? "";
   // On edit the event's own calendar wins; on create the caller's default (the
   // isolated calendar, else the settings default) does, provided it is writable.
-  const requestedCalendarId = initial.event?.calendarId ?? defaultCalendarId ?? "";
-  const initialCalendarId = calendars.some(
-    (root) => root.id === requestedCalendarId || root.children.some((child) => child.id === requestedCalendarId),
+  const requestedCollectionId = initial.event?.collectionId ?? defaultCollectionId ?? "";
+  const initialCollectionId = collections.some(
+    (root) => root.id === requestedCollectionId || root.children.some((child) => child.id === requestedCollectionId),
   )
-    ? requestedCalendarId
-    : fallbackCalendarId;
+    ? requestedCollectionId
+    : fallbackCollectionId;
 
   const [title, setTitle] = useState(
     initial.event?.title ?? initial.pendingTitle ?? "",
   );
-  const [calendarId, setCalendarId] = useState(initialCalendarId);
+  const [collectionId, setCollectionId] = useState(initialCollectionId);
 
   // Calendars can finish loading after the dialog opens; fall back live instead
   // of freezing an empty selection into the form.
-  const selectedCalendarId = calendarId || fallbackCalendarId;
+  const selectedCollectionId = collectionId || fallbackCollectionId;
   const initialAllDay = initial.event ? initial.event.allDay === 1 : initial.allDay;
   const initialStartDate = initial.event?.startDate ?? initialStart.date;
   const [allDay, setAllDay] = useState(initialAllDay);
@@ -224,7 +224,7 @@ export function EventDialog({
   function buildPayload() {
     return buildEventPayload({
       title,
-      calendarId: selectedCalendarId,
+      collectionId: selectedCollectionId,
       description,
       location,
       allDay,
@@ -240,7 +240,7 @@ export function EventDialog({
   }
 
   function finishSave(): void {
-    updatePreferences.mutate({ lastEventCalendarId: selectedCalendarId });
+    updatePreferences.mutate({ lastEventCalendarId: selectedCollectionId });
     onDirtyChange?.(false);
     onClose();
   }
@@ -312,10 +312,10 @@ export function EventDialog({
           <CalendarPicker
             id="event-calendar"
             variant="field"
-            calendars={calendars}
-            value={selectedCalendarId}
+            collections={collections}
+            value={selectedCollectionId}
             onChange={(nextId) => {
-              setCalendarId(nextId);
+              setCollectionId(nextId);
               markDirty();
             }}
           />
@@ -495,7 +495,7 @@ export function EventDialog({
         <Button
           variant="primary"
           type="submit"
-          disabled={pending || title.trim().length === 0 || !selectedCalendarId || Boolean(repeatError)}
+          disabled={pending || title.trim().length === 0 || !selectedCollectionId || Boolean(repeatError)}
         >
           {pending ? "Saving…" : "Save"}
         </Button>

@@ -6,8 +6,8 @@ import { DEFAULT_VISIBILITY, type GroupKey, type VisibilityState } from "./visib
 export interface VisibilityApi {
   state: VisibilityState;
   setGroup: (group: GroupKey, visible: boolean) => void;
-  toggleCalendar: (id: string) => void;
-  setCalendars: (ids: string[], visible: boolean) => void;
+  toggleCollection: (id: string) => void;
+  setCollections: (ids: string[], visible: boolean) => void;
   /** `null` clears "display only this calendar". */
   setOnly: (id: string | null) => void;
 }
@@ -25,10 +25,12 @@ export function useVisibility(userId: string): VisibilityApi {
         const parsed = JSON.parse(raw) as Partial<VisibilityState>;
         // Reading persisted preferences must happen after hydration; the server
         // has no localStorage, so this cannot move into useState's initializer.
+        // The key is unchanged across the collection rename: a pre-v0.2
+        // `calendars` map is not read, so it falls back to "everything visible".
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setState({
           groups: { ...DEFAULT_VISIBILITY.groups, ...(parsed.groups ?? {}) },
-          calendars: parsed.calendars ?? {},
+          collections: parsed.collections ?? {},
           only: typeof parsed.only === "string" ? parsed.only : null,
         });
       }
@@ -59,21 +61,21 @@ export function useVisibility(userId: string): VisibilityApi {
     }));
   }, []);
 
-  const toggleCalendar = useCallback((id: string) => {
+  const toggleCollection = useCallback((id: string) => {
     setState((previous) => ({
       ...previous,
-      calendars: { ...previous.calendars, [id]: !(previous.calendars[id] ?? true) },
+      collections: { ...previous.collections, [id]: !(previous.collections[id] ?? true) },
       only: null,
     }));
   }, []);
 
-  const setCalendars = useCallback((ids: string[], visible: boolean) => {
+  const setCollections = useCallback((ids: string[], visible: boolean) => {
     setState((previous) => {
-      const next = { ...previous.calendars };
+      const next = { ...previous.collections };
       for (const id of ids) {
         next[id] = visible;
       }
-      return { ...previous, calendars: next, only: null };
+      return { ...previous, collections: next, only: null };
     });
   }, []);
 
@@ -81,5 +83,5 @@ export function useVisibility(userId: string): VisibilityApi {
     setState((previous) => ({ ...previous, only: id }));
   }, []);
 
-  return { state, setGroup, toggleCalendar, setCalendars, setOnly };
+  return { state, setGroup, toggleCollection, setCollections, setOnly };
 }

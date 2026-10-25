@@ -10,11 +10,11 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { ChevronRightIcon, LockIcon, MoreVerticalIcon } from "@/components/ui/icons";
 import { PARENT_SHADE_INDEX, shadeTokens, type HueFamily } from "@/lib/color/palette";
-import type { CalendarRow as CalendarRowType } from "@/lib/db/schema";
+import type { CollectionRow as CollectionRowType } from "@/lib/db/schema";
 import { cn } from "@/lib/utils";
 
 interface Props {
-  calendar: CalendarRowType;
+  collection: CollectionRowType;
   checked: boolean;
   isChild: boolean;
   ownerHue: HueFamily;
@@ -23,11 +23,11 @@ interface Props {
   showViewOnlyBadge: boolean;
   /** The calendar "display only this calendar" is showing, if any. */
   onlyId: string | null;
-  /** Root rows with sub-calendars get a disclosure button. */
+  /** Root rows with sub-collections get a disclosure button. */
   foldable?: boolean;
-  /** Whether this root's sub-calendars are currently shown. */
+  /** Whether this root's sub-collections are currently shown. */
   expanded?: boolean;
-  /** id of the sub-calendar list this row's disclosure button controls. */
+  /** id of the sub-collection list this row's disclosure button controls. */
   controlsId?: string;
   onToggleFold?: () => void;
   onToggle: () => void;
@@ -38,8 +38,8 @@ interface Props {
   onShowAll: () => void;
 }
 
-export function CalendarRow({
-  calendar,
+export function CollectionRow({
+  collection,
   checked,
   isChild,
   ownerHue,
@@ -58,8 +58,8 @@ export function CalendarRow({
   onShowOnly,
   onShowAll,
 }: Props) {
-  const tokens = shadeTokens(ownerHue, isChild ? calendar.shadeIndex : PARENT_SHADE_INDEX);
-  const isOnly = onlyId === calendar.id;
+  const tokens = shadeTokens(ownerHue, isChild ? collection.shadeIndex : PARENT_SHADE_INDEX);
+  const isOnly = onlyId === collection.id;
   const canFold = foldable && onToggleFold !== undefined;
 
   return (
@@ -75,7 +75,7 @@ export function CalendarRow({
       {canFold ? (
         <button
           type="button"
-          aria-label={`${expanded ? "Collapse" : "Expand"} ${calendar.name}`}
+          aria-label={`${expanded ? "Collapse" : "Expand"} ${collection.name}`}
           aria-expanded={expanded}
           aria-controls={controlsId}
           onClick={onToggleFold}
@@ -89,7 +89,7 @@ export function CalendarRow({
       ) : (
         <span aria-hidden className="h-5 w-5 shrink-0" />
       )}
-      <Checkbox label={calendar.name} checked={checked} onCheckedChange={onToggle} />
+      <Checkbox label={collection.name} checked={checked} onCheckedChange={onToggle} />
       <span
         aria-hidden
         className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
@@ -98,7 +98,7 @@ export function CalendarRow({
       <span
         className={cn("min-w-0 flex-1 truncate text-base", readOnly ? "text-ink-soft" : "text-ink")}
       >
-        {calendar.name}
+        {collection.name}
       </span>
       {showViewOnlyBadge ? (
         <LockIcon size={14} title="View only" className="shrink-0 text-ink-mute" />
@@ -107,7 +107,7 @@ export function CalendarRow({
       {!isChild && childShades.length > 0 ? (
         <span
           aria-hidden
-          data-testid={`shade-strip-${calendar.name.toLowerCase()}`}
+          data-testid={`shade-strip-${collection.name.toLowerCase()}`}
           className="flex shrink-0 gap-0.5"
         >
           {childShades.map((shade, index) => (
@@ -124,7 +124,7 @@ export function CalendarRow({
           read is exactly what that row is for, even though editing is locked. */}
       <DropdownMenu>
         <DropdownMenuTrigger
-          aria-label={`Options for ${calendar.name}`}
+          aria-label={`Options for ${collection.name}`}
           className={cn(
             "grid h-6 w-6 shrink-0 place-items-center rounded-sm text-ink-mute transition-opacity",
             "opacity-0 hover:text-ink focus-visible:opacity-100 data-[state=open]:opacity-100",

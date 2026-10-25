@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
-import { CalendarTree } from "@/components/sidebar/CalendarTree";
+import { CollectionTree } from "@/components/sidebar/CollectionTree";
 import { SidebarMiniMonth } from "@/components/sidebar/SidebarMiniMonth";
 import { Button } from "@/components/ui/button";
 import { MenuIcon } from "@/components/ui/icons";
@@ -80,7 +80,7 @@ export function AppShell({
   }
 
   const tree = (
-    <CalendarTree
+    <CollectionTree
       visibility={visibility}
       fold={fold}
       currentUserId={currentUser.id}

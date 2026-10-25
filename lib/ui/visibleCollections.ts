@@ -1,5 +1,5 @@
-import type { CalendarNode } from "@/lib/services/calendars";
-import { isCalendarVisible, type VisibilityState } from "./visibility";
+import type { CollectionNode } from "@/lib/services/collections";
+import { isCollectionVisible, type VisibilityState } from "./visibility";
 
 /**
  * The ids currently drawn in the grid: a root contributes only when its person
@@ -7,26 +7,26 @@ import { isCalendarVisible, type VisibilityState } from "./visibility";
  * checkbox. One implementation so the sidebar mini-month and the grid cannot
  * disagree about what "visible" means.
  */
-export function visibleCalendarIds(
-  roots: CalendarNode[],
+export function visibleCollectionIds(
+  roots: CollectionNode[],
   state: VisibilityState,
   userId: string,
 ): Set<string> {
-  // "Display only this calendar" is exact, and it may name a sub-calendar whose
-  // parent is filtered out. Returning it directly avoids the branch being pruned
-  // below before the isolated child is ever reached.
+  // "Display only this calendar" is exact, and it may name a sub-collection
+  // whose parent is filtered out. Returning it directly avoids the branch being
+  // pruned below before the isolated child is ever reached.
   if (state.only !== null) {
     return new Set([state.only]);
   }
 
   const ids = new Set<string>();
   for (const root of roots) {
-    if (!isCalendarVisible(state, root, userId)) {
+    if (!isCollectionVisible(state, root, userId)) {
       continue;
     }
     ids.add(root.id);
     for (const child of root.children) {
-      if (isCalendarVisible(state, child, userId, root)) {
+      if (isCollectionVisible(state, child, userId, root)) {
         ids.add(child.id);
       }
     }

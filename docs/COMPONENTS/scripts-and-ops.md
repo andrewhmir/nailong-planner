@@ -104,15 +104,15 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 
 **Purpose** — Repairs owner values written by the old non-cascading owner move: a sub-calendar could keep `owner_id` NULL (or its own stale owner) after its root was reassigned.
 
-**Invocation / wiring** — Applied by the same migrator on the first `getDb()`; generated with `drizzle-kit generate --custom` so the journal entry was created for it. `lib/services/calendars.ts` (`updateCalendar`) now carries owner changes down at write time, so this file only normalises rows written before that fix.
+**Invocation / wiring** — Applied by the same migrator on the first `getDb()`; generated with `drizzle-kit generate --custom` so the journal entry was created for it. `lib/services/collections.ts` (`updateCollection`) now carries owner changes down at write time, so this file only normalises rows written before that fix.
 
 **Behaviour & side effects** — One `UPDATE calendar` that sets every non-root row's `owner_id` to its parent's `owner_id` via a correlated subquery (`WHERE parent_id IS NOT NULL`). Idempotent, no schema change, roots untouched.
 
 **Gotchas** —
 - It trusts the two-level model: a grandchild (which the service never creates) would be normalised to its direct parent, not the top root.
-- It also clears a deliberately-set child owner; children are not supposed to have one — `updateCalendar` rejects `ownerId` on a child with `VALIDATION` 400.
+- It also clears a deliberately-set child owner; children are not supposed to have one — `updateCollection` rejects `ownerId` on a child with `VALIDATION` 400.
 
-**Tests / verified by** — `tests/integration/db.test.ts` ("backfills sub-calendar owners from their root (0004)"); the visibility fold is covered by `tests/unit/visibility.test.ts` and `tests/unit/visibleCalendars.test.ts`.
+**Tests / verified by** — `tests/integration/db.test.ts` ("backfills sub-calendar owners from their root (0004)"); the visibility fold is covered by `tests/unit/visibility.test.ts` and `tests/unit/visibleCollections.test.ts`.
 
 ### drizzle/0005_collections_and_tasks.sql
 
@@ -124,7 +124,7 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 
 **Gotchas** —
 - Renaming `collection` a second time (or recreating it) would orphan the auto-updated `event` FK; the rename is in place on purpose, so do not turn it into create/copy without moving the events too.
-- The Drizzle schema still names the event property `calendarId` (SQL `collection_id`) until Task 2 renames the TypeScript layer; `drizzle-kit generate` compares SQL column names, so the no-op check stays clean. Rename both together.
+- The Drizzle property and the SQL column now agree (`event.collectionId` over `collection_id`, index `event_collection_idx`); `drizzle-kit generate` compares SQL column names, so the no-op check stays clean.
 - `kind` and `visibility` are added with SQL defaults, so pre-`0005` rows are backfilled by the defaults plus the single `UPDATE`; a new state (`private`) is not backfilled — it is only reachable through validation.
 - Indexes are dropped and recreated instead of renamed: SQLite cannot rename an index, and the new names are part of the schema snapshot.
 

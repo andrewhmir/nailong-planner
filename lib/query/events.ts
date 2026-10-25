@@ -11,7 +11,7 @@ export interface EventRange {
 }
 
 export interface EventInputPayload {
-  calendarId?: string;
+  collectionId?: string;
   title?: string;
   description?: string | null;
   location?: string | null;
@@ -66,7 +66,7 @@ function restoreEvents(queryClient: QueryClient, snapshots: EventSnapshots | und
 
 function patchList(patch: EventInputPayload): Partial<EventView> {
   const fields: Partial<EventView> = { updatedAt: Date.now() };
-  if (patch.calendarId !== undefined) fields.calendarId = patch.calendarId;
+  if (patch.collectionId !== undefined) fields.collectionId = patch.collectionId;
   if (patch.title !== undefined) fields.title = patch.title;
   if (patch.description !== undefined) fields.description = patch.description;
   if (patch.location !== undefined) fields.location = patch.location;
@@ -90,7 +90,7 @@ function optimisticEvent(input: EventInputPayload): EventView {
   return {
     id: `temp-${crypto.randomUUID()}`,
     householdId: "",
-    calendarId: input.calendarId ?? "",
+    collectionId: input.collectionId ?? "",
     title: input.title ?? "New event",
     description: input.description ?? null,
     location: input.location ?? null,

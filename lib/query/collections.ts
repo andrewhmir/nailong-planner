@@ -1,8 +1,8 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CalendarRow } from "@/lib/db/schema";
-import type { CalendarNode } from "@/lib/services/calendars";
+import type { CollectionKind, CollectionRow, CollectionVisibility } from "@/lib/db/schema";
+import type { CollectionNode } from "@/lib/services/collections";
 
 interface ApiErrorBody {
   error?: { message?: string };
@@ -17,60 +17,61 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
-export interface CalendarInput {
+export interface CollectionInput {
   name: string;
   parentId?: string | null;
+  kind?: CollectionKind;
   hueFamily?: string;
   ownerId?: string | null;
-  /** @deprecated until Task 2: write-side compat; maps to collection.visibility. */
-  isViewOnlyForPartner?: boolean;
+  visibility?: CollectionVisibility;
 }
 
-export function useCalendars() {
+export function useCollections() {
   return useQuery({
-    queryKey: ["calendars"],
-    queryFn: async () => (await requestJson<{ calendars: CalendarNode[] }>("/api/calendars")).calendars,
+    queryKey: ["collections"],
+    queryFn: async () =>
+      (await requestJson<{ collections: CollectionNode[] }>("/api/collections")).collections,
   });
 }
 
-export function useCreateCalendar() {
+export function useCreateCollection() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: CalendarInput) =>
-      requestJson<{ calendar: CalendarRow }>("/api/calendars", {
+    mutationFn: (input: CollectionInput) =>
+      requestJson<{ collection: CollectionRow }>("/api/collections", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(input),
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["calendars"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["collections"] }),
   });
 }
 
-export function useUpdateCalendar() {
+export function useUpdateCollection() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...input }: { id: string } & Partial<CalendarInput> & { sortOrder?: number }) =>
-      requestJson<{ calendar: CalendarRow }>(`/api/calendars/${id}`, {
+    mutationFn: ({ id, ...input }: { id: string } & Partial<CollectionInput> & { sortOrder?: number }) =>
+      requestJson<{ collection: CollectionRow }>(`/api/collections/${id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(input),
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["calendars"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["collections"] }),
   });
 }
 
-export function useDeleteCalendar() {
+export function useDeleteCollection() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const response = await fetch(`/api/calendars/${id}`, { method: "DELETE" });
+      const response = await fetch(`/api/collections/${id}`, { method: "DELETE" });
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as ApiErrorBody | null;
         throw new Error(payload?.error?.message ?? "Could not delete the calendar.");
       }
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["calendars"] });
+      void queryClient.invalidateQueries({ queryKey: ["collections"] });
       void queryClient.invalidateQueries({ queryKey: ["events"] });
     },
   });

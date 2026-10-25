@@ -4,32 +4,35 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { HUE_FAMILIES, PARENT_SHADE_INDEX, shadeTokens, type HueFamily } from "@/lib/color/palette";
-import type { CalendarRow } from "@/lib/db/schema";
+import type { CollectionRow } from "@/lib/db/schema";
 import { cn } from "@/lib/utils";
 
-export type CalendarDialogState =
+export type CollectionDialogState =
   | { mode: "create-root" }
   | { mode: "create-child"; parentId: string }
-  | { mode: "edit"; calendar: CalendarRow };
+  | { mode: "edit"; collection: CollectionRow };
 
-export interface CalendarDialogResult {
+export interface CollectionDialogResult {
   name: string;
   hueFamily?: HueFamily;
   ownerId?: string | null;
-  /** @deprecated until Task 2: write-side compat; maps to collection.visibility. */
-  isViewOnlyForPartner?: boolean;
+  /**
+   * The dialog exposes one switch (view-only). `private` is not offered yet, so
+   * the result is limited to the two values the existing control can produce.
+   */
+  visibility?: "shared" | "view_only";
 }
 
 interface Props {
-  state: CalendarDialogState | null;
+  state: CollectionDialogState | null;
   pending: boolean;
   currentUserId: string;
   currentUserName: string;
   onClose: () => void;
-  onSubmit: (values: CalendarDialogResult) => void;
+  onSubmit: (values: CollectionDialogResult) => void;
 }
 
-export function CalendarDialog({
+export function CollectionDialog({
   state,
   pending,
   currentUserId,
@@ -43,7 +46,7 @@ export function CalendarDialog({
 
   const isEdit = state.mode === "edit";
   const isRoot =
-    state.mode === "create-root" || (isEdit && state.calendar.parentId === null);
+    state.mode === "create-root" || (isEdit && state.collection.parentId === null);
 
   const title =
     state.mode === "create-root"
@@ -65,23 +68,23 @@ export function CalendarDialog({
       ? "create-root"
       : state.mode === "create-child"
         ? `create-child-${state.parentId}`
-        : `edit-${state.calendar.id}`;
+        : `edit-${state.collection.id}`;
 
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent title={title} description={description}>
-        <CalendarForm
+        <CollectionForm
           key={formKey}
           isRoot={isRoot}
           isEdit={isEdit}
-          initialName={isEdit ? state.calendar.name : ""}
+          initialName={isEdit ? state.collection.name : ""}
           initialHue={
-            isEdit && state.calendar.hueFamily && isRoot
-              ? (state.calendar.hueFamily as HueFamily)
+            isEdit && state.collection.hueFamily && isRoot
+              ? (state.collection.hueFamily as HueFamily)
               : "teal"
           }
-          initialOwnerId={isEdit && isRoot ? state.calendar.ownerId : null}
-          initialViewOnly={isEdit && isRoot ? state.calendar.visibility === "view_only" : false}
+          initialOwnerId={isEdit && isRoot ? state.collection.ownerId : null}
+          initialViewOnly={isEdit && isRoot ? state.collection.visibility === "view_only" : false}
           currentUserId={currentUserId}
           currentUserName={currentUserName}
           pending={pending}
@@ -104,14 +107,14 @@ interface FormProps {
   currentUserName: string;
   pending: boolean;
   onClose: () => void;
-  onSubmit: (values: CalendarDialogResult) => void;
+  onSubmit: (values: CollectionDialogResult) => void;
 }
 
 const CONTROL =
   "h-[38px] w-full rounded-md border border-field bg-surface px-3 text-base text-ink focus:border-accent";
 const LABEL = "block text-base text-ink";
 
-function CalendarForm({
+function CollectionForm({
   isRoot,
   isEdit,
   initialName,
@@ -140,7 +143,7 @@ function CalendarForm({
           name,
           hueFamily: isRoot ? hueFamily : undefined,
           ownerId: isRoot ? ownerId : undefined,
-          isViewOnlyForPartner: isRoot ? (isMine ? viewOnly : false) : undefined,
+          visibility: isRoot ? (isMine && viewOnly ? "view_only" : "shared") : undefined,
         });
       }}
     >

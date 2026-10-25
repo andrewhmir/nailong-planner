@@ -22,7 +22,7 @@ async function createProbe(page: Page, title: string): Promise<void> {
   const start = new Date(now.getFullYear(), now.getMonth(), Math.min(now.getDate(), 28), 11, 0);
   const response = await page.request.post("/api/events", {
     data: {
-      calendarId: fixtures.calendars.math,
+      collectionId: fixtures.calendars.math,
       title,
       allDay: false,
       startAt: start.getTime(),

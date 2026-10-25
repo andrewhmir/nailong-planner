@@ -98,7 +98,7 @@ test("clicking an existing event closes the quick-create bubble", async ({ page 
   const date = monthDay(8);
   const created = await page.request.post("/api/events", {
     data: {
-      calendarId: fixtures.calendars.household,
+      collectionId: fixtures.calendars.household,
       title: "Bubble target",
       allDay: true,
       startDate: date,

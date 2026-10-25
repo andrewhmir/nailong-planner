@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { CalendarRow } from "@/lib/db/schema";
-import type { CalendarNode } from "@/lib/services/calendars";
+import type { CollectionRow } from "@/lib/db/schema";
+import type { CollectionNode } from "@/lib/services/collections";
 import { DEFAULT_VISIBILITY, type VisibilityState } from "@/lib/ui/visibility";
-import { visibleCalendarIds } from "@/lib/ui/visibleCalendars";
+import { visibleCollectionIds } from "@/lib/ui/visibleCollections";
 
 const viewer = "user-a";
 
-function calendar(overrides: Partial<CalendarRow> & Pick<CalendarRow, "id" | "name">): CalendarRow {
+function calendar(overrides: Partial<CollectionRow> & Pick<CollectionRow, "id" | "name">): CollectionRow {
   return {
     householdId: "h1",
     parentId: null,
@@ -26,14 +26,14 @@ const school = calendar({ id: "school", name: "School", ownerId: viewer });
 const math = calendar({ id: "math", name: "Math", parentId: "school", ownerId: viewer });
 const household = calendar({ id: "household", name: "Household" });
 
-const roots: CalendarNode[] = [
+const roots: CollectionNode[] = [
   { ...household, children: [] },
   { ...school, children: [math] },
 ];
 
-describe("visibleCalendarIds", () => {
+describe("visibleCollectionIds", () => {
   it("includes every root and child by default", () => {
-    expect([...visibleCalendarIds(roots, DEFAULT_VISIBILITY, viewer)].sort()).toEqual([
+    expect([...visibleCollectionIds(roots, DEFAULT_VISIBILITY, viewer)].sort()).toEqual([
       "household",
       "math",
       "school",
@@ -45,35 +45,35 @@ describe("visibleCalendarIds", () => {
     // branch, leaving the grid with no visible calendar at all.
     const onlyChild: VisibilityState = { ...DEFAULT_VISIBILITY, only: "math" };
 
-    expect([...visibleCalendarIds(roots, onlyChild, viewer)]).toEqual(["math"]);
+    expect([...visibleCollectionIds(roots, onlyChild, viewer)]).toEqual(["math"]);
   });
 
   it("surfaces only the isolated root, not its sub-calendars", () => {
     const onlyRoot: VisibilityState = { ...DEFAULT_VISIBILITY, only: "school" };
 
-    expect([...visibleCalendarIds(roots, onlyRoot, viewer)]).toEqual(["school"]);
+    expect([...visibleCollectionIds(roots, onlyRoot, viewer)]).toEqual(["school"]);
   });
 
   it("hides a sub-calendar when its parent's checkbox is cleared", () => {
     const parentHidden: VisibilityState = {
       ...DEFAULT_VISIBILITY,
-      calendars: { school: false },
+      collections: { school: false },
     };
 
     // Clearing the root hides the root itself and everything beneath it.
-    expect([...visibleCalendarIds(roots, parentHidden, viewer)]).toEqual(["household"]);
+    expect([...visibleCollectionIds(roots, parentHidden, viewer)]).toEqual(["household"]);
   });
 
   it("draws a stale shared sub-calendar under a person-owned root when Ours is off", () => {
     // Legacy rows: the child kept owner_id NULL after its parent was re-owned.
     const staleMath = calendar({ id: "stale-math", name: "Algebra", parentId: "school" });
-    const legacyRoots: CalendarNode[] = [{ ...school, children: [staleMath] }];
+    const legacyRoots: CollectionNode[] = [{ ...school, children: [staleMath] }];
     const oursHidden: VisibilityState = {
       ...DEFAULT_VISIBILITY,
       groups: { ours: false, me: true, partner: true },
     };
 
-    expect([...visibleCalendarIds(legacyRoots, oursHidden, viewer)].sort()).toEqual([
+    expect([...visibleCollectionIds(legacyRoots, oursHidden, viewer)].sort()).toEqual([
       "school",
       "stale-math",
     ]);

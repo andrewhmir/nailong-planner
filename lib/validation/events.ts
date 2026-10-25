@@ -23,14 +23,14 @@ const eventBaseFields = {
  * conversion to a timed event.
  */
 export const createEventSchema = z.object({
-  calendarId: z.string().min(1),
+  collectionId: z.string().min(1),
   ...eventBaseFields,
   allDay: z.boolean().default(false),
 });
 
 export const updateEventSchema = z
   .object({
-    calendarId: z.string().min(1).optional(),
+    collectionId: z.string().min(1).optional(),
     ...eventBaseFields,
   })
   .partial();

@@ -19,12 +19,12 @@ async function deleteProbe(page: Page, title: string): Promise<void> {
   }
 }
 
-async function calendarId(page: Page, name: string): Promise<string> {
-  const response = await page.request.get("/api/calendars");
+async function collectionId(page: Page, name: string): Promise<string> {
+  const response = await page.request.get("/api/collections");
   const payload = (await response.json()) as {
-    calendars: Array<{ id: string; name: string; children: Array<{ id: string; name: string }> }>;
+    collections: Array<{ id: string; name: string; children: Array<{ id: string; name: string }> }>;
   };
-  const found = payload.calendars
+  const found = payload.collections
     .flatMap((root) => [root, ...root.children])
     .find((calendar) => calendar.name === name);
   if (!found) {
@@ -37,13 +37,13 @@ async function calendarId(page: Page, name: string): Promise<string> {
 // their presence depends on file order.
 async function createProbe(
   page: Page,
-  targetCalendarId: string,
+  targetCollectionId: string,
   title: string,
   day: string,
 ): Promise<void> {
   const response = await page.request.post("/api/events", {
     data: {
-      calendarId: targetCalendarId,
+      collectionId: targetCollectionId,
       title,
       allDay: true,
       startDate: day,
@@ -60,8 +60,8 @@ test.describe("as the owner", () => {
   });
 
   test("displays only the chosen calendar and assigns new events to it", async ({ page }) => {
-    const mathId = await calendarId(page, "Math");
-    const householdId = await calendarId(page, "Household");
+    const mathId = await collectionId(page, "Math");
+    const householdId = await collectionId(page, "Household");
     await createProbe(page, mathId, "Math probe", monthDay(16));
     await createProbe(page, householdId, "Ours probe", monthDay(17));
 
@@ -98,10 +98,10 @@ test.describe("as the owner", () => {
     const to = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime() + 7 * 86_400_000;
     const eventsResponse = await page.request.get(`/api/events?from=${from}&to=${to}`);
     const eventsPayload = (await eventsResponse.json()) as {
-      events: Array<{ title: string; calendarId: string }>;
+      events: Array<{ title: string; collectionId: string }>;
     };
     expect(
-      eventsPayload.events.find((event) => event.title === "Math only probe")?.calendarId,
+      eventsPayload.events.find((event) => event.title === "Math only probe")?.collectionId,
     ).toBe(mathId);
 
     // "Show all" restores the view without having touched the saved checkboxes.
@@ -142,7 +142,7 @@ test.describe("as the owner", () => {
   });
 
   test("re-checking any calendar leaves the isolated view", async ({ page }) => {
-    const householdId = await calendarId(page, "Household");
+    const householdId = await collectionId(page, "Household");
     await createProbe(page, householdId, "Ours probe", monthDay(17));
     await page.reload();
     await expect(page.getByText("Ours probe")).toBeVisible();

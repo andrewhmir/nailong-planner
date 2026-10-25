@@ -24,7 +24,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 
 | File | What it locks down | Command |
 |---|---|---|
-| `tests/unit/permissions.test.ts` | `canWriteCalendar`: shared calendars are writable by both, a view-only calendar only by its owner | `npx vitest run tests/unit/permissions.test.ts` |
+| `tests/unit/permissions.test.ts` | `canWriteCollection`: shared collections are writable by both, a `view_only` collection only by its owner | `npx vitest run tests/unit/permissions.test.ts` |
 | `tests/unit/time.test.ts` | Wall-time→UTC round-trips, the 47-hour DST day, rejection of DST-gap and malformed times, inclusive all-day ranges | `npx vitest run tests/unit/time.test.ts` |
 | `tests/unit/recurrence.test.ts` | `expandOccurrences`: series anchored to its stored start, preserved duration, EXDATE skipping, monthly-31st, all-day expansion, and wall-clock expansion across both DST changes in the series' own `tzid` | `npx vitest run tests/unit/recurrence.test.ts` |
 | `tests/unit/recurrence-rule.test.ts` | The structured repeat adapter: every Google-style RRULE shape round-trips; contextual preset defaults; re-anchoring on a moved start date; DATE vs UTC `UNTIL`; `COUNT`; unsupported `FREQ`/parts; the 730-occurrence cap | `npx vitest run tests/unit/recurrence-rule.test.ts` |
@@ -39,8 +39,8 @@ The suites are documented as lookup tables rather than one section per file: fin
 | `tests/unit/timeSlots.test.ts` | The 15-minute slot grid and coarser/finer steps, `minutesOfDay`/`formatMinutes` round-trips and out-of-day wrapping, nearest-row rounding and clamping, and the format-aware typed-time parser: 24-hour input rejects an am/pm suffix, 12-hour accepts `am`/`pm`/`a.m.`/`p.m.` and inherits the fallback, hour bounds | `npx vitest run tests/unit/timeSlots.test.ts` |
 | `tests/unit/view.test.ts` | `resolveInitialView`: `auto` → list on phones, month elsewhere; explicit views pass through | `npx vitest run tests/unit/view.test.ts` |
 | `tests/unit/visibility.test.ts` | Ours/mine/partner grouping, pill × checkbox multiplication, parent hides child, a sub-calendar groups by its parent's owner (stale child row ignored), "only this calendar" outranks both | `npx vitest run tests/unit/visibility.test.ts` |
-| `tests/unit/visibleCalendars.test.ts` | The id set fed to the grid: isolated sub-calendar survives a hidden parent, a hidden root prunes its branch, a stale shared child under a person-owned root stays drawn when Ours is off | `npx vitest run tests/unit/visibleCalendars.test.ts` |
-| `tests/unit/treeFold.test.ts` | Sidebar fold defaults are expanded, one group/calendar folds without touching its siblings, toggles stay immutable, corrupt or non-boolean storage falls back to expanded | `npx vitest run tests/unit/treeFold.test.ts` |
+| `tests/unit/visibleCollections.test.ts` | The id set fed to the grid: isolated sub-calendar survives a hidden parent, a hidden root prunes its branch, a stale shared child under a person-owned root stays drawn when Ours is off | `npx vitest run tests/unit/visibleCollections.test.ts` |
+| `tests/unit/treeFold.test.ts` | Sidebar fold defaults are expanded, one group/collection folds without touching its siblings, toggles stay immutable, corrupt or non-boolean storage falls back to expanded | `npx vitest run tests/unit/treeFold.test.ts` |
 | `tests/unit/calendarPicker.test.ts` | Picker rows and depth, expand/collapse, parent vs assigned shade colours, slate fallback, auto-expand for a selected child | `npx vitest run tests/unit/calendarPicker.test.ts` |
 | `tests/unit/icons.test.ts` | Icon contract: 1.5px `currentColor` stroke, no fill, 20px default, `aria-hidden` unless a `title` is given | `npx vitest run tests/unit/icons.test.ts` |
 | `tests/unit/roadmap.test.ts` | `APP_VERSION` matches `package.json`; unique roadmap ids and hrefs; exactly one promised version; `gateLabel` wording; the live set is Calendar + Settings | `npx vitest run tests/unit/roadmap.test.ts` |
@@ -54,9 +54,9 @@ The suites are documented as lookup tables rather than one section per file: fin
 |---|---|---|
 | `tests/integration/db.test.ts` | Migrations apply; a calendar delete cascades to its children and their events; foreign keys reject orphans; all-day and timed columns stay separate; migration `0004` backfills sub-calendar owners from the root; migration `0005` renames `calendar` -> `collection`, backfills `visibility`, keeps events/ids, repoints the event FK/indexes and cascades tasks | `npx vitest run tests/integration/db.test.ts` |
 | `tests/integration/auth.test.ts` | Sign-up is closed by default, exactly two accounts are allowed, a session cookie round-trips, passwords are stored hashed | `npx vitest run tests/integration/auth.test.ts` |
-| `tests/integration/calendars.test.ts` | Shade assignment and reuse, the eighth-child conflict, no grandchildren, tenant isolation, hue re-derivation, view-only enforcement, owner moves cascading to sub-calendars, direct child-owner writes rejected | `npx vitest run tests/integration/calendars.test.ts` |
+| `tests/integration/collections.test.ts` | Shade assignment and reuse, the eighth-child conflict, no grandchildren, tenant isolation, hue re-derivation, view-only enforcement, owner moves cascading to sub-calendars, direct child-owner writes rejected | `npx vitest run tests/integration/collections.test.ts` |
 | `tests/integration/events.test.ts` | Mixed all-day/timed payloads, inverted times, UTC vs local-date storage, recurrence range filtering, EXDATE idempotency, view-only writes, invalid RRULE | `npx vitest run tests/integration/events.test.ts` |
-| `tests/integration/calendars-api.test.ts` | Handler status codes: 401 without a viewer, 201 on create, 400 with field errors, 409 eighth child, 403 view-only, 404 other household, 204 delete | `npx vitest run tests/integration/calendars-api.test.ts` |
+| `tests/integration/collections-api.test.ts` | Handler status codes: 401 without a viewer, 201 on create, 400 with field errors, 409 eighth child, 403 view-only, 404 other household, 204 delete | `npx vitest run tests/integration/collections-api.test.ts` |
 | `tests/integration/events-api.test.ts` | Range validation, colour tokens in the response, 403 on every verb for a view-only calendar, `scope=this` idempotency, 201 create, 404 cross-household | `npx vitest run tests/integration/events-api.test.ts` |
 | `tests/integration/settings-api.test.ts` | Household name/timezone/week-start updates and validation; member display-name update | `npx vitest run tests/integration/settings-api.test.ts` |
 | `tests/integration/preferences-api.test.ts` | Defaults without a stored row, partial PATCH persistence, rejection of unknown view/format, per-user scoping | `npx vitest run tests/integration/preferences-api.test.ts` |
@@ -102,7 +102,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 | File | What it provides | Used by |
 |---|---|---|
 | `tests/helpers/db.ts` | `makeTestDb()`: a fresh `:memory:` database with `foreign_keys = ON` and all migrations applied; `makeTestDb({ upTo })` applies a temporary migrations folder truncated at a journal tag (for migration-by-migration tests) | Every integration test |
-| `tests/helpers/fixtures.ts` | `makeSeededDb()`: two households, two members in `h1`, one in `h2`, and the `ctxA`/`ctxB`/`ctxOther` viewer contexts | `tests/integration/calendars.test.ts`, `events.test.ts`, `calendars-api.test.ts`, `events-api.test.ts`, `settings-api.test.ts`, `preferences-api.test.ts`, `regressions.test.ts`, `search-api.test.ts` |
+| `tests/helpers/fixtures.ts` | `makeSeededDb()`: two households, two members in `h1`, one in `h2`, and the `ctxA`/`ctxB`/`ctxOther` viewer contexts | `tests/integration/collections.test.ts`, `events.test.ts`, `collections-api.test.ts`, `events-api.test.ts`, `settings-api.test.ts`, `preferences-api.test.ts`, `regressions.test.ts`, `search-api.test.ts` |
 | `tests/e2e/helpers.ts` | `loadFixtures()` from `.playwright/fixtures.json`, the `ANDREW`/`PARTNER` emails, and `signIn(page, email, password)` | Every spec in `tests/e2e/` |
 
 ## Which spec covers what
@@ -112,7 +112,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 | Undo (toast, `Ctrl+Z`, `z`, expired toast, failed drag) | `tests/e2e/undo.spec.ts`; the `z` vs `Delete` path in `tests/e2e/shortcuts.spec.ts`; `tests/unit/event-cache.test.ts` for the cache primitives |
 | Viewport fit and no-scroll layout | `tests/e2e/viewport-fit.spec.ts`; 320px in `tests/e2e/shell.spec.ts`; 375px in `tests/e2e/mobile.spec.ts` |
 | Keyboard shortcuts | `tests/e2e/shortcuts.spec.ts`; `Shift+C` in `tests/e2e/quick-create.spec.ts`; `/` and `Escape` in `tests/e2e/search.spec.ts` |
-| Calendar visibility (pills, checkboxes, parent cascade, isolation) | `tests/unit/visibility.test.ts`, `tests/unit/visibleCalendars.test.ts`, `tests/e2e/sidebar.spec.ts`, `tests/e2e/only-this-calendar.spec.ts`, `tests/e2e/viewonly.spec.ts` |
+| Calendar visibility (pills, checkboxes, parent cascade, isolation) | `tests/unit/visibility.test.ts`, `tests/unit/visibleCollections.test.ts`, `tests/e2e/sidebar.spec.ts`, `tests/e2e/only-this-calendar.spec.ts`, `tests/e2e/viewonly.spec.ts` |
 | Search | `tests/e2e/search.spec.ts`; ranking/escaping/scoping in `tests/integration/search-api.test.ts` |
 | Nested calendar picker | `tests/e2e/calendar-picker.spec.ts`; row/depth/shade rules in `tests/unit/calendarPicker.test.ts` |
 | Settings and preferences | `tests/e2e/settings.spec.ts`, `tests/e2e/preferences.spec.ts`, `tests/e2e/view-preference.spec.ts`, `tests/integration/settings-api.test.ts`, `tests/integration/preferences-api.test.ts` |
@@ -133,7 +133,7 @@ The suites are documented as lookup tables rather than one section per file: fin
 | Recurrence expansion (RRULE, EXDATE, duration, DST wall-clock) | `tests/unit/recurrence.test.ts`; the stored-EXDATE side in `tests/integration/events.test.ts` |
 | Google Calendar import | `tests/unit/ics-parse.test.ts`, `tests/integration/import-service.test.ts`, `tests/integration/import-api.test.ts`, `tests/integration/import-schema.test.ts`, `tests/e2e/import.spec.ts` |
 | View-only permissions | `tests/unit/permissions.test.ts`, `tests/integration/events.test.ts`, `tests/integration/regressions.test.ts`, `tests/e2e/viewonly.spec.ts` |
-| Schema, foreign keys and tenancy | `tests/integration/db.test.ts`; the cross-household 404s in `tests/integration/calendars-api.test.ts` and `events-api.test.ts` |
+| Schema, foreign keys and tenancy | `tests/integration/db.test.ts`; the cross-household 404s in `tests/integration/collections-api.test.ts` and `events-api.test.ts` |
 | Event payload building | `tests/unit/event-payload.test.ts`; the occurrence mapping in `tests/unit/toFcEvent.test.ts` |
 | Icon contract | `tests/unit/icons.test.ts` |
 | Production environment validation | `tests/unit/env.test.ts`; the 503 in `app/api/health/route.ts` |

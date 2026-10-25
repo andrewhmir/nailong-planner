@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useCalendars } from "@/lib/query/calendars";
+import { useCollections } from "@/lib/query/collections";
 import { navigableDateFor } from "@/lib/query/search";
 import type { EventView } from "@/lib/services/events";
 import type { TimeFormat } from "@/lib/services/preferences";
@@ -73,12 +73,12 @@ export function SearchResultsOverlay({
   onSelect,
   onActiveIndexChange,
 }: Props) {
-  const { data: calendars } = useCalendars();
-  const calendarNames = new Map<string, string>();
-  for (const root of calendars ?? []) {
-    calendarNames.set(root.id, root.name);
+  const { data: collections } = useCollections();
+  const collectionNames = new Map<string, string>();
+  for (const root of collections ?? []) {
+    collectionNames.set(root.id, root.name);
     for (const child of root.children) {
-      calendarNames.set(child.id, child.name);
+      collectionNames.set(child.id, child.name);
     }
   }
 
@@ -155,7 +155,7 @@ export function SearchResultsOverlay({
                           <span className="block truncate text-xs text-ink-soft">
                             {[
                               rowTime(event, timezone, timeFormat),
-                              calendarNames.get(event.calendarId) ?? "",
+                              collectionNames.get(event.collectionId) ?? "",
                             ]
                               .filter(Boolean)
                               .join(" · ")}

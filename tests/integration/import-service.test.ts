@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { calendar, event, importBatch, importChange } from "@/lib/db/schema";
+import { collection, event, importBatch, importChange } from "@/lib/db/schema";
 import {
   commitImport,
   listImportBatches,
@@ -8,7 +8,7 @@ import {
   rollbackImportBatch,
   type ImportFile,
 } from "@/lib/services/import";
-import { createCalendar, updateCalendar } from "@/lib/services/calendars";
+import { createCollection, updateCollection } from "@/lib/services/collections";
 import { localWallTimeToUtc } from "@/lib/time/zone";
 import { groupOf } from "@/lib/ui/visibility";
 import { makeSeededDb } from "../helpers/fixtures";
@@ -59,7 +59,7 @@ function threeEvents(): ImportFile {
 
 async function setup() {
   const seeded = await makeSeededDb();
-  const home = createCalendar(seeded.db, seeded.ctxA, { name: "Home", hueFamily: "teal" });
+  const home = createCollection(seeded.db, seeded.ctxA, { name: "Home", hueFamily: "teal" });
   return { ...seeded, home };
 }
 
@@ -76,7 +76,7 @@ describe("import service", () => {
         expect.objectContaining({ name: "Family", events: 3, recurring: 0, overrides: 0 }),
       ]);
       expect(db.select().from(event).all()).toHaveLength(0);
-      expect(db.select().from(calendar).all().filter((row) => row.name === "Family")).toHaveLength(0);
+      expect(db.select().from(collection).all().filter((row) => row.name === "Family")).toHaveLength(0);
       expect(db.select().from(importBatch).all()).toHaveLength(0);
     } finally {
       close();
@@ -95,10 +95,10 @@ describe("import service", () => {
       expect(report.updated).toBe(0);
       expect(report.calendarsCreated).toEqual(["From Google", "Family"]);
 
-      const root = db.select().from(calendar).where(eq(calendar.name, "From Google")).get();
+      const root = db.select().from(collection).where(eq(collection.name, "From Google")).get();
       expect(root?.parentId).toBeNull();
       expect(root?.ownerId).toBe("user-a");
-      const child = db.select().from(calendar).where(eq(calendar.name, "Family")).get();
+      const child = db.select().from(collection).where(eq(collection.name, "Family")).get();
       expect(child?.parentId).toBe(root?.id);
       expect(child?.ownerId).toBe("user-a");
 
@@ -107,7 +107,7 @@ describe("import service", () => {
       const dentist = rows.find((row) => row.title === "Dentist")!;
       expect(dentist.startAt).toBe(at("2026-11-03T09:00"));
       expect(dentist.tzid).toBe(HH);
-      expect(dentist.calendarId).toBe(child?.id);
+      expect(dentist.collectionId).toBe(child?.id);
       expect(dentist.externalUid).toBe("a1@google.com");
       expect(dentist.externalKey).toMatch(/^[a-f0-9]{64}$/);
       expect(dentist.externalContentHash).toMatch(/^[a-f0-9]{64}$/);
@@ -178,17 +178,17 @@ describe("import service", () => {
   it("refuses a view-only target calendar and writes nothing", async () => {
     const { db, close, ctxA, ctxB } = await setup();
     try {
-      const partnerOnly = createCalendar(db, ctxB, {
+      const partnerOnly = createCollection(db, ctxB, {
         name: "Partner notes",
         hueFamily: "rose",
         ownerId: "user-b",
-        isViewOnlyForPartner: true,
+        visibility: "view_only",
       });
 
       expect(() =>
         commitImport(db, ctxA, {
           files: [threeEvents()],
-          mapping: { Family: { mode: "existing", calendarId: partnerOnly.id } },
+          mapping: { Family: { mode: "existing", collectionId: partnerOnly.id } },
         }),
       ).toThrow(/view-only/i);
 
@@ -251,8 +251,8 @@ describe("import service", () => {
       expect(rollback.calendarsDeleted).toEqual(["Family", "From Google"]);
 
       expect(db.select().from(event).all().filter((row) => row.householdId === "h1")).toHaveLength(0);
-      expect(db.select().from(calendar).all().filter((row) => row.name === "Family")).toHaveLength(0);
-      expect(db.select().from(calendar).all().filter((row) => row.name === "From Google")).toHaveLength(0);
+      expect(db.select().from(collection).all().filter((row) => row.name === "Family")).toHaveLength(0);
+      expect(db.select().from(collection).all().filter((row) => row.name === "From Google")).toHaveLength(0);
 
       const batch = db.select().from(importBatch).where(eq(importBatch.id, report.batchId)).get()!;
       expect(batch.status).toBe("rolled_back");
@@ -321,7 +321,7 @@ describe("import service", () => {
       });
       const second = commitImport(db, ctxA, {
         files: [ics("Home", [timedEvent("h1@google.com", "Dinner", "20261106T190000", "20261106T200000")])],
-        mapping: { Home: { mode: "existing", calendarId: home.id } },
+        mapping: { Home: { mode: "existing", collectionId: home.id } },
       });
 
       const batches = listImportBatches(db, ctxA);
@@ -346,15 +346,15 @@ describe("import service", () => {
       expect(first.created).toBe(3);
       const imported = db.select().from(event).where(eq(event.title, "Dentist")).get()!;
 
-      const home = createCalendar(db, ctxA, { name: "Home", hueFamily: "sky" });
+      const home = createCollection(db, ctxA, { name: "Home", hueFamily: "sky" });
       const second = commitImport(db, ctxA, {
         files: [threeEvents()],
-        mapping: { Family: { mode: "existing", calendarId: home.id } },
+        mapping: { Family: { mode: "existing", collectionId: home.id } },
       });
 
       expect(second.created).toBe(0);
       expect(second.updated).toBe(3);
-      expect(db.select().from(event).where(eq(event.id, imported.id)).get()?.calendarId).toBe(
+      expect(db.select().from(event).where(eq(event.id, imported.id)).get()?.collectionId).toBe(
         home.id,
       );
     } finally {
@@ -400,7 +400,7 @@ describe("import service", () => {
 
       expect(reportA.created).toBe(3);
       expect(reportB.created).toBe(1);
-      const roots = db.select().from(calendar).all().filter((row) => row.name === "From Google");
+      const roots = db.select().from(collection).all().filter((row) => row.name === "From Google");
       expect(roots).toHaveLength(2);
       const rootA = roots.find((row) => row.ownerId === "user-a")!;
       const rootB = roots.find((row) => row.ownerId === "user-b")!;
@@ -413,21 +413,21 @@ describe("import service", () => {
 
       const childA = db
         .select()
-        .from(calendar)
-        .where(and(eq(calendar.parentId, rootA.id), eq(calendar.name, "Family")))
+        .from(collection)
+        .where(and(eq(collection.parentId, rootA.id), eq(collection.name, "Family")))
         .get()!;
       const childB = db
         .select()
-        .from(calendar)
-        .where(and(eq(calendar.parentId, rootB.id), eq(calendar.name, "Family")))
+        .from(collection)
+        .where(and(eq(collection.parentId, rootB.id), eq(collection.name, "Family")))
         .get()!;
       expect(childA.id).not.toBe(childB.id);
       expect(childA.ownerId).toBe("user-a");
       expect(childB.ownerId).toBe("user-b");
 
       const rows = db.select().from(event).all().filter((row) => row.householdId === "h1");
-      expect(rows.filter((row) => row.calendarId === childA.id)).toHaveLength(3);
-      expect(rows.filter((row) => row.calendarId === childB.id)).toHaveLength(1);
+      expect(rows.filter((row) => row.collectionId === childA.id)).toHaveLength(3);
+      expect(rows.filter((row) => row.collectionId === childB.id)).toHaveLength(1);
 
       // Re-importing reuses the importer's own tree and never the partner's.
       const again = commitImport(db, ctxA, { files: [fileA], mapping: { Family: { mode: "new" } } });
@@ -435,7 +435,7 @@ describe("import service", () => {
       expect(again.unchanged).toBe(3);
       expect(again.calendarsCreated).toEqual([]);
       expect(
-        db.select().from(calendar).all().filter((row) => row.name === "From Google"),
+        db.select().from(collection).all().filter((row) => row.name === "From Google"),
       ).toHaveLength(2);
     } finally {
       close();
@@ -445,13 +445,13 @@ describe("import service", () => {
   it("does not reuse a partner's view-only From Google tree", async () => {
     const { db, close, ctxA, ctxB } = await setup();
     try {
-      const root = createCalendar(db, ctxB, {
+      const root = createCollection(db, ctxB, {
         name: "From Google",
         hueFamily: "teal",
         ownerId: "user-b",
-        isViewOnlyForPartner: true,
+        visibility: "view_only",
       });
-      const partnerChild = createCalendar(db, ctxB, { name: "Family", parentId: root.id });
+      const partnerChild = createCollection(db, ctxB, { name: "Family", parentId: root.id });
 
       const report = commitImport(db, ctxA, {
         files: [threeEvents()],
@@ -462,19 +462,19 @@ describe("import service", () => {
       expect(report.calendarsCreated).toEqual(["From Google", "Family"]);
       const aRoot = db
         .select()
-        .from(calendar)
+        .from(collection)
         .all()
         .find((row) => row.name === "From Google" && row.ownerId === "user-a")!;
       const aChild = db
         .select()
-        .from(calendar)
-        .where(and(eq(calendar.parentId, aRoot.id), eq(calendar.name, "Family")))
+        .from(collection)
+        .where(and(eq(collection.parentId, aRoot.id), eq(collection.name, "Family")))
         .get()!;
       expect(aChild.id).not.toBe(partnerChild.id);
       const rows = db.select().from(event).all().filter((row) => row.householdId === "h1");
       expect(rows).toHaveLength(3);
-      expect(rows.every((row) => row.calendarId === aChild.id)).toBe(true);
-      expect(db.select().from(calendar).where(eq(calendar.id, partnerChild.id)).get()?.ownerId).toBe(
+      expect(rows.every((row) => row.collectionId === aChild.id)).toBe(true);
+      expect(db.select().from(collection).where(eq(collection.id, partnerChild.id)).get()?.ownerId).toBe(
         "user-b",
       );
     } finally {
@@ -500,15 +500,15 @@ describe("import service", () => {
     try {
       // A imports into their own view-only calendar; B must not be able to undo
       // it, and the failed attempt must leave the batch committed.
-      const private_ = createCalendar(db, ctxA, {
+      const private_ = createCollection(db, ctxA, {
         name: "Private",
         hueFamily: "amber",
         ownerId: "user-a",
       });
-      updateCalendar(db, ctxA, private_.id, { isViewOnlyForPartner: true });
+      updateCollection(db, ctxA, private_.id, { visibility: "view_only" });
       const report = commitImport(db, ctxA, {
         files: [threeEvents()],
-        mapping: { Family: { mode: "existing", calendarId: private_.id } },
+        mapping: { Family: { mode: "existing", collectionId: private_.id } },
       });
 
       expect(() => rollbackImportBatch(db, ctxB, report.batchId)).toThrow(/view-only/i);

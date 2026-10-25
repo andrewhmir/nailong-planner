@@ -4,7 +4,7 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ChevronDownIcon, ChevronRightIcon } from "@/components/ui/icons";
-import type { CalendarNode } from "@/lib/services/calendars";
+import type { CollectionNode } from "@/lib/services/collections";
 import {
   buildPickerRows,
   calendarSwatch,
@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   /** Writable calendars: top-level calendars with their sub-calendars. */
-  calendars: CalendarNode[];
+  collections: CollectionNode[];
   value: string;
   onChange: (id: string) => void;
   /** `field` draws the 38px form control; `chip` the compact inline trigger. */
@@ -32,12 +32,12 @@ const FOCUS = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visi
  * once it outgrows 320px. The row itself stays selectable, so a top-level
  * calendar that carries events directly is never out of reach.
  */
-export function CalendarPicker({ calendars, value, onChange, variant = "chip", id }: Props) {
+export function CalendarPicker({ collections, value, onChange, variant = "chip", id }: Props) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
-  const rows = useMemo(() => buildPickerRows(calendars, expanded), [calendars, expanded]);
+  const rows = useMemo(() => buildPickerRows(collections, expanded), [collections, expanded]);
 
-  const selected = calendarSwatch(calendars, value);
+  const selected = calendarSwatch(collections, value);
   const selectedName = selected?.name ?? "Calendar";
   const selectedColor = selected?.color ?? FALLBACK_COLOR;
 
@@ -48,7 +48,7 @@ export function CalendarPicker({ calendars, value, onChange, variant = "chip", i
       // the user already opened.
       setExpanded((previous) => {
         const merged = new Set(previous);
-        for (const rootId of expandedForSelection(calendars, value)) {
+        for (const rootId of expandedForSelection(collections, value)) {
           merged.add(rootId);
         }
         return merged;

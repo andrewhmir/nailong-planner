@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
-import { calendar, type CalendarRow } from "@/lib/db/schema";
+import { collection, type CollectionRow } from "@/lib/db/schema";
 import { AppError } from "@/lib/errors";
 import {
   CHILD_SHADE_ORDER,
@@ -10,21 +10,21 @@ import {
   shadeTokens,
   type ShadeTokens,
 } from "@/lib/color/palette";
-import type { CreateCalendarInput, UpdateCalendarInput } from "@/lib/validation/calendars";
-import { canWriteCalendar, type ViewerContext } from "./permissions";
+import type { CreateCollectionInput, UpdateCollectionInput } from "@/lib/validation/collections";
+import { canWriteCollection, type ViewerContext } from "./permissions";
 
-export interface CalendarNode extends CalendarRow {
-  children: CalendarRow[];
+export interface CollectionNode extends CollectionRow {
+  children: CollectionRow[];
 }
 
-export interface CalendarAccess {
-  calendar: CalendarRow;
-  root: CalendarRow | null;
+export interface CollectionAccess {
+  collection: CollectionRow;
+  root: CollectionRow | null;
   /** Permission columns with the root's flags folded in. */
-  effective: Pick<CalendarRow, "ownerId" | "visibility">;
+  effective: Pick<CollectionRow, "ownerId" | "visibility">;
 }
 
-const VISIBILITY_RANK: Record<CalendarRow["visibility"], number> = {
+const VISIBILITY_RANK: Record<CollectionRow["visibility"], number> = {
   shared: 0,
   view_only: 1,
   private: 2,
@@ -32,9 +32,9 @@ const VISIBILITY_RANK: Record<CalendarRow["visibility"], number> = {
 
 /** Folds a root's visibility into a child's: the most restrictive value wins. */
 function mostRestrictiveVisibility(
-  root: CalendarRow["visibility"],
-  row: CalendarRow["visibility"],
-): CalendarRow["visibility"] {
+  root: CollectionRow["visibility"],
+  row: CollectionRow["visibility"],
+): CollectionRow["visibility"] {
   return VISIBILITY_RANK[root] >= VISIBILITY_RANK[row] ? root : row;
 }
 
@@ -43,19 +43,19 @@ function nextSortOrder(db: Database, householdId: string, parentId: string | nul
     parentId === null
       ? db
           .select()
-          .from(calendar)
-          .where(and(eq(calendar.householdId, householdId), isNull(calendar.parentId)))
+          .from(collection)
+          .where(and(eq(collection.householdId, householdId), isNull(collection.parentId)))
           .all()
-      : db.select().from(calendar).where(eq(calendar.parentId, parentId)).all();
+      : db.select().from(collection).where(eq(collection.parentId, parentId)).all();
   const max = rows.reduce((highest, row) => Math.max(highest, row.sortOrder), -1);
   return max + 1;
 }
 
-export function getCalendar(db: Database, ctx: ViewerContext, id: string): CalendarRow {
+export function getCollection(db: Database, ctx: ViewerContext, id: string): CollectionRow {
   const row = db
     .select()
-    .from(calendar)
-    .where(and(eq(calendar.id, id), eq(calendar.householdId, ctx.householdId)))
+    .from(collection)
+    .where(and(eq(collection.id, id), eq(collection.householdId, ctx.householdId)))
     .get();
   if (!row) {
     throw new AppError("NOT_FOUND", "Calendar not found.", 404);
@@ -64,15 +64,19 @@ export function getCalendar(db: Database, ctx: ViewerContext, id: string): Calen
 }
 
 /**
- * Loads a calendar together with the permission flags that actually apply to
- * it. A sub-calendar inherits its root's owner and view-only flag, so marking a
- * parent view-only also protects every sub-calendar beneath it.
+ * Loads a collection together with the permission flags that actually apply to
+ * it. A sub-collection inherits its root's owner and visibility, so marking a
+ * parent view-only also protects every sub-collection beneath it.
  */
-export function getCalendarAccess(db: Database, ctx: ViewerContext, id: string): CalendarAccess {
-  const row = getCalendar(db, ctx, id);
+export function getCollectionAccess(
+  db: Database,
+  ctx: ViewerContext,
+  id: string,
+): CollectionAccess {
+  const row = getCollection(db, ctx, id);
   if (row.parentId === null) {
     return {
-      calendar: row,
+      collection: row,
       root: null,
       effective: { ownerId: row.ownerId, visibility: row.visibility },
     };
@@ -81,12 +85,12 @@ export function getCalendarAccess(db: Database, ctx: ViewerContext, id: string):
   const root =
     db
       .select()
-      .from(calendar)
-      .where(and(eq(calendar.id, row.parentId), eq(calendar.householdId, ctx.householdId)))
+      .from(collection)
+      .where(and(eq(collection.id, row.parentId), eq(collection.householdId, ctx.householdId)))
       .get() ?? null;
 
   return {
-    calendar: row,
+    collection: row,
     root,
     effective: {
       ownerId: root?.ownerId ?? row.ownerId,
@@ -95,21 +99,21 @@ export function getCalendarAccess(db: Database, ctx: ViewerContext, id: string):
   };
 }
 
-export function assertCalendarWritable(ctx: ViewerContext, access: CalendarAccess): void {
-  if (!canWriteCalendar(ctx, access.effective)) {
+export function assertCollectionWritable(ctx: ViewerContext, access: CollectionAccess): void {
+  if (!canWriteCollection(ctx, access.effective)) {
     throw new AppError("FORBIDDEN", "This calendar is view-only.", 403);
   }
 }
 
-export function listCalendarTree(db: Database, ctx: ViewerContext): CalendarNode[] {
+export function listCollectionTree(db: Database, ctx: ViewerContext): CollectionNode[] {
   const rows = db
     .select()
-    .from(calendar)
-    .where(eq(calendar.householdId, ctx.householdId))
-    .orderBy(asc(calendar.sortOrder), asc(calendar.createdAt))
+    .from(collection)
+    .where(eq(collection.householdId, ctx.householdId))
+    .orderBy(asc(collection.sortOrder), asc(collection.createdAt))
     .all();
 
-  const roots: CalendarNode[] = rows
+  const roots: CollectionNode[] = rows
     .filter((row) => row.parentId === null)
     .map((row) => ({ ...row, children: [] }));
   const byId = new Map(roots.map((root) => [root.id, root]));
@@ -127,17 +131,17 @@ export function listCalendarTree(db: Database, ctx: ViewerContext): CalendarNode
   return roots;
 }
 
-export function createCalendar(
+export function createCollection(
   db: Database,
   ctx: ViewerContext,
-  input: CreateCalendarInput,
-): CalendarRow {
+  input: CreateCollectionInput,
+): CollectionRow {
   const name = input.name.trim();
   const now = Date.now();
 
   if (input.parentId) {
-    const parentAccess = getCalendarAccess(db, ctx, input.parentId);
-    if (parentAccess.calendar.parentId !== null) {
+    const parentAccess = getCollectionAccess(db, ctx, input.parentId);
+    if (parentAccess.collection.parentId !== null) {
       throw new AppError(
         "VALIDATION",
         "Sub-calendars cannot be nested deeper than two levels.",
@@ -145,10 +149,10 @@ export function createCalendar(
         { parentId: "Pick a top-level calendar as the parent." },
       );
     }
-    assertCalendarWritable(ctx, parentAccess);
-    const parent = parentAccess.calendar;
+    assertCollectionWritable(ctx, parentAccess);
+    const parent = parentAccess.collection;
 
-    const existing = db.select().from(calendar).where(eq(calendar.parentId, parent.id)).all();
+    const existing = db.select().from(collection).where(eq(collection.parentId, parent.id)).all();
     if (existing.length >= MAX_CHILDREN) {
       throw new AppError(
         "CONFLICT",
@@ -166,7 +170,7 @@ export function createCalendar(
       );
     }
 
-    const row: CalendarRow = {
+    const row: CollectionRow = {
       id: crypto.randomUUID(),
       householdId: ctx.householdId,
       parentId: parent.id,
@@ -180,7 +184,7 @@ export function createCalendar(
       createdAt: now,
       updatedAt: now,
     };
-    db.insert(calendar).values(row).run();
+    db.insert(collection).values(row).run();
     return row;
   }
 
@@ -199,14 +203,14 @@ export function createCalendar(
     );
   }
 
-  const visibility = input.isViewOnlyForPartner ? "view_only" : "shared";
-  if (visibility === "view_only" && ownerId === null) {
+  const visibility = input.visibility ?? "shared";
+  if (visibility !== "shared" && ownerId === null) {
     throw new AppError("VALIDATION", "Shared calendars cannot be view-only.", 400, {
-      isViewOnlyForPartner: "Assign the calendar to yourself first.",
+      visibility: "Assign the calendar to yourself first.",
     });
   }
 
-  const row: CalendarRow = {
+  const row: CollectionRow = {
     id: crypto.randomUUID(),
     householdId: ctx.householdId,
     parentId: null,
@@ -214,27 +218,27 @@ export function createCalendar(
     hueFamily: input.hueFamily,
     shadeIndex: PARENT_SHADE_INDEX,
     ownerId,
-    kind: "calendar",
+    kind: input.kind ?? "calendar",
     visibility,
     sortOrder: nextSortOrder(db, ctx.householdId, null),
     createdAt: now,
     updatedAt: now,
   };
-  db.insert(calendar).values(row).run();
+  db.insert(collection).values(row).run();
   return row;
 }
 
-export function updateCalendar(
+export function updateCollection(
   db: Database,
   ctx: ViewerContext,
   id: string,
-  input: UpdateCalendarInput,
-): CalendarRow {
-  const access = getCalendarAccess(db, ctx, id);
-  assertCalendarWritable(ctx, access);
-  const existing = access.calendar;
+  input: UpdateCollectionInput,
+): CollectionRow {
+  const access = getCollectionAccess(db, ctx, id);
+  assertCollectionWritable(ctx, access);
+  const existing = access.collection;
 
-  const patch: Partial<CalendarRow> = {};
+  const patch: Partial<CollectionRow> = {};
 
   if (input.name !== undefined) {
     patch.name = input.name.trim();
@@ -277,20 +281,20 @@ export function updateCalendar(
       patch.visibility = "shared";
     }
   }
-  if (input.isViewOnlyForPartner !== undefined) {
+  if (input.visibility !== undefined) {
     if (existing.parentId !== null) {
       throw new AppError(
         "VALIDATION",
         "Mark the top-level calendar view-only; sub-calendars inherit it.",
         400,
-        { isViewOnlyForPartner: "Change the parent calendar instead." },
+        { visibility: "Change the parent calendar instead." },
       );
     }
     const ownerAfter = patch.ownerId === undefined ? existing.ownerId : patch.ownerId;
     if (ownerAfter !== ctx.userId) {
       throw new AppError("FORBIDDEN", "Only the owner can change view-only access.", 403);
     }
-    patch.visibility = input.isViewOnlyForPartner ? "view_only" : "shared";
+    patch.visibility = input.visibility;
   }
 
   if (Object.keys(patch).length === 0) {
@@ -301,37 +305,38 @@ export function updateCalendar(
   db.transaction((tx) => {
     const txn = tx as unknown as Database;
     txn
-      .update(calendar)
+      .update(collection)
       .set({ ...patch, updatedAt: now })
-      .where(eq(calendar.id, id))
+      .where(eq(collection.id, id))
       .run();
-    // A sub-calendar inherits its root's owner. Carrying an owner move down keeps
-    // the sidebar group, grid visibility and getCalendarAccess in agreement, so a
-    // re-owned parent can never leave its children behind in "Ours".
+    // A sub-collection inherits its root's owner. Carrying an owner move down
+    // keeps the sidebar group, grid visibility and getCollectionAccess in
+    // agreement, so a re-owned parent can never leave its children behind in
+    // "Ours".
     if (existing.parentId === null && patch.ownerId !== undefined) {
       txn
-        .update(calendar)
+        .update(collection)
         .set({ ownerId: patch.ownerId, updatedAt: now })
-        .where(eq(calendar.parentId, id))
+        .where(eq(collection.parentId, id))
         .run();
     }
   });
 
-  return getCalendar(db, ctx, id);
+  return getCollection(db, ctx, id);
 }
 
-export function deleteCalendar(db: Database, ctx: ViewerContext, id: string): void {
-  const access = getCalendarAccess(db, ctx, id);
-  assertCalendarWritable(ctx, access);
-  db.delete(calendar).where(eq(calendar.id, id)).run();
+export function deleteCollection(db: Database, ctx: ViewerContext, id: string): void {
+  const access = getCollectionAccess(db, ctx, id);
+  assertCollectionWritable(ctx, access);
+  db.delete(collection).where(eq(collection.id, id)).run();
 }
 
-/** Resolves the rendered shade for a calendar, following its root's hue family. */
-export function resolveShade(db: Database, target: CalendarRow): ShadeTokens {
+/** Resolves the rendered shade for a collection, following its root's hue family. */
+export function resolveShade(db: Database, target: CollectionRow): ShadeTokens {
   const root =
     target.parentId === null
       ? target
-      : db.select().from(calendar).where(eq(calendar.id, target.parentId)).get();
+      : db.select().from(collection).where(eq(collection.id, target.parentId)).get();
 
   const family = root?.hueFamily && isHueFamily(root.hueFamily) ? root.hueFamily : "slate";
   const shadeIndex = target.parentId === null ? PARENT_SHADE_INDEX : target.shadeIndex;
