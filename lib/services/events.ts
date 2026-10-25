@@ -132,6 +132,8 @@ export function createEvent(
     endDate: input.allDay ? (input.endDate ?? null) : null,
     rrule: input.rrule ?? null,
     exdates: input.exdates?.length ? JSON.stringify(input.exdates) : null,
+    recurrenceParentId: null,
+    recurrenceId: null,
     tzid: null,
     externalSource: null,
     externalUid: null,

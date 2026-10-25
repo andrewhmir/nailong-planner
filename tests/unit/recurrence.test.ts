@@ -23,6 +23,8 @@ function timedRule(overrides: Partial<EventRow> = {}): EventRow {
     endDate: null,
     rrule: "FREQ=WEEKLY;BYDAY=TU",
     exdates: null,
+    recurrenceParentId: null,
+    recurrenceId: null,
     tzid: null,
     externalSource: null,
     externalUid: null,

@@ -101,6 +101,8 @@ function optimisticEvent(input: EventInputPayload): EventView {
     endDate: allDay ? (input.endDate ?? input.startDate ?? day) : null,
     rrule: input.rrule ?? null,
     exdates: input.exdates ? JSON.stringify(input.exdates) : null,
+    recurrenceParentId: null,
+    recurrenceId: null,
     tzid: null,
     externalSource: null,
     externalUid: null,

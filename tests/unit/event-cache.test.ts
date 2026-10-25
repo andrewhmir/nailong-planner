@@ -18,6 +18,8 @@ function makeEvent(overrides: Partial<EventView>): EventView {
     endDate: null,
     rrule: null,
     exdates: null,
+    recurrenceParentId: null,
+    recurrenceId: null,
     tzid: null,
     externalSource: null,
     externalUid: null,
