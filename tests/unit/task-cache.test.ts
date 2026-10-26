@@ -1,7 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 import { patchTask } from "@/lib/query/tasks";
-import { updateTaskInData, type TasksCacheData } from "@/lib/query/taskCache";
+import { patchTasksEntry, updateTaskInData, type TasksCacheData } from "@/lib/query/taskCache";
 import type { TaskCounts, TaskView } from "@/lib/services/tasks";
 
 function makeTask(overrides: Partial<TaskView> = {}): TaskView {
@@ -82,8 +82,8 @@ describe("optimistic priority patch", () => {
     // apply one patch to the same row in each of them.
     const snapshots = queryClient.getQueriesData<TasksCacheData>({ queryKey: ["tasks"] });
     expect(snapshots).toHaveLength(2);
-    queryClient.setQueriesData<TasksCacheData>({ queryKey: ["tasks"] }, (old) =>
-      old ? updateTaskInData(old, "t1", patchTask({ priority: "urgent" })) : old,
+    queryClient.setQueriesData<unknown>({ queryKey: ["tasks"] }, (old: unknown) =>
+      patchTasksEntry(old, "t1", patchTask({ priority: "urgent" })),
     );
 
     expect(queryClient.getQueryData<TasksCacheData>(openKey)?.tasks[0]?.priority).toBe("urgent");
@@ -97,5 +97,22 @@ describe("optimistic priority patch", () => {
     expect(queryClient.getQueryData<TasksCacheData>(closedKey)?.tasks[0]?.priority).toBe("low");
 
     queryClient.clear();
+  });
+});
+
+describe("patchTasksEntry", () => {
+  it("leaves the counts entry (which shares the tasks prefix) untouched", () => {
+    const countsEntry = { counts: COUNTS, byCollection: { c1: 1 } };
+    expect(patchTasksEntry(countsEntry, "t1", { title: "Nope" })).toBe(countsEntry);
+    expect(patchTasksEntry(undefined, "t1", { title: "Nope" })).toBeUndefined();
+    expect(patchTasksEntry(null, "t1", { title: "Nope" })).toBeNull();
+  });
+
+  it("patches a real tasks payload and leaves other rows alone", () => {
+    const data = makeData([makeTask({ id: "t1" }), makeTask({ id: "t2" })]);
+    const patched = patchTasksEntry(data, "t1", { title: "Renamed" }) as TasksCacheData;
+    expect(patched.tasks[0]?.title).toBe("Renamed");
+    expect(patched.tasks[1]).toBe(data.tasks[1]);
+    expect(patched.counts).toBe(data.counts);
   });
 });

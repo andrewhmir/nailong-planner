@@ -8,7 +8,7 @@ import {
   type QueryKey,
 } from "@tanstack/react-query";
 import type { TaskBucket } from "@/lib/domain/tasks";
-import { updateTaskInData, type TasksCacheData } from "@/lib/query/taskCache";
+import { patchTasksEntry, type TasksCacheData } from "@/lib/query/taskCache";
 import type { TaskCountSummary, TaskView } from "@/lib/services/tasks";
 import type { CreateTaskInput, ReorderTasksInput, UpdateTaskInput } from "@/lib/validation/tasks";
 
@@ -157,10 +157,10 @@ export function useUpdateTask() {
       }),
     onMutate: async ({ id, ...input }) => {
       const snapshots = await snapshotTasks(queryClient);
-      queryClient.setQueriesData<TasksCacheData>({ queryKey: ["tasks"] }, (old) =>
+      queryClient.setQueriesData<unknown>({ queryKey: ["tasks"] }, (old: unknown) =>
         // The counts query shares the prefix but holds `{ counts, byCollection }`,
         // not a task list, so it is skipped instead of being mapped as one.
-        old && Array.isArray(old.tasks) ? updateTaskInData(old, id, patchTask(input)) : old,
+        patchTasksEntry(old, id, patchTask(input)),
       );
       return { snapshots };
     },

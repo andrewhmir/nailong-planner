@@ -28,3 +28,24 @@ export function updateTaskInData(
     tasks: data.tasks.map((task) => (task.id === id ? { ...task, ...patch } : task)),
   };
 }
+
+/**
+ * Applies an optimistic row patch to one `["tasks", …]` cache entry, or returns
+ * the entry untouched when it does not hold a task list. `setQueriesData` reaches
+ * every entry under the prefix, and the counts query (`["tasks", "counts"]`)
+ * stores a `TaskCountSummary` — mapping it as a task list would throw.
+ */
+export function patchTasksEntry(
+  entry: unknown,
+  id: string,
+  patch: Partial<TaskView>,
+): unknown {
+  if (
+    typeof entry !== "object" ||
+    entry === null ||
+    !Array.isArray((entry as TasksCacheData).tasks)
+  ) {
+    return entry;
+  }
+  return updateTaskInData(entry as TasksCacheData, id, patch);
+}
