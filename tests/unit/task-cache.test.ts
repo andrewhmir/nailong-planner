@@ -1,4 +1,6 @@
+import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
+import { patchTask } from "@/lib/query/tasks";
 import { updateTaskInData, type TasksCacheData } from "@/lib/query/taskCache";
 import type { TaskCounts, TaskView } from "@/lib/services/tasks";
 
@@ -65,5 +67,35 @@ describe("updateTaskInData", () => {
 
     expect(after.counts).toBe(COUNTS);
     expect(after.counts).toEqual({ inbox: 1, today: 0, week: 0, someday: 1, overdue: 0 });
+  });
+});
+
+describe("optimistic priority patch", () => {
+  it("patches priority across every cached tasks payload and restores both on rollback", () => {
+    const queryClient = new QueryClient();
+    const openKey = ["tasks", "all", null, "open"];
+    const closedKey = ["tasks", "today", null, "closed"];
+    queryClient.setQueryData(openKey, makeData([makeTask({ id: "t1", priority: "none" })]));
+    queryClient.setQueryData(closedKey, makeData([makeTask({ id: "t1", priority: "low" })]));
+
+    // Mirrors useUpdateTask's onMutate: snapshot every ["tasks", …] payload, then
+    // apply one patch to the same row in each of them.
+    const snapshots = queryClient.getQueriesData<TasksCacheData>({ queryKey: ["tasks"] });
+    expect(snapshots).toHaveLength(2);
+    queryClient.setQueriesData<TasksCacheData>({ queryKey: ["tasks"] }, (old) =>
+      old ? updateTaskInData(old, "t1", patchTask({ priority: "urgent" })) : old,
+    );
+
+    expect(queryClient.getQueryData<TasksCacheData>(openKey)?.tasks[0]?.priority).toBe("urgent");
+    expect(queryClient.getQueryData<TasksCacheData>(closedKey)?.tasks[0]?.priority).toBe("urgent");
+
+    // Mirrors onError's restoreTasks: replaying the snapshot puts both values back.
+    for (const [key, data] of snapshots) {
+      queryClient.setQueryData(key, data);
+    }
+    expect(queryClient.getQueryData<TasksCacheData>(openKey)?.tasks[0]?.priority).toBe("none");
+    expect(queryClient.getQueryData<TasksCacheData>(closedKey)?.tasks[0]?.priority).toBe("low");
+
+    queryClient.clear();
   });
 });

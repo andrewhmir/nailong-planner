@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-query";
 import type { TaskBucket } from "@/lib/domain/tasks";
 import { updateTaskInData, type TasksCacheData } from "@/lib/query/taskCache";
-import type { TaskView } from "@/lib/services/tasks";
+import type { TaskCountSummary, TaskView } from "@/lib/services/tasks";
 import type { CreateTaskInput, ReorderTasksInput, UpdateTaskInput } from "@/lib/validation/tasks";
 
 interface ApiErrorBody {
@@ -28,14 +28,19 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 /**
- * Every open task the viewer may see, plus the rail counts. `view` defaults to
- * `"all"` (the calendar grid and the list's initial paint); the key always
- * carries the effective values so an omitted filter and `"all"` share one cache
- * entry.
+ * Every task the viewer may see for a view (or one list), plus the rail counts.
+ * `view` defaults to `"all"` (the calendar grid and the list's initial paint);
+ * `includeClosed` opts into `done`/`dropped` rows. The key always carries the
+ * effective values, so an omitted filter and `"all"` share one cache entry and
+ * the open and closed-row variants never overwrite each other.
  */
-export function useTasks(view?: TaskBucket | "all", collectionId?: string) {
+export function useTasks(
+  view?: TaskBucket | "all",
+  collectionId?: string,
+  includeClosed?: boolean,
+) {
   return useQuery({
-    queryKey: ["tasks", view ?? "all", collectionId ?? null],
+    queryKey: ["tasks", view ?? "all", collectionId ?? null, includeClosed ? "closed" : "open"],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (view !== undefined) {
@@ -44,9 +49,26 @@ export function useTasks(view?: TaskBucket | "all", collectionId?: string) {
       if (collectionId !== undefined) {
         params.set("collectionId", collectionId);
       }
+      if (includeClosed) {
+        params.set("includeClosed", "true");
+      }
       const query = params.toString();
       return requestJson<TasksCacheData>(`/api/tasks${query ? `?${query}` : ""}`);
     },
+  });
+}
+
+/**
+ * The rail counts plus the active-task total of every list that has one. The
+ * sidebar enables it only on `/tasks`, so the calendar does not pay for a second
+ * request. The key shares the `["tasks"]` prefix, which is what makes every task
+ * mutation's invalidation refresh the badges too.
+ */
+export function useTaskCounts(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ["tasks", "counts"],
+    queryFn: () => requestJson<TaskCountSummary>("/api/tasks/counts"),
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -65,9 +87,10 @@ function restoreTasks(queryClient: QueryClient, snapshots: TaskSnapshots | undef
  * Maps a PATCH payload onto a cached row. Nullish dates and notes mean "clear",
  * while an omitted key is skipped so the optimistic row keeps the stored value;
  * the checklist is flattened to views with placeholder ids (the settle refetch
- * replaces them with the server-generated ones).
+ * replaces them with the server-generated ones). Exported for the optimistic
+ * cache test, which drives it without mounting a renderer.
  */
-function patchTask(input: UpdateTaskInput): Partial<TaskView> {
+export function patchTask(input: UpdateTaskInput): Partial<TaskView> {
   const patch: Partial<TaskView> = { updatedAt: Date.now() };
   if (input.title !== undefined) {
     patch.title = input.title.trim();
@@ -86,6 +109,9 @@ function patchTask(input: UpdateTaskInput): Partial<TaskView> {
   }
   if (input.status !== undefined) {
     patch.status = input.status;
+  }
+  if (input.priority !== undefined) {
+    patch.priority = input.priority;
   }
   if (input.collectionId !== undefined) {
     patch.collectionId = input.collectionId;
@@ -132,7 +158,9 @@ export function useUpdateTask() {
     onMutate: async ({ id, ...input }) => {
       const snapshots = await snapshotTasks(queryClient);
       queryClient.setQueriesData<TasksCacheData>({ queryKey: ["tasks"] }, (old) =>
-        old ? updateTaskInData(old, id, patchTask(input)) : old,
+        // The counts query shares the prefix but holds `{ counts, byCollection }`,
+        // not a task list, so it is skipped instead of being mapped as one.
+        old && Array.isArray(old.tasks) ? updateTaskInData(old, id, patchTask(input)) : old,
       );
       return { snapshots };
     },
