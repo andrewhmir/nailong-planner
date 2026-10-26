@@ -28,7 +28,7 @@ never edited.
 | [`lib-ui.md`](lib-ui.md) | `lib/ui/` — client state hooks and storage | View/visibility preferences, keyboard shortcuts, undo, search bus |
 | [`components-calendar.md`](components-calendar.md) | `components/calendar/` | Calendar grid, quick create, event dialog/details, miniature month, search |
 | [`components-shell-and-sidebar.md`](components-shell-and-sidebar.md) | `components/shell/`, `components/sidebar/` | App frame, nav rail, breadcrumbs, visibility provider, mixed collection tree |
-| [`components-tasks.md`](components-tasks.md) | `components/tasks/` | Tasks workspace: capture bar, bucket switcher, task rows, Plan popover |
+| [`components-tasks.md`](components-tasks.md) | `components/tasks/` | Tasks workspace: capture row, scope tabs/toolbar, grouped dense list, inline pickers |
 | [`components-settings-ui.md`](components-settings-ui.md) | `components/settings/`, `components/ui/` | Settings forms, preference cards, buttons/dialogs/menus/icons/toasts |
 | [`tests.md`](tests.md) | `tests/` | Which suite locks a behaviour down, and the exact command to run it |
 | [`scripts-and-ops.md`](scripts-and-ops.md) | `scripts/`, `drizzle/`, Docker/CI/tooling config, `package.json` | Migrations, provisioning, backups, CI jobs, deploy settings |

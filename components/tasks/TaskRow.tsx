@@ -13,55 +13,44 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MoreVerticalIcon } from "@/components/ui/icons";
 import { isHueFamily, shadeTokens } from "@/lib/color/palette";
-import { isOverdue } from "@/lib/domain/tasks";
 import type { TaskView } from "@/lib/services/tasks";
-import { formatWallDate } from "@/lib/time/format";
 import { setTaskDragPayload } from "@/lib/ui/taskDrag";
 import { cn } from "@/lib/utils";
-import { TaskPlanPopover } from "./TaskPlanPopover";
+import { TaskDateChips } from "./TaskDateChips";
+import { TaskPriorityFlag } from "./TaskPriorityFlag";
+import { TaskStatusPill } from "./TaskStatusPill";
+import type { TaskActions, WritableList } from "./types";
 
 interface Props {
   task: TaskView;
-  /** Household-local today, for `Overdue` and the Plan popover's Today button. */
+  /** Household-local today, for the date chips' pickers and overdue cue. */
   today: string;
   /** True when this row is the triage layer's current selection. */
   selected: boolean;
   /** Fired by any focus inside the row, so clicking or tabbing selects it. */
-  onFocus: () => void;
+  onFocus(): void;
+  /** Task-bound callbacks built by the shell. */
+  actions: TaskActions;
   /** Writable lists this task may move to, with the current list already removed. */
-  moveTargets: ReadonlyArray<{ id: string; name: string }>;
-  onToggleDone: (done: boolean) => void;
-  onPlan: (date: string | null) => void;
-  onMove: (collectionId: string) => void;
-  onDrop: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
+  moveTargets: WritableList[];
 }
 
 /**
- * One task row: completion checkbox, title, due badge, the owning list's shade
- * dot, Plan and the row menu (`Edit task…`, `Move to list…`, `Drop`, `Delete`).
- * The row itself is focusable, draggable and the
- * triage layer's selection unit: it carries `aria-current`/`data-selected` when
- * selected, gains a visible background, and reports focus upward so a click or
- * Tab lands on the same selection `j`/`k` move. `data-task-id` and the
- * `text/x-nailong-task` payload are read by the calendar chips (Task 11).
+ * One dense ClickUp-style row: completion checkbox, clickable title, owning
+ * list's dot and name, the inline status/priority/date pickers and the overflow
+ * menu (`Open`, `Move to list…`, `Drop`, `Delete`).
+ *
+ * The row stays the triage layer's selection unit and the drag source: it is
+ * `tabIndex={0}`, `aria-label={title}`, carries `data-task-id`,
+ * `data-selected`/`aria-current` when selected, reports focus upward through
+ * `onFocus` and writes the `text/x-nailong-task` payload on `dragstart` (the
+ * month grid and sidebar mini-month read it). The title is a real button so a
+ * click — or `Enter` on it, which the shortcut layer deliberately leaves to the
+ * control — opens the task; the pickers and menu are plain buttons with violet
+ * focus rings and 44px coarse-pointer targets.
  */
-export function TaskRow({
-  task,
-  today,
-  selected,
-  onFocus,
-  moveTargets,
-  onToggleDone,
-  onPlan,
-  onMove,
-  onDrop,
-  onEdit,
-  onDelete,
-}: Props) {
+export function TaskRow({ task, today, selected, onFocus, actions, moveTargets }: Props) {
   const done = task.status === "done";
-  const overdue = isOverdue(task, today);
   const hue = task.collection.hueFamily;
   const dot =
     hue !== null && isHueFamily(hue)
@@ -79,24 +68,28 @@ export function TaskRow({
       onFocus={onFocus}
       onDragStart={(event) => setTaskDragPayload(event.dataTransfer, task)}
       className={cn(
-        "group relative flex items-center gap-3 border-b border-line px-2 py-1.5 outline-none last:border-b-0 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
-        selected && "bg-well",
+        "group relative flex flex-wrap items-center gap-1.5 border-b border-line px-1.5 py-1 outline-none last:border-b-0",
+        "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-violet",
+        selected && "bg-violet-soft shadow-[inset_2px_0_0_0_var(--color-violet)]",
       )}
     >
       <Checkbox
         label={task.title}
         checked={done}
-        onCheckedChange={onToggleDone}
+        onCheckedChange={actions.onToggleDone}
         className="[@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
       />
-      <span
+
+      <button
+        type="button"
+        onClick={actions.onOpen}
         className={cn(
-          "min-w-0 flex-1 truncate text-base",
+          "min-w-0 flex-1 truncate rounded-sm px-0.5 text-left text-sm hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet",
           done ? "text-ink-mute line-through" : "text-ink",
         )}
       >
         {task.title}
-      </span>
+      </button>
 
       <span
         aria-hidden
@@ -104,20 +97,19 @@ export function TaskRow({
         className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
         style={{ background: dot }}
       />
-      <span className="sr-only">{task.collection.name}</span>
+      <span className="max-w-32 truncate text-xs text-ink-mute max-sm:sr-only">
+        {task.collection.name}
+      </span>
 
-      {task.dueOn !== null ? (
-        <span
-          className={cn(
-            "shrink-0 rounded-pill px-2 py-0.5 text-xs",
-            overdue ? "bg-danger-soft font-bold text-danger-ink" : "bg-well text-ink-soft",
-          )}
-        >
-          {overdue ? "Overdue" : formatWallDate(task.dueOn)}
-        </span>
-      ) : null}
-
-      <TaskPlanPopover task={task} today={today} onPick={onPlan} />
+      <TaskStatusPill status={task.status} onChange={actions.onStatus} />
+      <TaskPriorityFlag priority={task.priority} onChange={actions.onPriority} />
+      <TaskDateChips
+        scheduledOn={task.scheduledOn}
+        dueOn={task.dueOn}
+        today={today}
+        title={task.title}
+        onChange={actions.onDates}
+      />
 
       <DropdownMenu>
         <DropdownMenuTrigger
@@ -132,13 +124,13 @@ export function TaskRow({
           <MoreVerticalIcon size={16} />
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          <DropdownMenuItem onSelect={onEdit}>Edit task…</DropdownMenuItem>
+          <DropdownMenuItem onSelect={actions.onOpen}>Open</DropdownMenuItem>
           {moveTargets.length > 0 ? (
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>Move to list…</DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 {moveTargets.map((target) => (
-                  <DropdownMenuItem key={target.id} onSelect={() => onMove(target.id)}>
+                  <DropdownMenuItem key={target.id} onSelect={() => actions.onMove(target.id)}>
                     {target.name}
                   </DropdownMenuItem>
                 ))}
@@ -150,8 +142,8 @@ export function TaskRow({
             </DropdownMenuItem>
           )}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={onDrop}>Drop</DropdownMenuItem>
-          <DropdownMenuItem danger onSelect={onDelete}>
+          <DropdownMenuItem onSelect={actions.onDrop}>Drop</DropdownMenuItem>
+          <DropdownMenuItem danger onSelect={actions.onDelete}>
             Delete
           </DropdownMenuItem>
         </DropdownMenuContent>

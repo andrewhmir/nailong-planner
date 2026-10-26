@@ -4,23 +4,31 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import type { TaskStatus } from "@/lib/db/schema";
+import type { TaskPriority, TaskStatus } from "@/lib/db/schema";
 import { endOfWeek, localToday, type TaskBucket } from "@/lib/domain/tasks";
+import { filterTasks, groupTasks, sortTasks } from "@/lib/domain/taskViews";
 import { useCollections } from "@/lib/query/collections";
 import { useCreateTask, useDeleteTask, useTasks, useUpdateTask } from "@/lib/query/tasks";
 import { canWriteCollection, foldCollectionPermission } from "@/lib/services/permissions";
 import type { TaskView } from "@/lib/services/tasks";
 import { taskDeepLinkAction } from "@/lib/ui/taskDeepLink";
+import {
+  mergeTaskViewParams,
+  parseTaskViewState,
+  type TaskViewState,
+} from "@/lib/ui/taskViewParams";
 import { pushUndo } from "@/lib/ui/undo";
 import { undoToast } from "@/lib/ui/undoToast";
-import { useTaskShortcuts, resolveSomedayTriage } from "@/lib/ui/useTaskShortcuts";
+import { resolveSomedayTriage, useTaskShortcuts } from "@/lib/ui/useTaskShortcuts";
 import { useUndoHotkey } from "@/lib/ui/useUndoHotkey";
 import type { UpdateTaskInput } from "@/lib/validation/tasks";
-import { TaskCaptureBar } from "./TaskCaptureBar";
+import { TaskCaptureRow } from "./TaskCaptureRow";
 import { TaskEditorDialog } from "./TaskEditorDialog";
-import { TaskRow } from "./TaskRow";
+import { TaskList } from "./TaskList";
 import { TaskShortcutHelpDialog } from "./TaskShortcutHelpDialog";
-import { TASK_BUCKET_LABELS, TaskViewSwitcher } from "./TaskViewSwitcher";
+import { TaskToolbar } from "./TaskToolbar";
+import { TASK_BUCKET_LABELS, TaskViewTabs } from "./TaskViewTabs";
+import type { TaskActions, WritableList } from "./types";
 
 interface Props {
   timezone: string;
@@ -72,36 +80,59 @@ async function fetchDeepLinkTask(taskId: string): Promise<DeepLinkResult> {
   }
 }
 
+/** Field-wise equality, so the URL-sync effect does not re-render on an identical parse. */
+function sameTaskViewState(a: TaskViewState, b: TaskViewState): boolean {
+  return (
+    a.layout === b.layout &&
+    a.group === b.group &&
+    a.sort === b.sort &&
+    a.closed === b.closed &&
+    a.collectionId === b.collectionId &&
+    a.status.length === b.status.length &&
+    a.status.every((value, index) => value === b.status[index]) &&
+    a.priority.length === b.priority.length &&
+    a.priority.every((value, index) => value === b.priority[index])
+  );
+}
+
 /**
- * The `/tasks` workspace: capture bar, the Inbox · Today · Week · Someday
- * switcher, the active view's rows, the editor and the page's keyboard triage
- * layer. All bucket membership and counts come from the server
- * (`GET /api/tasks?view=`); this shell only chooses the view and turns row
- * actions, the editor and keys into PATCHes/POSTs/DELETEs, toasting on failure.
+ * The `/tasks` workspace: the capture row, scope tabs, view toolbar, the grouped
+ * list and the task editor, plus the page-scoped keyboard triage/undo layers.
  *
- * Selection is an id over the current view's rows. `j`/`k` move it (clamped,
- * starting at the first/last row when nothing is selected) and focus the row;
- * clicking or tabbing to a row also selects it. When a mutation removes the
- * selected row from the view, the selection and focus move to the nearest
- * survivor so the next triage key still has a target. The keys are page-scoped:
- * the calendar's own `j`/`k` mean period navigation on `/`.
+ * `TaskViewState` (layout/group/sort/closed/filters) is the single URL-backed
+ * state: it is parsed once from `useSearchParams`, written with `router.replace`
+ * through `mergeTaskViewParams` on every toolbar change, and re-parsed when the
+ * URL changes underneath (Back/Forward). The scope (Inbox/Today/Week/Someday)
+ * stays local like v0.2.0 and switching it clears the selection while keeping
+ * the URL state. Rows are a pure projection: `sortTasks(filterTasks(...))` then
+ * `groupTasks(...)`.
  *
- * Undo is targeted: every complete/reopen/drop/delete/schedule/move pushes a
- * compensating action and shows `undoToast` with that action's handle, so the
- * toast reverts exactly what it describes. `z`/`Ctrl+Z` mount here too and
- * consume the shared stack LIFO, exactly as on the calendar.
+ * Selection is an id over the visible rows. `j`/`k` move it (clamped, starting
+ * at the first/last row when nothing is selected) and focus the row; clicking
+ * or tabbing to a row also selects it. When a mutation removes the selected row
+ * from the view, the selection and focus move to the nearest survivor so the
+ * next triage key still has a target. The keys are page-scoped: the calendar's
+ * own `j`/`k` mean period navigation on `/`.
+ *
+ * Undo is targeted: every complete/reopen/drop/delete/schedule/move/priority
+ * change pushes a compensating action and shows `undoToast` with that action's
+ * handle, so the toast reverts exactly what it describes. `z`/`Ctrl+Z` mount
+ * here too and consume the shared stack LIFO, exactly as on the calendar.
  */
 export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUserId }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Same one-shot contract for an absent and an empty `?task=`.
   const taskParam = searchParams.get("task") || null;
+  const [state, setState] = useState<TaskViewState>(() =>
+    parseTaskViewState(new URLSearchParams(searchParams.toString())),
+  );
   const [view, setView] = useState<TaskBucket>("inbox");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [editorTask, setEditorTask] = useState<TaskView | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
-  const listRef = useRef<HTMLUListElement | null>(null);
-  const switcherRef = useRef<HTMLButtonElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const scopeRef = useRef<HTMLButtonElement | null>(null);
   // The last rendered rows, so a vanished selection can be located even though
   // the fetch that removed it has already painted.
   const previousTasksRef = useRef<TaskView[]>([]);
@@ -120,7 +151,7 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   } | null>(null);
   const tasksRef = useRef<TaskView[]>([]);
   const today = useMemo(() => localToday(timezone), [timezone]);
-  const tasksQuery = useTasks(view);
+  const tasksQuery = useTasks(view, state.collectionId ?? undefined, state.closed);
   const collectionsQuery = useCollections();
   const updateTask = useUpdateTask();
   const createTask = useCreateTask();
@@ -133,10 +164,46 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   // Stable identity so the selection-coherence effect depends on the rows, not
   // on a fresh `[]` from every render.
   const tasks = useMemo(() => tasksQuery.data?.tasks ?? [], [tasksQuery.data]);
-  // Counts stay undefined until the first payload: the switcher shows no badges
+  // Counts stay undefined until the first payload: the tabs show no badges
   // while loading or after an error instead of lying with a row of zeros.
   const counts = tasksQuery.data?.counts;
-  const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
+
+  // The URL is the source of truth for the toolbar state: a Back/Forward (or a
+  // pasted link) re-parses it here. This is React's "adjust state when a prop
+  // changes" pattern (a render-time sync keyed by the query string), not an
+  // effect: `updateState` has already set the local state optimistically, and
+  // when the replaced URL catches up the parsed values compare equal, so no
+  // extra render is scheduled.
+  const searchKey = searchParams.toString();
+  const [syncedSearchKey, setSyncedSearchKey] = useState(searchKey);
+  if (searchKey !== syncedSearchKey) {
+    const fromUrl = parseTaskViewState(new URLSearchParams(searchKey));
+    setSyncedSearchKey(searchKey);
+    if (!sameTaskViewState(state, fromUrl)) {
+      setState(fromUrl);
+    }
+  }
+
+  // The visible rows: filter → sort → group. Traversal (`j`/`k`), the selection
+  // coherence effect and the list all read this projection, so a filtered-out
+  // row can never keep an invisible selection alive.
+  const rows = useMemo(
+    () =>
+      sortTasks(
+        filterTasks(tasks, {
+          status: state.status,
+          priority: state.priority,
+          collectionId: state.collectionId,
+        }),
+        state.sort,
+      ),
+    [state.collectionId, state.priority, state.sort, state.status, tasks],
+  );
+  const groups = useMemo(() => groupTasks(rows, state.group), [rows, state.group]);
+  const visibleRows = useMemo(() => groups.flatMap((group) => group.tasks), [groups]);
+  const selectedTask = visibleRows.find((task) => task.id === selectedTaskId) ?? null;
+  const filtersActive =
+    state.status.length > 0 || state.priority.length > 0 || state.collectionId !== null;
 
   // The deep-link effect runs once per param and must not re-run when rows
   // arrive, so it reads the latest rows through a ref instead of a dependency.
@@ -200,32 +267,40 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
         return;
       }
       toast.error(result.error);
-      router.replace("/tasks");
+      // Drop only `?task=`, preserving the toolbar state that is also in the URL.
+      const params = new URLSearchParams(window.location.search);
+      params.delete("task");
+      const query = params.toString();
+      router.replace(query.length > 0 ? `/tasks?${query}` : "/tasks");
     });
     return () => {
       cancelled = true;
     };
   }, [router, taskParam]);
 
-  // Selection coherence: complete/drop/delete/plan/move all end with the row
-  // leaving the open view after the settle refetch. The stale id would then name
-  // no row, so the next triage key would silently no-op; move the selection (and
-  // focus, because focus follows selection) to the row that took its place, or
-  // hand focus to the view switcher when the view is now empty. While the editor
-  // is open the selection still moves (the dialog is modal and owns focus), and
+  // Selection coherence: complete/drop/delete/plan/move/priority/filter changes
+  // can all remove the selected row from the visible rows once the settle
+  // refetch (or the local filter) paints. The stale id would then name no row,
+  // so the next triage key would silently no-op; move the selection (and focus,
+  // because focus follows selection) to the row that took its place, or hand
+  // focus to the current scope tab when nothing is visible. While the editor is
+  // open the selection still moves (the dialog is modal and owns focus), and
   // `closeEditor` focuses the live selection on close. Runs only after a painted
-  // list change, never during load or a view switch.
+  // list change, never during load or a scope switch.
   useEffect(() => {
     const previous = previousTasksRef.current;
-    previousTasksRef.current = tasks;
+    previousTasksRef.current = visibleRows;
     if (selectedTaskId === null || tasksQuery.isPending) {
       return;
     }
-    if (tasks.some((task) => task.id === selectedTaskId)) {
+    if (visibleRows.some((task) => task.id === selectedTaskId)) {
       return;
     }
     const staleIndex = previous.findIndex((task) => task.id === selectedTaskId);
-    const next = staleIndex === -1 ? tasks[0] : tasks[Math.min(staleIndex, tasks.length - 1)];
+    const next =
+      staleIndex === -1
+        ? visibleRows[0]
+        : visibleRows[Math.min(staleIndex, visibleRows.length - 1)];
     // The selection must follow the fetched list, not the other way round: this
     // is a reconciliation with data that arrived after the mutation, so it
     // cannot move into the mutation callback or a render-time derivation.
@@ -238,17 +313,17 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
       // effect runs after commit, so the row is already in the DOM.
       focusRow(next.id);
     } else {
-      // No rows left: the switcher is a real keyboard stop, so `j` still means
+      // No rows left: the scope tab is a real keyboard stop, so `j` still means
       // "next row" from here (focusing the capture input would type the letter).
-      switcherRef.current?.focus();
+      scopeRef.current?.focus();
     }
-  }, [editorTask, tasks, tasksQuery.isPending, selectedTaskId]);
+  }, [editorTask, tasksQuery.isPending, selectedTaskId, visibleRows]);
 
   // Move targets are the viewer's writable lists, labelled by their parent when
   // nested. The server stays authoritative: a stale tree still gets a 403.
-  const moveTargets = useMemo(() => {
+  const moveTargets = useMemo<WritableList[]>(() => {
     const viewer = { userId: currentUserId, householdId: "" };
-    const targets: Array<{ id: string; name: string }> = [];
+    const targets: WritableList[] = [];
     for (const root of collectionsQuery.data ?? []) {
       if (root.kind !== "list") {
         continue;
@@ -267,6 +342,30 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     }
     return targets;
   }, [collectionsQuery.data, currentUserId]);
+
+  /**
+   * Write the next toolbar state to both React and the URL. `replace`, never
+   * `push`: toolbar changes are view state, so Back should leave `/tasks`
+   * instead of undoing each click. `mergeTaskViewParams` preserves `view`/`task`
+   * and drops default-valued keys.
+   */
+  function updateState(next: TaskViewState): void {
+    setState(next);
+    const params = mergeTaskViewParams(new URLSearchParams(searchParams.toString()), next);
+    const query = params.toString();
+    router.replace(query.length > 0 ? `/tasks?${query}` : "/tasks");
+  }
+
+  /** Remove the one-shot `?task=` while keeping every other URL param. */
+  function clearTaskParam(): void {
+    if (taskParam === null) {
+      return;
+    }
+    const params = mergeTaskViewParams(new URLSearchParams(searchParams.toString()), state);
+    params.delete("task");
+    const query = params.toString();
+    router.replace(query.length > 0 ? `/tasks?${query}` : "/tasks");
+  }
 
   /** One PATCH with the shared failure toast; the caller owns success/undo. */
   function patch(
@@ -301,6 +400,25 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
           },
         });
         undoToast(copy.message, handle);
+      },
+    });
+  }
+
+  /** Priority change + the PATCH that restores the previous level. */
+  function patchPriority(target: TaskView, priority: TaskPriority): void {
+    patch(target, { priority }, {
+      failure: "Could not update the priority.",
+      onSuccess: (saved) => {
+        if (saved.priority === target.priority) {
+          return;
+        }
+        const handle = pushUndo({
+          label: "Change priority",
+          undo: async () => {
+            await updateTask.mutateAsync({ id: target.id, priority: target.priority });
+          },
+        });
+        undoToast("Priority updated", handle);
       },
     });
   }
@@ -386,7 +504,8 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     });
   }
 
-  function changeView(next: TaskBucket): void {
+  /** A scope switch keeps the URL-backed toolbar state but drops the selection. */
+  function changeScope(next: TaskBucket): void {
     // A selection is only meaningful against the rows of the view it was made
     // in; keeping the id would leave an invisible selection behind the switch.
     setView(next);
@@ -410,9 +529,7 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     setEditorTask(null);
     // A deep-linked editor leaves the URL clean on close; otherwise a reload
     // (or a back navigation) would reopen a dialog the user already dismissed.
-    if (taskParam !== null) {
-      router.replace("/tasks");
-    }
+    clearTaskParam();
     // Radix restores focus to the opener on close, but that opener can be a row
     // that a save just removed from the view. Focus the live selection on the
     // next paint instead (the rows have re-rendered by then).
@@ -422,19 +539,19 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
         selected.focus();
         return;
       }
-      switcherRef.current?.focus();
+      scopeRef.current?.focus();
     }, 0);
   }
 
   function moveSelection(delta: 1 | -1): void {
-    if (tasks.length === 0) {
+    if (visibleRows.length === 0) {
       return;
     }
-    const currentIndex = tasks.findIndex((task) => task.id === selectedTaskId);
+    const currentIndex = visibleRows.findIndex((task) => task.id === selectedTaskId);
     // With no selection, `j` starts at the top and `k` at the bottom.
-    const base = currentIndex === -1 ? (delta === 1 ? -1 : tasks.length) : currentIndex;
-    const nextIndex = Math.max(0, Math.min(tasks.length - 1, base + delta));
-    const next = tasks[nextIndex];
+    const base = currentIndex === -1 ? (delta === 1 ? -1 : visibleRows.length) : currentIndex;
+    const nextIndex = Math.max(0, Math.min(visibleRows.length - 1, base + delta));
+    const next = visibleRows[nextIndex];
     if (!next) {
       return;
     }
@@ -488,7 +605,7 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   }
 
   /** The next writable list after the task's own, wrapping; `null` when there is none. */
-  function nextListTarget(task: TaskView): { id: string; name: string } | null {
+  function nextListTarget(task: TaskView): WritableList | null {
     const currentIndex = moveTargets.findIndex((target) => target.id === task.collectionId);
     const start = currentIndex === -1 ? 0 : currentIndex + 1;
     for (let step = 0; step < moveTargets.length; step += 1) {
@@ -524,6 +641,37 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     }
   }
 
+  /** Toast copy for a chip change; the chips send exactly one date field. */
+  function dateMessage(patch: { scheduledOn?: string | null; dueOn?: string | null }): string {
+    if (patch.dueOn !== undefined) {
+      return patch.dueOn === null ? "Due date cleared" : "Due date updated";
+    }
+    return patch.scheduledOn === null ? "Task unscheduled" : "Task scheduled";
+  }
+
+  /** The row/board/panel callbacks, bound to one task. */
+  function actionsFor(task: TaskView): TaskActions {
+    return {
+      onOpen: () => openTask(task),
+      onStatus: (status) => patchStatus(task, status),
+      onPriority: (priority) => patchPriority(task, priority),
+      onDates: (patch) => patchSchedule(task, patch, dateMessage(patch)),
+      onMove: (collectionId) => patchMove(task, collectionId),
+      onDrop: () => patchStatus(task, "dropped"),
+      onDelete: () => deleteTaskWithUndo(task),
+      onToggleDone: (done) => patchStatus(task, done ? "done" : "open"),
+    };
+  }
+
+  /** The toolbar's Add task focuses the capture row's input (same DOM id contract). */
+  function focusCapture(): void {
+    document.getElementById("task-capture")?.focus();
+  }
+
+  function clearFilters(): void {
+    updateState({ ...state, status: [], priority: [], collectionId: null });
+  }
+
   useTaskShortcuts(shortcutsEnabled, {
     onMoveSelection: moveSelection,
     onBucket: triageSelection,
@@ -542,16 +690,18 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
       data-testid="tasks-shell"
       data-week-starts-on={weekStartsOn}
       data-shortcuts-enabled={shortcutsEnabled ? "true" : "false"}
-      className="mt-6 space-y-5"
+      className="mt-6 space-y-3"
     >
-      <TaskCaptureBar timezone={timezone} />
+      <TaskCaptureRow timezone={timezone} />
 
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <TaskViewSwitcher
+        <TaskViewTabs
           view={view}
           counts={counts}
-          onChange={changeView}
-          activeRef={switcherRef}
+          layout={state.layout}
+          onScope={changeScope}
+          onLayout={(layout) => updateState({ ...state, layout })}
+          activeRef={scopeRef}
         />
         <Button
           size="sm"
@@ -563,6 +713,22 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
           <span aria-hidden>?</span>
         </Button>
       </div>
+
+      <TaskToolbar
+        state={state}
+        onChange={updateState}
+        onAddTask={focusCapture}
+        lists={moveTargets}
+      />
+
+      {state.layout === "board" ? (
+        <p
+          role="status"
+          className="rounded-md border border-line bg-well px-3 py-2 text-sm text-ink-soft"
+        >
+          Board view ships in the next change — showing the list for now.
+        </p>
+      ) : null}
 
       {tasksQuery.isError ? (
         <div role="alert" className="rounded-md border border-line-strong bg-surface p-6">
@@ -579,40 +745,21 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
         <p role="status" className="px-2 py-6 text-sm text-ink-soft">
           Loading tasks…
         </p>
-      ) : tasks.length === 0 ? (
-        <p className="rounded-md border border-dashed border-line-strong bg-surface px-4 py-10 text-center text-base text-ink-soft">
-          Nothing here. Enjoy the quiet.
-        </p>
       ) : (
-        <ul
-          ref={listRef}
-          aria-label={`${TASK_BUCKET_LABELS[view]} tasks`}
-          data-testid="task-list"
-          className="rounded-md border border-line-strong bg-surface px-2"
-        >
-          {tasks.map((task) => (
-            <TaskRow
-              key={task.id}
-              task={task}
-              today={today}
-              selected={task.id === selectedTaskId}
-              onFocus={() => setSelectedTaskId(task.id)}
-              moveTargets={moveTargets.filter((target) => target.id !== task.collectionId)}
-              onToggleDone={(done) => patchStatus(task, done ? "done" : "open")}
-              onPlan={(date) =>
-                patchSchedule(
-                  task,
-                  { scheduledOn: date },
-                  date === null ? "Task unscheduled" : "Task scheduled",
-                )
-              }
-              onMove={(collectionId) => patchMove(task, collectionId)}
-              onDrop={() => patchStatus(task, "dropped")}
-              onDelete={() => deleteTaskWithUndo(task)}
-              onEdit={() => openTask(task)}
-            />
-          ))}
-        </ul>
+        <div ref={listRef} role="group" aria-label={`${TASK_BUCKET_LABELS[view]} tasks`}>
+          <TaskList
+            groups={groups}
+            today={today}
+            selectedId={selectedTaskId}
+            onFocus={setSelectedTaskId}
+            actionsFor={actionsFor}
+            moveTargets={moveTargets}
+            emptyMessage={
+              filtersActive ? "No tasks match these filters." : "Nothing here. Enjoy the quiet."
+            }
+            onClearFilters={filtersActive ? clearFilters : null}
+          />
+        </div>
       )}
 
       <TaskEditorDialog
