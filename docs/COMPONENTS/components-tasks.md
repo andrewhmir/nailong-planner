@@ -185,6 +185,62 @@ States: `isError` renders `role="alert"` with "Could not load the tasks." and a 
 
 **Tests** — `tests/e2e/tasks.spec.ts` (the editor-persistence test): open a row with `Enter` (and once through the row menu's `Edit task…`), edit title + notes, add two checklist items, tick one, save, reload and assert the row/API payload, set a due date through the date popover (the task re-buckets Inbox → Today and paints the badge), clear it again (back to Inbox, badge gone, `dueOn: null`), then open again and assert Escape closes without saving. No component unit test (the repo has no React renderer); the PATCH/cache behaviour is covered by `tests/unit/task-cache.test.ts` and `tests/integration/tasks-api.test.ts`.
 
+### components/tasks/types.ts
+
+**Purpose** — The shared task-surface contract: `TaskActions` (the eight callbacks a row, board card or slide-over panel may call) and `WritableList` (the id/name pair the move menu and the list filter use). Type-only, so it has no React or runtime footprint.
+
+**Public API** — `export interface TaskActions { onOpen(): void; onStatus(status: TaskStatus): void; onPriority(priority: TaskPriority): void; onDates(patch: { scheduledOn?: string | null; dueOn?: string | null }): void; onMove(collectionId: string): void; onDrop(): void; onDelete(): void; onToggleDone(done: boolean): void }`; `export interface WritableList { id: string; name: string }`. Each surface receives an `actions` object already bound to *its* task; the object itself never carries a task id.
+
+**State & side effects** — None: no hooks, no storage, no queries. The callback implementations (PATCH/toast/undo) live in `TasksShell`; a surface only invokes them.
+
+**Depends on / Used by** — `lib/db/schema` (`TaskStatus`, `TaskPriority`, type-only). Imported by `components/tasks/TaskRow.tsx`, `TaskList.tsx`, `TaskToolbar.tsx`, `TaskStatusPill.tsx`'s consumers and (later) the board/panel; `TasksShell` builds the `TaskActions` per task.
+
+**Debugging** — A row control changes the wrong task -> the shell built one `TaskActions` for all rows instead of one per task -> `TasksShell`'s `actionsFor(task)`. A new inline picker has no callback -> add it here first; the compiler then names every shell implementation that must supply it.
+
+**Tests** — No direct unit coverage (types only); `npx tsc --noEmit` enforces the call sites. `tests/e2e/tasks.spec.ts` exercises the actions through the row.
+
+### components/tasks/TaskStatusPill.tsx
+
+**Purpose** — The inline status picker: a dense pill coloured with the status tokens (`status-todo`, `status-progress`, existing `success` for done and `well` for dropped) that opens a Radix radio menu of `TASK_STATUS_ORDER`.
+
+**Public API** — `export function TaskStatusPill(props: { status: TaskStatus; onChange: (status: TaskStatus) => void; compact?: boolean })`. `compact` drops the visible label and keeps the dot, for a narrow slot; the button's `aria-label` is always `Status: <label>`.
+
+**State & side effects** — No local state: `DropdownMenu` owns open/focus. The trigger is a plain `<button>` (not `Button`) carrying `data-testid="task-status-<status>"`, a violet focus ring and a 44px coarse-pointer target. Choosing a different status calls `onChange` once and closes the menu; choosing the current status does nothing. No query, no storage: the shell owns the PATCH, the "Task completed"/"Task started"/… toast and its undo.
+
+**Depends on / Used by** — `components/ui/dropdown-menu` (radio group/item), `lib/domain/taskViews` (`TASK_STATUS_ORDER`, `TASK_STATUS_LABELS`), `lib/db/schema` (`TaskStatus`), `lib/utils` (`cn`). Rendered by `components/tasks/TaskRow.tsx` (non-compact) and later by the board card/panel.
+
+**Debugging** — The pill says "To do" but the task is in progress -> `status` came from a stale `TaskView` snapshot; the optimistic `useUpdateTask` patch should repaint it, otherwise the PATCH failed and the toast explains why -> `lib/query/tasks.ts`. The menu opens but the check sits on the wrong row -> the radio group lost `value={status}` -> this file. A dark/invisible pill -> the status token classes were replaced by literal hex values; `app/globals.css` owns them.
+
+**Tests** — No direct unit coverage; `tests/e2e/tasks.spec.ts` (inline status change) is the UI gate.
+
+### components/tasks/TaskPriorityFlag.tsx
+
+**Purpose** — The inline priority picker: a `FlagIcon` coloured by priority (`urgent` danger, `high` warning, `normal` accent, `low`/`none` muted, `none` at lower emphasis) with the priority word, opening a Radix radio menu of `TASK_PRIORITY_ORDER`.
+
+**Public API** — `export function TaskPriorityFlag(props: { priority: TaskPriority; onChange: (priority: TaskPriority) => void })`. The trigger's `aria-label` is `Priority: <label>` and its test id is `task-priority-<priority>`; the label text is hidden below `sm` so the row stays narrow.
+
+**State & side effects** — No local state; `DropdownMenu` owns open/focus. Choosing a different priority calls `onChange` once and closes the menu; the current priority is a no-op. The shell owns the PATCH and the "Priority updated" toast plus its targeted undo. No query, no storage.
+
+**Depends on / Used by** — `components/ui/dropdown-menu` (radio group/item), `components/ui/icons` (`FlagIcon`), `lib/domain/taskViews` (`TASK_PRIORITY_ORDER`, `TASK_PRIORITY_LABELS`), `lib/db/schema` (`TaskPriority`), `lib/utils` (`cn`). Rendered by `components/tasks/TaskRow.tsx` and later by the board card/panel.
+
+**Debugging** — `none` looks like a broken/empty control -> intended: the muted flag is the affordance that opens the menu; it brightens on hover. A flag shows the wrong colour -> the priority value is stale (optimistic patch rolled back after a 403) -> read the shell's toast. The menu is missing a level -> `TASK_PRIORITY_ORDER` was filtered in the UI instead of consuming the shared table.
+
+**Tests** — No direct unit coverage; `tests/e2e/tasks.spec.ts` (inline priority change) is the UI gate. The priority ordering tables themselves are pinned by `tests/unit/task-views.test.ts`.
+
+### components/tasks/TaskDateChips.tsx
+
+**Purpose** — The row's two inline date fields: a scheduled chip (calendar icon) and a due chip (clock icon), each a Radix popover wrapping the shared `DatePickerPopover` plus a Clear action. Supersedes the deleted `TaskPlanPopover` (one date, scheduled-only).
+
+**Public API** — `export function TaskDateChips(props: { scheduledOn: string | null; dueOn: string | null; today: string; title: string; onChange: (patch: { scheduledOn?: string | null; dueOn?: string | null }) => void })`. The chips carry `data-testid="task-date-scheduled"` / `"task-date-due"` and their clear buttons `-clear`; the accessible names are "Scheduled date for <title>"/"Due date for <title>" (plus the formatted date when set).
+
+**State & side effects** — Local `open` per chip only. A set chip shows `formatWallDate(date)` (e.g. "Wed, 28 Oct 2026"); an unset chip is icon-only, which keeps the picker reachable on every row without two "Set date" labels. The due chip is `text-danger-ink` when `dueOn < today` — date-only, because the props carry no status, so a closed row with a past due date also renders the overdue colour (the row is only in the list when "Show closed" is on). Picking a day closes the popover and calls `onChange({ scheduledOn })` or `onChange({ dueOn })`; Clear calls the same with `null`. The picker is keyed by the saved date so it re-seeds, uses the household `today` (never the device clock) and is non-modal (Escape/outside-click close, focus returns to the chip). No query, no storage: the shell owns the PATCH and its "Task scheduled"/"Due date updated" toast plus targeted undo.
+
+**Depends on / Used by** — `@radix-ui/react-popover`, `components/calendar/DatePickerPopover` (which renders `MiniMonth`), `components/ui/button`, `components/ui/icons` (`CalendarIcon`, `ClockIcon`, `IconProps`), `lib/time/format` (`formatWallDate`), `lib/utils` (`cn`). Rendered by `components/tasks/TaskRow.tsx` and later by the panel.
+
+**Debugging** — The picker opens on the wrong month -> the anchor is the saved date when present; the chip lost its `key={date}` and no longer re-seeds -> this file's `DateChip`. The due chip is red on a done task -> intended date-only comparison: the component has no status prop; the bucket/overdue rule itself is `isOverdue` in `lib/domain/tasks.ts`. Picking a day moves the row to another bucket -> expected: `scheduledOn`/`dueOn` decide bucket membership server-side. Escape closes the whole panel instead of the calendar -> the popover content is not portalled/rooted (it must be the topmost Radix layer) -> this file's `PopoverPrimitive.Portal`.
+
+**Tests** — No direct unit coverage; `tests/e2e/tasks.spec.ts` (inline date set/clear) is the UI gate. `MiniMonth` itself is covered by `tests/e2e/mini-month.spec.ts` and `tests/e2e/event-fields.spec.ts`.
+
 ## Known debt (deferred)
 
 - **The date-popover wiring is duplicated a third time in `TaskEditorDialog`.** Its due-date field hand-rolls the `PopoverPrimitive.Root`/`Trigger`/`Portal`/`Content` shell, the Clear action and the keyed `DatePickerPopover` that `components/calendar/DateField.tsx` already provides (the other copy is `Toolbar`'s title picker). Consolidating them into one shared field is deliberately deferred: it is presentation-only duplication, and the nested-layer Escape behaviour it encodes (the popover must be the topmost Radix `DismissableLayer`) is pinned by the editor-persistence test in `tests/e2e/tasks.spec.ts`. Do not refactor it as part of a docs sweep.
