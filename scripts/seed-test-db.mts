@@ -14,7 +14,9 @@ const { createDb } = await import("../lib/db/client");
 const { migrate } = await import("../lib/db/migrate");
 const { createAuth } = await import("../lib/auth/server");
 const { ensureHousehold, addMember } = await import("../lib/services/household");
-const { createCollection, ensureInbox } = await import("../lib/services/collections");
+const { createCollection, ensureInbox, updateCollection } = await import(
+  "../lib/services/collections"
+);
 const { createTask, updateTask } = await import("../lib/services/tasks");
 const { createEvent } = await import("../lib/services/events");
 const { endOfWeek, localToday } = await import("../lib/domain/tasks");

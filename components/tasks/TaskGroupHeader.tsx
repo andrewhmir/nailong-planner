@@ -16,7 +16,7 @@ interface Props {
 
 /**
  * One collapsible group heading: a chevron button with `aria-expanded`/
- * `aria-controls`, the group label and a count pill. `TaskList` owns the open
+ * `aria-controls`, the group label and a count pill. `TasksShell` owns the open
  * state (all groups start open); the header only renders and calls back.
  */
 export function TaskGroupHeader({ label, count, open, controlsId, onToggle, testId }: Props) {

@@ -198,8 +198,9 @@ export function CollectionRow({
       {taskCount !== undefined && taskCount > 0 ? (
         <span
           data-testid={`collection-task-count-${collection.id}`}
+          aria-label={`${taskCount} active ${taskCount === 1 ? "task" : "tasks"}`}
           title={`${taskCount} active ${taskCount === 1 ? "task" : "tasks"}`}
-          className="rounded-pill shrink-0 bg-well px-1.5 text-xs font-bold text-ink-soft"
+          className="rounded-pill shrink-0 border border-line-strong bg-surface px-1.5 text-xs font-bold text-ink-soft"
         >
           {taskCount}
         </span>
@@ -217,7 +218,7 @@ export function CollectionRow({
             "grid h-6 w-6 shrink-0 place-items-center rounded-sm text-ink-mute transition-opacity",
             "opacity-0 hover:text-ink focus-visible:opacity-100",
             "group-hover:opacity-100 group-focus-within:opacity-100",
-            "[@media(pointer:coarse)]:opacity-100",
+            "[@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11",
           )}
         >
           <PlusIcon size={16} />

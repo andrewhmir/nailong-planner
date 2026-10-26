@@ -142,8 +142,7 @@ export function TaskToolbar({ state, onChange, onAddTask, lists }: Props) {
             <ChevronDownIcon size={12} className="shrink-0" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuLabel>Status</DropdownMenuLabel>
+        <DropdownMenuContent className="max-h-[min(70vh,420px)] overflow-y-auto">
           {TASK_STATUS_ORDER.map((status) => (
             <DropdownMenuCheckboxItem
               key={status}

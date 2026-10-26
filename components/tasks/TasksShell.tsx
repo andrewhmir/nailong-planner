@@ -110,11 +110,12 @@ function sameTaskViewState(a: TaskViewState, b: TaskViewState): boolean {
  * `TaskViewState` (layout/group/sort/closed/filters) is the single URL-backed
  * state: it is parsed once from `useSearchParams`, written with `router.replace`
  * through `mergeTaskViewParams` on every toolbar change, and re-parsed when the
- * URL changes underneath (Back/Forward). The scope (Inbox/Today/Week/Someday)
- * stays local like v0.2.0 and switching it clears the selection while keeping
- * the URL state. Rows are a pure projection: `sortTasks(filterTasks(...))`. The
- * list renders it through `groupTasks`; the board gets the same sorted array and
- * splits it by status, so a filter/sort change drives both layouts identically.
+ * URL changes underneath (Back/Forward). The scope (Inbox/Today/Week/Someday) is
+ * URL state as well (`?view=`), and switching it clears the selection while
+ * keeping the rest of the URL state. Rows are a pure projection:
+ * `sortTasks(filterTasks(...))`. The list renders it through `groupTasks`; the
+ * board gets the same sorted array and splits it by status, so a filter/sort
+ * change drives both layouts identically.
  *
  * Selection is an id over the visible rows. `j`/`k` move it (clamped, starting
  * at the first/last row when nothing is selected) and focus the row; clicking
@@ -517,7 +518,9 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     patch(target, input, {
       failure:
         input.dueOn !== undefined
-          ? "Could not update the due date."
+          ? input.scheduledOn !== undefined
+            ? "Could not update the task dates."
+            : "Could not update the due date."
           : "Could not schedule the task.",
       onSuccess: (saved) => {
         if (saved.scheduledOn === target.scheduledOn && saved.dueOn === target.dueOn) {

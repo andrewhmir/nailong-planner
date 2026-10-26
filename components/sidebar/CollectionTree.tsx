@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -109,6 +109,11 @@ export function CollectionTree({
   const [dialog, setDialog] = useState<CollectionDialogState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<CollectionRowType | null>(null);
   const [quickAdd, setQuickAdd] = useState<CollectionRowType | null>(null);
+  // Radix cannot restore focus for this dialog: it mounts without a
+  // `DialogTrigger`, so its close paths would leave focus on `<body>`. Capture
+  // the opener and focus it after unmount, the same manual pattern `AppShell`
+  // uses for its own dialogs.
+  const quickAddOpenerRef = useRef<HTMLElement | null>(null);
   // The desktop aside and the phone sheet each mount this tree, so `aria-controls`
   // ids must be per instance or the sheet would point at the hidden aside's list.
   const instanceId = useId();
@@ -122,8 +127,39 @@ export function CollectionTree({
         .find((collection) => collection.id === only)?.name
     : undefined;
 
-  function toggle(collection: CollectionRowType, children: CollectionRowType[] = []) {
-    const parent = collection.parentId
+  /**
+   * A row offers a count badge and quick add only when a create would be
+   * accepted there: a writable `kind: "list"`. Calendars and read-only lists
+   * (a partner-owned view-only list, a foreign private list) get neither.
+   */
+  function isWritableList(
+    row: CollectionRowType,
+    effective: ReturnType<typeof foldCollectionPermission>,
+  ): boolean {
+    return (
+      row.kind === "list" &&
+      canWriteCollection({ userId: currentUserId, householdId: "" }, effective)
+    );
+  }
+
+  function openQuickAdd(collection: CollectionRowType): void {
+    const active = document.activeElement;
+    quickAddOpenerRef.current = active instanceof HTMLElement ? active : null;
+    setQuickAdd(collection);
+  }
+
+  function closeQuickAdd(): void {
+    setQuickAdd(null);
+    window.setTimeout(() => {
+      const opener = quickAddOpenerRef.current;
+      quickAddOpenerRef.current = null;
+      if (opener?.isConnected) {
+        opener.focus();
+      }
+    }, 0);
+  }
+
+  function toggle(collection: CollectionRowType, children: CollectionRowType[] = []) {    const parent = collection.parentId
       ? roots.find((root) => root.id === collection.parentId)
       : undefined;
     const currentlyVisible = isCollectionVisible(
@@ -310,9 +346,7 @@ export function CollectionTree({
                 // Badges and quick add exist only where a create would be
                 // accepted: a list the viewer may write. Calendars, view-only
                 // and foreign private lists must never offer a control that 403s.
-                const rootQuickAdd =
-                  root.kind === "list" &&
-                  canWriteCollection({ userId: currentUserId, householdId: "" }, rootEffective);
+                const rootQuickAdd = isWritableList(root, rootEffective);
                 const openRoot = fold.isCollectionOpen(root.id);
                 const childrenId = `collection-children-${instanceId}-${root.id}`;
                 return (
@@ -352,7 +386,7 @@ export function CollectionTree({
                             ? taskCounts.data?.byCollection[root.id]
                             : undefined
                         }
-                        onQuickAdd={rootQuickAdd ? () => setQuickAdd(root) : undefined}
+                        onQuickAdd={rootQuickAdd ? () => openQuickAdd(root) : undefined}
                       />
                     </ul>
                     {root.children.length > 0 ? (
@@ -360,12 +394,7 @@ export function CollectionTree({
                         {root.children.map((child) => {
                           const childEffective = foldCollectionPermission(child, root);
                           const childReadOnly = isReadOnlyFor(currentUserId, childEffective);
-                          const childQuickAdd =
-                            child.kind === "list" &&
-                            canWriteCollection(
-                              { userId: currentUserId, householdId: "" },
-                              childEffective,
-                            );
+                          const childQuickAdd = isWritableList(child, childEffective);
                           return (
                             <CollectionRow
                               key={child.id}
@@ -402,7 +431,7 @@ export function CollectionTree({
                                   ? taskCounts.data?.byCollection[child.id]
                                   : undefined
                               }
-                              onQuickAdd={childQuickAdd ? () => setQuickAdd(child) : undefined}
+                              onQuickAdd={childQuickAdd ? () => openQuickAdd(child) : undefined}
                             />
                           );
                         })}
@@ -449,9 +478,7 @@ export function CollectionTree({
         </Dialog>
       ) : null}
 
-      {quickAdd ? (
-        <QuickAddDialog collection={quickAdd} onClose={() => setQuickAdd(null)} />
-      ) : null}
+      {quickAdd ? <QuickAddDialog collection={quickAdd} onClose={closeQuickAdd} /> : null}
 
       <CollectionDialog
         state={dialog}
@@ -470,8 +497,9 @@ const QUICK_ADD_CONTROL =
 
 /**
  * One-field create for a list the viewer owns or that is shared. It is mounted
- * only while open, so every opening starts empty, and that is also what lets
- * Radix restore focus to the row's quick-add button on close.
+ * only while open, so every opening starts empty. `CollectionTree` restores
+ * focus to the opener after unmount: Radix cannot do it because this dialog is
+ * mounted without a `DialogTrigger`.
  * The title is cleared only by unmount: a failed create keeps the dialog and
  * the typed text, and the mutation's `["tasks"]` invalidation refreshes the
  * badge once it succeeds.

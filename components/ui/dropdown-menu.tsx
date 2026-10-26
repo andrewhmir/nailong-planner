@@ -14,10 +14,17 @@ const SURFACE =
 const ITEM =
   "flex cursor-pointer items-center gap-2 rounded-sm px-4 py-2.5 text-base text-ink outline-none hover:bg-line data-[highlighted]:bg-line data-[disabled]:cursor-default data-[disabled]:opacity-40";
 
-export function DropdownMenuContent({ children }: { children: React.ReactNode }) {
+export function DropdownMenuContent({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  /** Extra classes for the content surface (e.g. a max-height for a long menu). */
+  className?: string;
+}) {
   return (
     <DropdownPrimitive.Portal>
-      <DropdownPrimitive.Content align="end" sideOffset={4} className={SURFACE}>
+      <DropdownPrimitive.Content align="end" sideOffset={4} className={cn(SURFACE, className)}>
         {children}
       </DropdownPrimitive.Content>
     </DropdownPrimitive.Portal>
