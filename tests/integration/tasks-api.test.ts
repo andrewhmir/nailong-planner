@@ -7,6 +7,7 @@ import {
   PATCH as patchTaskRoute,
 } from "@/app/api/tasks/[id]/route";
 import { PATCH as reorderTasksRoute } from "@/app/api/tasks/order/route";
+import { GET as taskCountsRoute } from "@/app/api/tasks/counts/route";
 import { GET as listTasksRoute } from "@/app/api/tasks/route";
 import {
   createTaskHandler,
@@ -14,11 +15,12 @@ import {
   getTaskHandler,
   listTasksHandler,
   reorderTasksHandler,
+  taskCountsHandler,
   updateTaskHandler,
 } from "@/lib/api/handlers/tasks";
 import { household } from "@/lib/db/schema";
 import { createCollection } from "@/lib/services/collections";
-import { createTask, type TaskCounts, type TaskView } from "@/lib/services/tasks";
+import { createTask, updateTask, type TaskCounts, type TaskView } from "@/lib/services/tasks";
 import { makeSeededDb } from "../helpers/fixtures";
 
 afterEach(() => {
@@ -300,5 +302,87 @@ describe("task API", () => {
       }) as unknown as NextRequest,
     );
     expect(reorder.status).toBe(401);
+  });
+
+  it("returns closed tasks only when includeClosed=true, without moving counts", async () => {
+    const { db, close, ctxA } = await setup();
+    try {
+      const doneTask = createTask(db, ctxA, { title: "Done today", scheduledOn: "2026-10-21" });
+      updateTask(db, ctxA, doneTask.id, { status: "done" });
+      vi.useFakeTimers({ now: new Date("2026-10-21T04:00:00Z"), toFake: ["Date"] });
+
+      const open = await body<{ tasks: TaskView[]; counts: TaskCounts }>(
+        await listTasksHandler(db, ctxA, jsonRequest("/api/tasks?view=today", "GET")),
+      );
+      expect(open.tasks).toHaveLength(0);
+      expect(open.counts).toEqual({ inbox: 0, today: 0, week: 0, someday: 0, overdue: 0 });
+
+      const withClosed = await body<{ tasks: TaskView[]; counts: TaskCounts }>(
+        await listTasksHandler(
+          db,
+          ctxA,
+          jsonRequest("/api/tasks?view=today&includeClosed=true", "GET"),
+        ),
+      );
+      expect(withClosed.tasks.map((task) => task.id)).toEqual([doneTask.id]);
+      expect(withClosed.counts).toEqual(open.counts);
+    } finally {
+      close();
+    }
+  });
+
+  it("rejects a non-boolean includeClosed with a VALIDATION 400", async () => {
+    const { db, close, ctxA } = await setup();
+    try {
+      const response = await listTasksHandler(
+        db,
+        ctxA,
+        jsonRequest("/api/tasks?includeClosed=maybe", "GET"),
+      );
+      expect(response.status).toBe(400);
+      const payload = await body<{ error: { code: string; fields?: Record<string, unknown> } }>(
+        response,
+      );
+      expect(payload.error.code).toBe("VALIDATION");
+      expect(Object.keys(payload.error.fields ?? {})).toContain("includeClosed");
+    } finally {
+      close();
+    }
+  });
+
+  it("serves per-list counts and hides a partner's private list", async () => {
+    const { db, close, ctxA, ctxB, shared } = await setup();
+    try {
+      createTask(db, ctxA, { title: "Shared task", collectionId: shared.id });
+      const privateList = createCollection(db, ctxA, {
+        name: "Journal",
+        kind: "list",
+        hueFamily: "rose",
+        ownerId: "user-a",
+        visibility: "private",
+      });
+      createTask(db, ctxA, { title: "Secret", collectionId: privateList.id });
+
+      const own = await body<{ counts: TaskCounts; byCollection: Record<string, number> }>(
+        await taskCountsHandler(db, ctxA),
+      );
+      expect(own.byCollection[shared.id]).toBe(1);
+      expect(own.byCollection[privateList.id]).toBe(1);
+
+      const partner = await body<{ counts: TaskCounts; byCollection: Record<string, number> }>(
+        await taskCountsHandler(db, ctxB),
+      );
+      expect(partner.byCollection[shared.id]).toBe(1);
+      expect(partner.byCollection[privateList.id]).toBeUndefined();
+    } finally {
+      close();
+    }
+  });
+
+  it("rejects an unauthenticated counts request with 401 through the real route", async () => {
+    const response = await taskCountsRoute(new Request("http://localhost:3000/api/tasks/counts"));
+    expect(response.status).toBe(401);
+    const payload = await body<{ error: { code: string } }>(response);
+    expect(payload.error.code).toBe("UNAUTHENTICATED");
   });
 });

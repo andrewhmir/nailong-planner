@@ -6,6 +6,7 @@ import {
   createTask,
   deleteTask,
   getTask,
+  getTaskCountSummary,
   listTasks,
   reorderTasks,
   updateTask,
@@ -20,15 +21,16 @@ import {
 import { fieldErrors, guarded, readJson } from "./support";
 
 /**
- * `GET /api/tasks` reads only two query params, so absent ones become
+ * `GET /api/tasks` reads three query params, so absent ones become
  * `undefined` for the schema. Zod failures travel through `fieldErrors` as a
- * `VALIDATION` 400 `fields.view` / `fields.collectionId`.
+ * `VALIDATION` 400 `fields.view` / `fields.collectionId` / `fields.includeClosed`.
  */
 function parseListQuery(request: Request): ListTasksQuery {
   const { searchParams } = new URL(request.url);
   const parsed = listTasksQuerySchema.safeParse({
     view: searchParams.get("view") ?? undefined,
     collectionId: searchParams.get("collectionId") ?? undefined,
+    includeClosed: searchParams.get("includeClosed") ?? undefined,
   });
   if (!parsed.success) {
     throw fieldErrors(parsed.error);
@@ -95,5 +97,24 @@ export const reorderTasksHandler = guarded(
       throw fieldErrors(parsed.error);
     }
     return NextResponse.json({ tasks: reorderTasks(db, ctx, parsed.data) });
+  },
+);
+
+/**
+ * `GET /api/tasks/counts` — the per-list badge payload. It resolves the
+ * household exactly like the list handler so `today`/`endOfWeek` match the
+ * buckets; the service keeps private lists the viewer cannot read out of
+ * `byCollection`, so a partner's Inbox never appears.
+ */
+export const taskCountsHandler = guarded(
+  (db: Database, ctx: ViewerContext): Response => {
+    const household = getHousehold(db, ctx.householdId);
+    return NextResponse.json(
+      getTaskCountSummary(db, ctx, {
+        timezone: household.timezone,
+        // The column is a plain integer; the bucket maths only knows 0 or 1.
+        weekStartsOn: household.weekStartsOn === 1 ? 1 : 0,
+      }),
+    );
   },
 );
