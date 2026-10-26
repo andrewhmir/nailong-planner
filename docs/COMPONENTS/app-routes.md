@@ -295,17 +295,17 @@ Handlers in `lib/api/handlers/events.ts`; range parsing, search clamping and the
 
 ## Task routes
 
-Three thin routes over `lib/api/handlers/tasks.ts`; bucketing (`lib/domain/tasks.ts`), privacy, ordering and the checklist transaction all live in `lib/services/tasks.ts`.
+Four thin routes over `lib/api/handlers/tasks.ts`; bucketing (`lib/domain/tasks.ts`), privacy, ordering and the checklist transaction all live in `lib/services/tasks.ts`.
 
 ### app/api/tasks/route.ts
 
 **Purpose** — Lists the tasks of one view (or one list) and creates a task, defaulting to the caller's Inbox.
 
-**API** — `GET` query `view` in `inbox | today | week | someday | all` (optional; absent means `all`), optional `collectionId`, and optional `includeClosed` (`"true"`/`"false"` only; any other value is `400 VALIDATION` with `fields.includeClosed`) → `200 { tasks: TaskView[], counts: TaskCounts }`. `TaskView` is the row plus `checklist: ChecklistItemView[]` and `collection: { id, name, kind, hueFamily, shadeIndex }`; `TaskCounts` is `{ inbox, today, week, someday, overdue }`. An invalid `view` or an empty `collectionId` is `400 VALIDATION` with `fields.view` / `fields.collectionId`; an unknown or invisible `collectionId` is `200` with `tasks: []` while `counts` stays global. `POST` body `createTaskSchema` (`title` required, trimmed, 1-200; optional `notes`, `collectionId`, `scheduledOn`, `dueOn` as `YYYY-MM-DD`) → `201 { task }`. Without `collectionId` the task lands in the caller's private Inbox; a calendar target is `400 VALIDATION` "Tasks live in lists.", a view-only target `403`, and the partner's private list `404` "Calendar not found." (the collection resolver, not the task lookup).
+**API** — `GET` query `view` in `inbox | today | week | someday | all` (optional; absent means `all`), optional `collectionId`, and optional `includeClosed` (`"true"`/`"false"` only; any other value is `400 VALIDATION` with `fields.includeClosed`) → `200 { tasks: TaskView[], counts: TaskCounts }`. `TaskView` is the row plus `checklist: ChecklistItemView[]` and `collection: { id, name, kind, hueFamily, shadeIndex }`; `TaskCounts` is `{ inbox, today, week, someday, overdue }`. An invalid `view` or an empty `collectionId` is `400 VALIDATION` with `fields.view` / `fields.collectionId`; an unknown or invisible `collectionId` is `200` with `tasks: []` while `counts` stays global. `POST` body `createTaskSchema` (`title` required, trimmed, 1-200; optional `notes`, `collectionId`, `scheduledOn`, `dueOn` as `YYYY-MM-DD`, and `priority` in `none|low|normal|high|urgent`, default `none`) → `201 { task }`. Without `collectionId` the task lands in the caller's private Inbox; a calendar target is `400 VALIDATION` "Tasks live in lists.", a view-only target `403`, and the partner's private list `404` "Calendar not found." (the collection resolver, not the task lookup).
 
 **State & side effects** — `GET` reads the household for `timezone`/`weekStartsOn` (the bucket maths is household-local), may lazily create the caller's Inbox (`ensureInbox`), and returns active visible tasks only: done/dropped tasks are never listed unless `includeClosed=true`, in which case they join the bucket their dates imply (`bucketOfIncludingClosed`) while `counts` stay active-only. A task dated beyond this week appears only under `all`. `POST` inserts one row with a generated UUID, `createdBy` from the session and `sortOrder = max + 1` in the target list. No revalidation.
 
-**Depends on / Used by** — `withViewer`; `listTasksHandler`, `createTaskHandler`; `getHousehold`; `listTasksQuerySchema`, `createTaskSchema`. Clients: `useTasks(view?, collectionId?)` (query key `["tasks", view, collectionId]`) and `useCreateTask()` in `lib/query/tasks.ts`.
+**Depends on / Used by** — `withViewer`; `listTasksHandler`, `createTaskHandler`; `getHousehold`; `listTasksQuerySchema`, `createTaskSchema`. Clients: `useTasks(view?, collectionId?, includeClosed?)` (query key `["tasks", view, collectionId, "open"|"closed"]`) and `useCreateTask()` in `lib/query/tasks.ts`.
 
 **Debugging** — Badge counts do not move when a collection filter is applied -> expected: `counts` always covers every visible active task -> compare `useTasks()` with `useTasks(view, id)`. A task created without `collectionId` appears under Inbox -> intended (`ensureInbox`). `400 fields.view` -> the caller sent a bucket name `lib/domain/tasks.ts` does not define -> `taskViewSchema`. A new task is missing from `view=today` -> it has no `scheduledOn`/`dueOn` yet, so it sits in Inbox or Someday -> check the body.
 
@@ -347,7 +347,7 @@ Three thin routes over `lib/api/handlers/tasks.ts`; bucketing (`lib/domain/tasks
 
 **State & side effects** — Reads the household for `timezone`/`weekStartsOn`, may lazily create the caller's Inbox (`ensureInbox`), and resolves visibility through `resolveVisibleCollections`; the read is active-only and never writes task rows. No revalidation.
 
-**Depends on / Used by** — `withViewer`; `taskCountsHandler`; `getTaskCountSummary` in `lib/services/tasks.ts`. Client: `useTaskCounts()` in `lib/query/tasks.ts` (query key `["tasks", "counts"]`, enabled only while the sidebar is on `/tasks`).
+**Depends on / Used by** — `withViewer`; `taskCountsHandler`; `getTaskCountSummary` in `lib/services/tasks.ts`. Client: `useTaskCounts()` in `lib/query/tasks.ts` (query key `["tasks", "counts"]`); the sidebar turns it on only while it is on `/tasks` (that switch is wired with the tasks UI, and the hook defaults to enabled).
 
 **Debugging** — An empty `byCollection` while tasks exist -> every task is done/dropped or in a private list the viewer does not own -> compare with `GET /api/tasks`. A count differs from the list's badge -> the two requests used different `weekStartsOn` (the household changed) or a stale cache -> `useTaskCounts` invalidates with the `["tasks"]` prefix. 404 for the route itself -> the file was added after a build; restart the dev server.
 

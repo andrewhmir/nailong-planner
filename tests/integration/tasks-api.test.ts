@@ -366,12 +366,14 @@ describe("task API", () => {
       const own = await body<{ counts: TaskCounts; byCollection: Record<string, number> }>(
         await taskCountsHandler(db, ctxA),
       );
+      expect(own.counts).toEqual({ inbox: 0, today: 0, week: 0, someday: 2, overdue: 0 });
       expect(own.byCollection[shared.id]).toBe(1);
       expect(own.byCollection[privateList.id]).toBe(1);
 
       const partner = await body<{ counts: TaskCounts; byCollection: Record<string, number> }>(
         await taskCountsHandler(db, ctxB),
       );
+      expect(partner.counts).toEqual({ inbox: 0, today: 0, week: 0, someday: 1, overdue: 0 });
       expect(partner.byCollection[shared.id]).toBe(1);
       expect(partner.byCollection[privateList.id]).toBeUndefined();
     } finally {

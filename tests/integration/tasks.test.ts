@@ -995,6 +995,30 @@ describe("includeClosed", () => {
       close();
     }
   });
+
+  it("keeps a closed task dated beyond this week out of every bucket", async () => {
+    const seeded = await makeSeededDb();
+    const { db, close, ctxA } = seeded;
+    const { shared } = makeLists(seeded);
+    try {
+      const doneNextMonth = createTask(db, ctxA, {
+        title: "Already done next month",
+        collectionId: shared.id,
+        // Fixture clock: Wednesday 2026-10-21, so November is beyond the week.
+        scheduledOn: "2026-11-30",
+      });
+      updateTask(db, ctxA, doneNextMonth.id, { status: "done" });
+
+      const week = listTasks(db, ctxA, filterInput({ view: "week", includeClosed: true }));
+      expect(ids(week.tasks)).not.toContain(doneNextMonth.id);
+
+      const all = listTasks(db, ctxA, filterInput({ view: "all", includeClosed: true }));
+      expect(ids(all.tasks)).toContain(doneNextMonth.id);
+      expect(all.counts).toEqual({ inbox: 0, today: 0, week: 0, someday: 0, overdue: 0 });
+    } finally {
+      close();
+    }
+  });
 });
 
 describe("getTaskCountSummary", () => {
