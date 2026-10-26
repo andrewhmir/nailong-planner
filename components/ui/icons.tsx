@@ -251,4 +251,23 @@ export function FocusIcon(props: IconProps) {
   );
 }
 
+export function FlagIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M5 21V4" />
+      <path d="M5 4h11l-2.6 4.5L16 13H5Z" fill="currentColor" />
+    </Svg>
+  );
+}
+
+export function BoardIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3" y="4" width="5" height="16" rx="1" />
+      <rect x="9.5" y="4" width="5" height="11" rx="1" />
+      <rect x="16" y="4" width="5" height="14" rx="1" />
+    </Svg>
+  );
+}
+
 

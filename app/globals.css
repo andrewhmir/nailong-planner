@@ -20,6 +20,16 @@
   --color-accent-press: #0a5a9e;
   --color-link: #0e68b3;
 
+  /* v0.2.1 task workspace: violet selection and todo/progress status dots.
+     Consumed only by components/tasks/*. */
+  --color-violet: #7b68ee;
+  --color-violet-soft: #efedfd;
+  --color-violet-press: #6a55e8;
+  --color-status-todo: #87909e;
+  --color-status-todo-soft: #eceef0;
+  --color-status-progress: #4a90e2;
+  --color-status-progress-soft: #e8f1fc;
+
   /* callouts */
   --color-info-soft: #e0ebf5;
   --color-info-ink: #334451;

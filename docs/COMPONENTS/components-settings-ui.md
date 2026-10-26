@@ -161,7 +161,7 @@ The three `/api/auth/*` calls are served by the Better Auth catch-all `app/api/a
 
 ### components/ui/icons.tsx
 
-**Purpose** — The project's only icon source: inline 24×24 stroke SVGs, no icon package. Every icon renders `fill="none"`, `stroke="currentColor"`, `strokeWidth={1.5}` with round caps and joins, and is decorative unless given a `title`.
+**Purpose** — The project's only icon source: inline 24×24 stroke SVGs, no icon package. Every icon renders `stroke="currentColor"` at `strokeWidth={1.5}` with round caps and joins, and is decorative unless given a `title`; the shared `Svg` helper sets `fill="none"`, and only `FlagIcon` fills its pennant with `currentColor`.
 
 **Public API** — `export interface IconProps { size?: number; className?: string; title?: string }`; `size` defaults to `20`. Every icon is `(props: IconProps) => JSX.Element`; the internal `Svg` helper is not exported. `title` makes the SVG `role="img"` with a `<title>` child; without it the SVG is `aria-hidden="true"`. The file has no `"use client"`, so it renders from server components too.
 
@@ -180,12 +180,13 @@ The three `/api/auth/*` calls are served by the Better Auth catch-all `app/api/a
 | `TasksIcon` | Tasks rail | `TodayIcon` | Today rail (planned) |
 | `NotesIcon` | Notes rail (planned) | `FocusIcon` | Focus rail (planned) |
 | `ListIcon` | sidebar task-list rows (in place of a calendar swatch) | `ClockIcon` | event dialog time field |
+| `FlagIcon` | task priority flag (filled pennant) | `BoardIcon` | list/board view toggle |
 
 **State & side effects** — None; pure rendering.
 
 **Depends on / Used by** — Only `import type { ReactNode } from "react"`. Imported by `app/(app)/settings/page.tsx`, `components/ui/checkbox.tsx`, `components/shell/{AppShell,GlobalNavRail,BreadcrumbBar}.tsx`, `components/sidebar/{CollectionRow,CollectionTree}.tsx`, `components/calendar/{CalendarPicker,DateField,MiniMonth,SearchBox,TimeField,Toolbar}.tsx`; also by `tests/unit/icons.test.ts`.
 
-**Debugging** — `an icon does not exist under the name you guessed -> names are PascalCase plus an "Icon" suffix and only the 26 in the table above exist -> import from here, never from a package. an icon ignores its size -> width/height come from the size prop with a 20 default -> check the caller. a screen reader stays silent on a meaningful icon -> pass title; otherwise aria-hidden is intentional`.
+**Debugging** — `an icon does not exist under the name you guessed -> names are PascalCase plus an "Icon" suffix and only the 28 in the table above exist -> import from here, never from a package. an icon ignores its size -> width/height come from the size prop with a 20 default -> check the caller. a screen reader stays silent on a meaningful icon -> pass title; otherwise aria-hidden is intentional`.
 
 **Tests** — `tests/unit/icons.test.ts` (stroke/fill, default 20px, `aria-hidden`, `title` handling, and `ListIcon`'s shared contract).
 
