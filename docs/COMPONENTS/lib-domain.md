@@ -15,6 +15,7 @@ shifts by a day, or an API error carries the wrong code or status.
 | lib/time/format.ts | Every human-facing time/date string in the app |
 | lib/time/zone.ts | Wall-clock/locale-date <-> UTC instant conversion; the all-day contract |
 | lib/domain/tasks.ts | Read-time Inbox/Today/Week/Someday buckets and the overdue badge; pure date-string math |
+| lib/domain/taskViews.ts | List/board sorting, grouping and filtering plus the status/priority label and order tables |
 | lib/env.ts | Zod-validated `process.env`, parsed once at import |
 | lib/errors.ts | `AppError` and the five error codes services throw |
 | lib/roadmap.ts | Rail destinations, `APP_VERSION` and the promised-version policy |
@@ -265,6 +266,45 @@ shifts by a day, or an API error carries the wrong code or status.
 - A task created just before midnight changes bucket with no edit -> expected: buckets are derived, not stored -> nothing to fix.
 
 **Tests** — `tests/unit/tasks-buckets.test.ts` pins both week-start conventions to real 2026 dates, the earliest-date anchor, the Inbox/Someday split, done/dropped and the closed-inclusive rule, `in_progress` as active, the overdue boundary, the priority ranks and the Taipei-vs-UTC `localToday` regression.
+
+### lib/domain/taskViews.ts
+
+**Purpose** — The pure view model behind the task List and Board: order rows by one of five sorts, split them into ordered groups (status/priority/list) and apply the toolbar's status/priority/list filters. It also owns the status and priority label and order tables the UI, tests and URL-state module read, so a renamed status or a new priority is edited once. No React, no SQL and no clock reads.
+
+**Public API**
+- `type TaskLayout = "list" | "board"`; `type GroupBy = "status" | "priority" | "list"`; `type TaskSort = "manual" | "priority" | "due" | "created" | "title"`.
+- `TASK_STATUS_ORDER: readonly TaskStatus[]` — `["open", "in_progress", "done", "dropped"]`, workflow order; grouped-list sections and board columns follow it.
+- `TASK_STATUS_LABELS: Readonly<Record<TaskStatus, string>>` — `open` → "To do", `in_progress` → "In progress", `done` → "Done", `dropped` → "Dropped".
+- `TASK_PRIORITY_ORDER: readonly TaskPriority[]` — `["urgent", "high", "normal", "low", "none"]`, most urgent first.
+- `TASK_PRIORITY_LABELS: Readonly<Record<TaskPriority, string>>` — "Urgent" through "None".
+- `TASK_PRIORITY_RANK: Readonly<Record<TaskPriority, number>>` — `urgent` 4 through `none` 0, built from `priorityRank` so the two cannot drift.
+- `interface SortableTask { status; priority; scheduledOn; dueOn; sortOrder; createdAt; title; id }`; `interface GroupableTask extends SortableTask { collection: { id: string; name: string } }` — structural constraints, so a `TaskView` satisfies them with no import from `lib/services/tasks.ts`.
+- `interface TaskGroup<T> { key: string; label: string; tasks: T[] }`; `interface TaskFilters { status: TaskStatus[]; priority: TaskPriority[]; collectionId: string | null }`.
+- `sortTasks<T extends SortableTask>(tasks: readonly T[], sort: TaskSort): T[]` — a sorted **copy**; the input array is never mutated.
+- `groupTasks<T extends GroupableTask>(tasks: readonly T[], by: GroupBy): TaskGroup<T>[]` — ordered groups with empty groups omitted.
+- `filterTasks<T extends SortableTask & { collectionId: string }>(tasks: readonly T[], filters: TaskFilters): T[]` — the intersection of the three constraints.
+
+**Sort and group rules**
+- The **effective date** is the earliest of `scheduledOn` and `dueOn` (nulls absent), matching the bucket anchor in `lib/domain/tasks.ts`, so a past deadline beats a later schedule and an undated task sorts after every dated one.
+- `manual` = `sortOrder` → `createdAt` → `id`; `priority` = rank desc → effective date → `createdAt` → `id`; `due` = effective date → rank desc → `createdAt` → `id`; `created` = `createdAt` **desc** (newest first) → `id`; `title` = `localeCompare` → `createdAt` → `id`. Every sort ends on `createdAt`/`id`, so the rendered order is deterministic.
+- Status groups walk `TASK_STATUS_ORDER`, priority groups walk `TASK_PRIORITY_ORDER`. List groups are one per `collection.id` (`key` is the id, `label` the name) sorted by `collection.name` with `localeCompare`. Groups with zero tasks are omitted, so an empty Done column or an unused priority renders no header.
+- Nothing inside a group is re-sorted: the order is the input order, so callers pass `sortTasks` output to `groupTasks`.
+- `filterTasks` applies the status set, the priority set and `collectionId` together. An **empty** array and a **`null`** collection id mean "no constraint", not "match nothing", so the default toolbar state (all arrays empty) passes every row through.
+
+**State & side effects** — None. Pure functions over readonly input and module-level constant tables; no I/O, no storage, no hooks, no clock reads.
+
+**Depends on / Used by** — `TaskStatus`/`TaskPriority` from `lib/db/schema`; `priorityRank` from `lib/domain/tasks`. No callers yet in this commit: the task UI added later in v0.2.1 (`components/tasks/TaskList.tsx`, `TaskBoard.tsx`, `TaskToolbar.tsx`, `TasksShell.tsx`) consumes the sorts/groups/labels, and `lib/ui/taskViewParams.ts` imports `TaskLayout`/`GroupBy`/`TaskSort`. `tests/unit/task-views.test.ts` pins it.
+
+**Debugging**
+- Rows jump between renders -> a comparator did not end on `createdAt`/`id` -> check `SORT_COMPARATORS`.
+- An undated task sorts above a dated one -> `null` was compared as an empty string -> use `compareEffectiveDate`, which puts nulls last.
+- Priority sort puts `none` first -> priority strings or `TASK_PRIORITY_ORDER` were sorted ascending -> sort by `priorityRank` descending.
+- An empty group header shows -> the UI iterated an order table itself instead of rendering `groupTasks` output -> `groupTasks` omits empty groups.
+- Two same-named lists merge into one section -> groups were keyed by `collection.name` instead of `collection.id` -> `groupByList`.
+- Choosing no filters hides every row -> an empty `status`/`priority` array was treated as "match none" -> empty means no constraint in `filterTasks`.
+- A manual reorder has no effect -> the caller did not pass `sort="manual"`, or `sortOrder` was not persisted before re-reading -> check the view state and the service reorder.
+
+**Tests** — `tests/unit/task-views.test.ts` pins the label and order tables, all five sorts (priority/effective-date with undated last, manual `sortOrder`/`createdAt`/`id`, due, created, title), the copy/no-mutation contract, status/priority/list grouping with empty groups omitted and list names sorted, the filter intersection and the empty-input case.
 
 ## Time and timezone
 
