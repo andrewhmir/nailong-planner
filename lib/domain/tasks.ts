@@ -1,4 +1,4 @@
-import type { TaskRow } from "@/lib/db/schema";
+import type { TaskPriority, TaskRow, TaskStatus } from "@/lib/db/schema";
 import { weekdayOfDate } from "@/lib/recurrence/rule";
 import { addDaysToDate, utcToLocalDate } from "@/lib/time/zone";
 
@@ -7,7 +7,8 @@ import { addDaysToDate, utcToLocalDate } from "@/lib/time/zone";
  * from the task's date-only `YYYY-MM-DD` columns plus the household's `today` /
  * `endOfWeek` and its Inbox id, so it cannot go stale at midnight. `overdue` is
  * a cross-cutting badge (`isOverdue`), not a bucket, and a finished or dropped
- * task belongs to no bucket at all.
+ * task belongs to no bucket at all unless the caller asks for closed rows
+ * (`bucketOfIncludingClosed`).
  *
  * Pure string date math only: no clock reads except `localToday`'s default, no
  * SQL and no React.
@@ -17,6 +18,17 @@ export type TaskBucket = "inbox" | "today" | "week" | "someday";
 
 /** The triage views, in rail order. */
 export const TASK_BUCKETS: readonly TaskBucket[] = ["inbox", "today", "week", "someday"];
+
+/**
+ * The statuses of an unfinished task: it can be bucketed and can go overdue.
+ * Every "still to do" check goes through this list, never a literal `"open"`.
+ */
+export const TASK_ACTIVE_STATUSES: readonly TaskStatus[] = ["open", "in_progress"];
+
+/** True when `status` is unfinished — `open` or `in_progress`. */
+export function isActiveStatus(status: TaskStatus): boolean {
+  return TASK_ACTIVE_STATUSES.includes(status);
+}
 
 /** Everything a bucket needs beyond the row itself; all dates are household-local. */
 export interface BucketContext {
@@ -39,22 +51,19 @@ export function endOfWeek(date: string, weekStartsOn: 0 | 1): string {
 }
 
 /**
- * The bucket an open task belongs to, or `null` when it is done/dropped or
- * dated beyond this week. The earliest commitment anchors the task — the
- * earlier of `scheduledOn` and `dueOn` (nulls are absent) — so a task scheduled
- * later but already past due still shows in Today, and a due-only task in a
- * project list reaches Today/Week instead of being stranded. An undated task
- * belongs to the Inbox only if it is in that list; every other undated task is
- * Someday. A task dated beyond this week is in none of the four triage views;
- * it stays on the calendar month grid until its week arrives.
+ * The bucket a task's dates put it in, ignoring its status. The earliest
+ * commitment anchors the task — the earlier of `scheduledOn` and `dueOn` (nulls
+ * are absent) — so a task scheduled later but already past due still shows in
+ * Today, and a due-only task in a project list reaches Today/Week instead of
+ * being stranded. An undated task belongs to the Inbox only if it is in that
+ * list; every other undated task is Someday. A task dated beyond this week is in
+ * none of the four triage views; it stays on the calendar month grid until its
+ * week arrives.
  */
-export function bucketOf(
-  task: Pick<TaskRow, "status" | "scheduledOn" | "dueOn" | "collectionId">,
+function bucketFromDates(
+  task: Pick<TaskRow, "scheduledOn" | "dueOn" | "collectionId">,
   ctx: BucketContext,
 ): TaskBucket | null {
-  if (task.status !== "open") {
-    return null;
-  }
   const { scheduledOn, dueOn } = task;
   if (scheduledOn === null && dueOn === null) {
     return task.collectionId === ctx.inboxId ? "inbox" : "someday";
@@ -73,12 +82,52 @@ export function bucketOf(
   return null;
 }
 
-/** True when an open task's deadline has passed; `dueOn === today` is not overdue. */
+/**
+ * The bucket an active task belongs to, or `null` when it is done/dropped or
+ * dated beyond this week. Uses the same date rule as `bucketOfIncludingClosed`.
+ */
+export function bucketOf(
+  task: Pick<TaskRow, "status" | "scheduledOn" | "dueOn" | "collectionId">,
+  ctx: BucketContext,
+): TaskBucket | null {
+  return isActiveStatus(task.status) ? bucketFromDates(task, ctx) : null;
+}
+
+/**
+ * The bucket a task belongs to regardless of status, for views that show
+ * finished rows inside their triage bucket. It applies exactly the same date
+ * rule as `bucketOf`: `null` only when the anchor is dated beyond this week.
+ */
+export function bucketOfIncludingClosed(
+  task: Pick<TaskRow, "status" | "scheduledOn" | "dueOn" | "collectionId">,
+  ctx: BucketContext,
+): TaskBucket | null {
+  return bucketFromDates(task, ctx);
+}
+
+/** True when an active task's deadline has passed; `dueOn === today` is not overdue. */
 export function isOverdue(
   task: Pick<TaskRow, "status" | "dueOn">,
   today: string,
 ): boolean {
-  return task.status === "open" && task.dueOn !== null && task.dueOn < today;
+  return isActiveStatus(task.status) && task.dueOn !== null && task.dueOn < today;
+}
+
+/** Priority sort ranks, least important first — `none` 0 through `urgent` 4. */
+const PRIORITY_RANK: Record<TaskPriority, number> = {
+  none: 0,
+  low: 1,
+  normal: 2,
+  high: 3,
+  urgent: 4,
+};
+
+/**
+ * Sort rank of a priority: `none` 0, `low` 1, `normal` 2, `high` 3, `urgent` 4.
+ * Grouping/sorting code sorts by this number, never by the priority string.
+ */
+export function priorityRank(priority: TaskPriority): number {
+  return PRIORITY_RANK[priority];
 }
 
 /** The household's calendar date (`YYYY-MM-DD`) at `now`; defaults to the clock. */

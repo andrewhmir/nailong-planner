@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { TaskRow } from "@/lib/db/schema";
 import {
   bucketOf,
+  bucketOfIncludingClosed,
   endOfWeek,
+  isActiveStatus,
   isOverdue,
   localToday,
+  priorityRank,
+  TASK_ACTIVE_STATUSES,
   TASK_BUCKETS,
   type BucketContext,
   type TaskBucket,
@@ -133,5 +137,56 @@ describe("localToday", () => {
     // 2026-10-24T17:00Z is 01:00 on 2026-10-25 in Taipei (Review Focus 3).
     expect(localToday("Asia/Taipei", Date.UTC(2026, 9, 24, 17, 0))).toBe("2026-10-25");
     expect(localToday("UTC", Date.UTC(2026, 9, 24, 17, 0))).toBe("2026-10-24");
+  });
+});
+
+describe("active statuses", () => {
+  it("treats open and in_progress as unfinished", () => {
+    expect(TASK_ACTIVE_STATUSES).toEqual(["open", "in_progress"]);
+    for (const status of TASK_ACTIVE_STATUSES) {
+      expect(isActiveStatus(status)).toBe(true);
+    }
+    expect(isActiveStatus("done")).toBe(false);
+    expect(isActiveStatus("dropped")).toBe(false);
+  });
+
+  it("buckets in_progress tasks like open ones", () => {
+    // Same fields, same bucket as an open task: the status is not a second rule.
+    expect(bucketOf(task({ status: "in_progress", collectionId: INBOX_ID }), ctx)).toBe("inbox");
+    expect(bucketOf(task({ status: "in_progress", scheduledOn: TODAY }), ctx)).toBe("today");
+    expect(isOverdue({ status: "in_progress", dueOn: "2026-10-20" }, TODAY)).toBe(true);
+    expect(isOverdue({ status: "in_progress", dueOn: TODAY }, TODAY)).toBe(false);
+  });
+});
+
+describe("bucketOfIncludingClosed", () => {
+  it("gives closed tasks a bucket only through bucketOfIncludingClosed", () => {
+    const done = task({ status: "done", scheduledOn: "2026-10-21" });
+    expect(bucketOf(done, ctx)).toBeNull();
+    expect(bucketOfIncludingClosed(done, ctx)).toBe("today");
+    const undatedDone = task({ status: "done", collectionId: INBOX_ID });
+    expect(bucketOfIncludingClosed(undatedDone, ctx)).toBe("inbox");
+    expect(
+      bucketOfIncludingClosed(task({ status: "dropped", dueOn: "2026-11-30" }), ctx),
+    ).toBeNull();
+  });
+
+  it("applies the same earliest-anchor rule to a closed task", () => {
+    // The later schedule must not hide the deadline that already passed.
+    expect(
+      bucketOfIncludingClosed(
+        task({ status: "done", scheduledOn: "2026-10-26", dueOn: TODAY }),
+        ctx,
+      ),
+    ).toBe("today");
+    expect(bucketOfIncludingClosed(task({ status: "dropped" }), ctx)).toBe("someday");
+  });
+});
+
+describe("priorityRank", () => {
+  it("ranks priorities none < low < normal < high < urgent", () => {
+    expect((["none", "low", "normal", "high", "urgent"] as const).map(priorityRank)).toEqual([
+      0, 1, 2, 3, 4,
+    ]);
   });
 });

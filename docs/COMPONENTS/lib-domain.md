@@ -234,30 +234,37 @@ shifts by a day, or an API error carries the wrong code or status.
 
 ### lib/domain/tasks.ts
 
-**Purpose** — Derives a task's Inbox/Today/Week/Someday triage bucket and its overdue badge from date-only columns every time they are read, so no bucket is stored and none can go stale at midnight. Pure string date math: no clock read except `localToday`'s default, no SQL, no React.
+**Purpose** — Derives a task's Inbox/Today/Week/Someday triage bucket and its overdue badge from date-only columns every time they are read, so no bucket is stored and none can go stale at midnight. It also owns the "unfinished" status rule (`open` + `in_progress`) and the priority sort rank the task views group and order by. Pure string date math: no clock read except `localToday`'s default, no SQL, no React.
 
 **Public API**
 - `type TaskBucket = "inbox" | "today" | "week" | "someday"`; `TASK_BUCKETS: readonly TaskBucket[]` — the four triage views in rail order.
 - `interface BucketContext { today: string; endOfWeek: string; inboxId: string }` — household-local `YYYY-MM-DD` dates plus the household's Inbox list id.
 - `endOfWeek(date: string, weekStartsOn: 0 | 1): string` — last day (inclusive) of the seven-day week containing `date`; 0 = Sunday start, 1 = Monday start.
-- `bucketOf(task: Pick<TaskRow, "status" | "scheduledOn" | "dueOn" | "collectionId">, ctx: BucketContext): TaskBucket | null` — `null` for a task that is not `open`, or whose anchor is dated after `ctx.endOfWeek`.
-- `isOverdue(task: Pick<TaskRow, "status" | "dueOn">, today: string): boolean` — `status === "open" && dueOn !== null && dueOn < today`; a deadline of today is not overdue.
+- `TASK_ACTIVE_STATUSES: readonly TaskStatus[]` — `["open", "in_progress"]`: the only statuses that count as unfinished.
+- `isActiveStatus(status: TaskStatus): boolean` — true for `open` and `in_progress`; every "still to do" check calls it instead of comparing to `"open"`.
+- `bucketOf(task: Pick<TaskRow, "status" | "scheduledOn" | "dueOn" | "collectionId">, ctx: BucketContext): TaskBucket | null` — `null` for a task whose status is not active (`isActiveStatus`), or whose anchor is dated after `ctx.endOfWeek`.
+- `bucketOfIncludingClosed(task: Pick<TaskRow, "status" | "scheduledOn" | "dueOn" | "collectionId">, ctx: BucketContext): TaskBucket | null` — the same date rule with the status gate removed, so a done/dropped task still lands in its triage bucket and is `null` only when it is dated beyond this week.
+- `isOverdue(task: Pick<TaskRow, "status" | "dueOn">, today: string): boolean` — `isActiveStatus(status) && dueOn !== null && dueOn < today`; a deadline of today is not overdue.
+- `priorityRank(priority: TaskPriority): number` — `none` 0, `low` 1, `normal` 2, `high` 3, `urgent` 4; sort by this number, never by the priority string.
 - `localToday(timeZone: string, now = Date.now()): string` — the household-local calendar date of an instant; `now` (epoch ms) is injectable for tests.
 
-**The bucket rule** — The anchor is the earliest commitment: the earlier of `scheduledOn` and `dueOn`, with `null` meaning absent. A task scheduled for next week but already past due is therefore in Today (the overdue badge comes from `isOverdue`, independent of the bucket), and a due-only task in a project list reaches Today/Week instead of being stranded in Someday. With both dates absent, the task is Inbox when `collectionId === ctx.inboxId` and Someday otherwise. An anchor `<= ctx.today` is Today, `<= ctx.endOfWeek` is Week, and anything later is **no bucket at all** — it stays on the calendar month grid until its week arrives. Done and dropped tasks are in no bucket.
+**The bucket rule** — The anchor is the earliest commitment: the earlier of `scheduledOn` and `dueOn`, with `null` meaning absent. A task scheduled for next week but already past due is therefore in Today (the overdue badge comes from `isOverdue`, independent of the bucket), and a due-only task in a project list reaches Today/Week instead of being stranded in Someday. With both dates absent, the task is Inbox when `collectionId === ctx.inboxId` and Someday otherwise. An anchor `<= ctx.today` is Today, `<= ctx.endOfWeek` is Week, and anything later is **no bucket at all** — it stays on the calendar month grid until its week arrives. Done and dropped tasks are in no bucket through `bucketOf`; `bucketOfIncludingClosed` gives them the bucket their dates imply, which is how a finished row stays under the view it was completed in. `null` from either function always means the anchor is dated beyond this week.
 
 **State & side effects** — None. String comparisons plus `addDaysToDate`/`weekdayOfDate` arithmetic; `localToday` reads the clock only when `now` is omitted.
 
-**Depends on / Used by** — `TaskRow` from `lib/db/schema`; `weekdayOfDate` from `lib/recurrence/rule`; `addDaysToDate`/`utcToLocalDate` from `lib/time/zone`. Consumers: `lib/services/tasks.ts` (`bucketOf`, `endOfWeek`, `isOverdue`, `localToday`, the bucket types), `lib/validation/tasks.ts` (`TASK_BUCKETS`), `lib/query/tasks.ts` (`TaskBucket` type), and the UI — `TasksShell` (`endOfWeek`, `localToday`), `TaskCaptureBar` (`localToday`), `TaskViewSwitcher` (`TASK_BUCKETS`) and `TaskRow` (`isOverdue`). `tests/unit/tasks-buckets.test.ts` pins the maths.
+**Depends on / Used by** — `TaskRow`/`TaskStatus`/`TaskPriority` from `lib/db/schema`; `weekdayOfDate` from `lib/recurrence/rule`; `addDaysToDate`/`utcToLocalDate` from `lib/time/zone`. Consumers: `lib/services/tasks.ts` (`bucketOf`, `endOfWeek`, `isOverdue`, `localToday`, the bucket types), `lib/validation/tasks.ts` (`TASK_BUCKETS`), `lib/query/tasks.ts` (`TaskBucket` type), and the UI — `TasksShell` (`endOfWeek`, `localToday`), `TaskCaptureBar` (`localToday`), `TaskViewSwitcher` (`TASK_BUCKETS`) and `TaskRow` (`isOverdue`). `tests/unit/tasks-buckets.test.ts` pins the maths.
 
 **Debugging**
-- A past-due task is missing from Today -> the anchor was read as `scheduledOn ?? dueOn` instead of the earliest date -> `bucketOf`'s `effective` computation.
+- A past-due task is missing from Today -> the anchor was read as `scheduledOn ?? dueOn` instead of the earliest date -> `bucketFromDates`'s `effective` computation.
+- An `in_progress` task vanishes from Inbox/Today/Week -> a caller compared `status === "open"` instead of calling `isActiveStatus` -> search the caller for the literal `"open"`.
+- A finished task disappears from the view it was completed in -> the view calls `bucketOf` where it shows closed rows -> use `bucketOfIncludingClosed` for done/dropped rows.
 - A task is in none of the four views -> it is dated after `ctx.endOfWeek`; that is intended, and the calendar month grid is where to find it -> check the dates and `ctx.endOfWeek`.
 - Buckets change a day late or early -> `ctx.today` came from the device clock, UTC, or a stored bucket instead of `localToday(household.timezone)` -> check the caller.
 - A Sunday task shows a week late with a Monday-start household -> `weekStartsOn` was inverted, or the week was assumed to end on Saturday -> `endOfWeek` and `household.weekStartsOn`.
+- Priority order comes out wrong (`high` before `low`, or `none` first) -> something sorted the priority string instead of its number -> use `priorityRank`.
 - A task created just before midnight changes bucket with no edit -> expected: buckets are derived, not stored -> nothing to fix.
 
-**Tests** — `tests/unit/tasks-buckets.test.ts` pins both week-start conventions to real 2026 dates, the earliest-date anchor, the Inbox/Someday split, done/dropped, the overdue boundary and the Taipei-vs-UTC `localToday` regression.
+**Tests** — `tests/unit/tasks-buckets.test.ts` pins both week-start conventions to real 2026 dates, the earliest-date anchor, the Inbox/Someday split, done/dropped and the closed-inclusive rule, `in_progress` as active, the overdue boundary, the priority ranks and the Taipei-vs-UTC `localToday` regression.
 
 ## Time and timezone
 
