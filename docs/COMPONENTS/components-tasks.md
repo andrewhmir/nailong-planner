@@ -103,7 +103,7 @@ States: `isError` renders `role="alert"` with "Could not load the tasks." and a 
 - `?` does nothing while the sheet is open -> expected: `hasOpenOverlay()` blocks all page keys and Radix owns Escape/close.
 - A key advertised here does not work -> compare `GROUPS` with `resolveTaskShortcut` in `lib/ui/useTaskShortcuts.ts`; the dialog must not advertise a gesture the resolver does not own.
 
-**Tests** — No direct unit test (static markup); scenario 2 of `tests/e2e/tasks.spec.ts` exercises a subset of the keys it lists (selection, triage and the panel hand-off), not all 12.
+**Tests** — No direct unit test (static markup); the triage tests in `tests/e2e/tasks.spec.ts` exercise a subset of the keys it lists (selection, triage and the panel hand-off), not all 12.
 
 ### components/tasks/TaskRow.tsx
 
