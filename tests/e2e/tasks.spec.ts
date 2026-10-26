@@ -538,6 +538,67 @@ test("a sidebar list shows its active count and quick-add creates a task in it",
   createdIds.push(created!.id);
 });
 
+// The page capture row is the pointer path into the Inbox: Enter creates the
+// task without leaving `/tasks`, and the settle refetch paints it in the To do
+// group (the create body carries no dates, so the server buckets it as Inbox).
+test("the page capture row creates an Inbox task that appears in the list", async ({ page }) => {
+  const title = `E2E capture row ${stamp()}`;
+  await openTasks(page);
+
+  const input = page.locator("#task-capture");
+  await input.fill(title);
+  await input.press("Enter");
+
+  // The field clears only after the create succeeds.
+  await expect(input).toHaveValue("");
+
+  await expect
+    .poll(async () => {
+      const tasks = await tasksInCollection(page, fixtures.collections.andrewInbox);
+      return tasks.some((task) => task.title === title);
+    })
+    .toBe(true);
+  const created = (await tasksInCollection(page, fixtures.collections.andrewInbox)).find(
+    (task) => task.title === title,
+  );
+  expect(created).toBeTruthy();
+  createdIds.push(created!.id);
+  await expect(
+    groupSection(page, "To do").locator(`li[data-task-id="${created!.id}"]`),
+  ).toBeVisible();
+});
+
+// A board column's own capture row creates straight into that status: the create
+// body carries `in_progress`, so the API row and the painted column agree.
+test("a board column's capture row creates a task with that column's status", async ({ page }) => {
+  const title = `E2E column capture ${stamp()}`;
+  await page.goto("/tasks?layout=board");
+  await expect(page.getByTestId("task-board")).toBeVisible();
+
+  const input = page.locator("#task-capture-in_progress");
+  await input.fill(title);
+  await input.press("Enter");
+  await expect(input).toHaveValue("");
+
+  await expect
+    .poll(async () => {
+      const tasks = await tasksInCollection(page, fixtures.collections.andrewInbox);
+      return tasks.some((task) => task.title === title);
+    })
+    .toBe(true);
+  const created = (await tasksInCollection(page, fixtures.collections.andrewInbox)).find(
+    (task) => task.title === title,
+  );
+  expect(created).toBeTruthy();
+  createdIds.push(created!.id);
+  expect(created!.status).toBe("in_progress");
+  await expect(
+    page
+      .getByTestId("task-board-column-in_progress")
+      .locator(`li[data-task-id="${created!.id}"]`),
+  ).toBeVisible();
+});
+
 // Acceptance criterion 3: the partner cannot see the private list or its tasks,
 // in the tree, the views or the API.
 test("the partner cannot see the private list or its tasks", async ({ page }) => {

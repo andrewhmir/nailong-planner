@@ -16,13 +16,18 @@ import { cn } from "@/lib/utils";
  * Flag colour by priority. Urgent/high use the callout tokens, normal uses the
  * accent and the two quiet levels stay muted; `none` is the same muted flag at
  * lower emphasis, so an unprioritised row still has a reachable picker.
+ *
+ * Only the **icon** is coloured. The priority word stays `text-ink-soft`
+ * because a coloured `text-xs` label did not meet WCAG AA on the row's surface;
+ * `none`'s dimming is on the icon (revealed by hovering the button) rather than
+ * the whole control, so the label keeps its contrast.
  */
-const PRIORITY_STYLES: Record<TaskPriority, string> = {
+const PRIORITY_ICONS: Record<TaskPriority, string> = {
   urgent: "text-danger",
   high: "text-warning",
   normal: "text-accent",
   low: "text-ink-mute",
-  none: "text-ink-mute opacity-60 hover:opacity-100",
+  none: "text-ink-mute opacity-60 group-hover:opacity-100",
 };
 
 interface Props {
@@ -47,13 +52,12 @@ export function TaskPriorityFlag({ priority, onChange }: Props) {
           aria-label={`Priority: ${label}`}
           data-testid={`task-priority-${priority}`}
           className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs transition-colors",
-            "hover:bg-well focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet",
+            "group inline-flex shrink-0 items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs text-ink-soft transition-colors",
+            "hover:bg-well hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet",
             "[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 [@media(pointer:coarse)]:justify-center",
-            PRIORITY_STYLES[priority],
           )}
         >
-          <FlagIcon size={13} className="shrink-0" />
+          <FlagIcon size={13} className={cn("shrink-0", PRIORITY_ICONS[priority])} />
           <span className="hidden sm:inline">{label}</span>
         </button>
       </DropdownMenuTrigger>

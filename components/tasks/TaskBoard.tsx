@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { PlusIcon } from "@/components/ui/icons";
 import type { TaskStatus } from "@/lib/db/schema";
 import { isActiveStatus } from "@/lib/domain/tasks";
@@ -53,10 +54,12 @@ interface Props {
  * Drag is an accelerator, never the only path: the compact status pill on every
  * card and its menu reach the same `onStatus`/`onMove`/`onDrop` callbacks, and
  * the empty columns keep the capture row so a column can be filled without a
- * drag. Cards carry `data-task-id` in DOM order, which is what the shell's
- * `j`/`k` traversal (`[data-task-id]` inside the shell's list container) and its
- * `closeEditor` focus return rely on, so keyboard triage works unchanged in
- * board layout.
+ * drag. The column a valid board drag is over paints an accepted-drop border/ring
+ * (`dropTarget`); a row→day drag, which carries the other MIME type, never
+ * lights it up. Cards carry `data-task-id` in DOM order, which is what the
+ * shell's `j`/`k` traversal (`[data-task-id]` inside the shell's list container)
+ * and its `closeEditor` focus return rely on, so keyboard triage works unchanged
+ * in board layout.
  */
 export function TaskBoard({
   tasks,
@@ -75,6 +78,9 @@ export function TaskBoard({
   // The drop target resolves the dragged id against the cards it is rendering,
   // so a stale or foreign id is a no-op rather than a blind PATCH.
   const byId = new Map(tasks.map((task) => [task.id, task]));
+  // The column a valid board drag is currently over: a paint-only affordance so
+  // the user can see the drop will be accepted. Never read by the drop handler.
+  const [dropTarget, setDropTarget] = useState<TaskStatus | null>(null);
 
   return (
     <div
@@ -99,8 +105,21 @@ export function TaskBoard({
               }
               event.preventDefault();
               event.dataTransfer.dropEffect = "move";
+              if (dropTarget !== status) {
+                setDropTarget(status);
+              }
+            }}
+            onDragLeave={(event) => {
+              // `dragleave` also fires when the pointer crosses a child element;
+              // only a leave that leaves the column clears the accepted state.
+              const next = event.relatedTarget;
+              if (next instanceof Node && event.currentTarget.contains(next)) {
+                return;
+              }
+              setDropTarget((current) => (current === status ? null : current));
             }}
             onDrop={(event) => {
+              setDropTarget(null);
               const taskId = readBoardDragPayload(event.dataTransfer);
               if (taskId === null) {
                 return;
@@ -115,8 +134,13 @@ export function TaskBoard({
               actionsFor(dragged).onStatus(status);
             }}
             className={cn(
-              "flex w-64 shrink-0 flex-col gap-2 rounded-md border border-line-strong p-2",
+              "flex w-64 shrink-0 flex-col gap-2 rounded-md border p-2 transition-colors",
               active ? "bg-well" : "bg-surface",
+              // The accepted-drop state: only while a *valid* board drag is over
+              // this column, so a row→day drag never lights the board up.
+              dropTarget === status
+                ? "border-violet bg-violet-soft ring-2 ring-violet/35"
+                : "border-line-strong",
             )}
           >
             <header className="flex items-center justify-between gap-1 px-0.5">
@@ -165,6 +189,7 @@ export function TaskBoard({
                 timezone={timezone}
                 status={status}
                 inputId={`task-capture-${status}`}
+                ariaLabel={`Add a task to ${label}`}
                 placeholder={`Add to ${label}…`}
               />
             ) : null}

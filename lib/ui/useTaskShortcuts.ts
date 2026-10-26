@@ -34,7 +34,7 @@ export interface TaskShortcutHandlers {
   onNextList(): void;
   /** `x` complete the selected task. */
   onComplete(): void;
-  /** `Enter` — opens the selected task; the editor is Task 10's hand-off. */
+  /** `Enter` — opens the selected task in the slide-over panel. */
   onOpen(): void;
   /** `?` open the shortcut list. */
   onHelp(): void;

@@ -65,7 +65,7 @@ export function TaskViewTabs({ view, counts, layout, onScope, onLayout, activeRe
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-sm border px-2.5 py-1 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet [@media(pointer:coarse)]:min-h-11",
                 active
-                  ? "border-violet bg-violet-soft font-bold text-violet"
+                  ? "border-violet bg-violet-soft font-bold text-violet-press"
                   : "border-transparent text-ink-soft hover:bg-well hover:text-ink",
               )}
             >
@@ -76,7 +76,7 @@ export function TaskViewTabs({ view, counts, layout, onScope, onLayout, activeRe
                   data-testid={`tasks-count-${bucket}`}
                   className={cn(
                     "rounded-pill px-1.5 text-xs font-bold",
-                    active ? "bg-violet text-white" : "bg-well text-ink-soft",
+                    active ? "bg-violet-press text-white" : "bg-well text-ink-soft",
                   )}
                 >
                   {count}
@@ -112,7 +112,7 @@ export function TaskViewTabs({ view, counts, layout, onScope, onLayout, activeRe
               onClick={() => onLayout(option.layout)}
               className={cn(
                 "inline-flex items-center gap-1 rounded-sm px-2 py-0.5 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet [@media(pointer:coarse)]:min-h-11",
-                active ? "bg-surface font-bold text-violet shadow-menu" : "text-ink-soft hover:text-ink",
+                active ? "bg-surface font-bold text-violet-press shadow-menu" : "text-ink-soft hover:text-ink",
               )}
             >
               <Icon size={13} />

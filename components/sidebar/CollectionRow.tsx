@@ -194,16 +194,23 @@ export function CollectionRow({
 
       {/* Zero draws nothing: an active list with no open tasks is not worth a
           badge, and an absent count (query disabled/not loaded yet) must not
-          flash a misleading "0". */}
+          flash a misleading "0". The digits are decorative for assistive tech:
+          `aria-label` on a bare span is not exposed, so the count travels in a
+          real `sr-only` text node next to the visual pill. */}
       {taskCount !== undefined && taskCount > 0 ? (
-        <span
-          data-testid={`collection-task-count-${collection.id}`}
-          aria-label={`${taskCount} active ${taskCount === 1 ? "task" : "tasks"}`}
-          title={`${taskCount} active ${taskCount === 1 ? "task" : "tasks"}`}
-          className="rounded-pill shrink-0 border border-line-strong bg-surface px-1.5 text-xs font-bold text-ink-soft"
-        >
-          {taskCount}
-        </span>
+        <>
+          <span
+            aria-hidden
+            data-testid={`collection-task-count-${collection.id}`}
+            title={`${taskCount} active ${taskCount === 1 ? "task" : "tasks"}`}
+            className="rounded-pill shrink-0 border border-line-strong bg-surface px-1.5 text-xs font-bold text-ink-soft"
+          >
+            {taskCount}
+          </span>
+          <span className="sr-only">
+            {`${taskCount} active ${taskCount === 1 ? "task" : "tasks"}`}
+          </span>
+        </>
       ) : null}
 
       {/* Same reveal contract as the options trigger: hidden on fine pointers

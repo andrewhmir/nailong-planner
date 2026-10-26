@@ -606,9 +606,25 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     router.replace(`/tasks?${query}`);
   }
 
-  /** Collapse/expand one list group; a collapsed group's rows leave `visibleRows`. */
+  /**
+   * Collapse/expand one list group; a collapsed group's rows leave `visibleRows`.
+   * Collapsing the group that holds the selection clears it first: otherwise the
+   * selection-coherence effect would walk the stale id to the nearest *painted*
+   * row (another group's row) and steal focus off the header the user just
+   * activated.
+   */
   function toggleGroup(key: string): void {
+    const collapsing = !(collapsedGroups[key] ?? false);
     setCollapsedGroups((previous) => ({ ...previous, [key]: !(previous[key] ?? false) }));
+    if (!collapsing || selectedTaskId === null) {
+      return;
+    }
+    // The rows of this render, before the collapse paints: the selection only
+    // needs clearing when it is one of the rows about to disappear.
+    const group = groups.find((candidate) => candidate.key === key);
+    if (group?.tasks.some((task) => task.id === selectedTaskId)) {
+      setSelectedTaskId(null);
+    }
   }
 
   /**

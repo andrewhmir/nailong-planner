@@ -83,7 +83,9 @@ rather not have edited.
   column. Rows and cards edit their status (including the new **In progress**
   state), priority, dates and list inline, and clicking one opens a right-hand
   slide-over for the title, notes and checklist. Lists in the sidebar show their
-  active-task counts and carry a one-click quick add. The keyboard does the rest
+  active-task counts while you are on `/tasks` (Ruling 23 — the count query is
+  route-gated so the calendar never pays for it) and carry a one-click quick add.
+  The keyboard does the rest
   (`j`/`k` to move, `1`–`3` to schedule, `4` to move to another list, `x` to
   complete, `Enter` to open the panel, `z` to undo). Lists sit in the same nested
   tree as calendars and can be private, shared or view-only, with the same

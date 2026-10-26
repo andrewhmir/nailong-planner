@@ -24,6 +24,11 @@ interface Props {
   status?: TaskStatus;
   placeholder?: string;
   /**
+   * The sr-only label. The board passes `Add a task to <status>` so its columns
+   * are distinguishable; a page-level row keeps the plain `Add a task`.
+   */
+  ariaLabel?: string;
+  /**
    * DOM id (also the test id and the label target). The board renders one
    * capture row per column, so it passes `task-capture-<status>` to keep the ids
    * unique; the default keeps the v0.2.0 `#task-capture` contract.
@@ -39,13 +44,15 @@ interface Props {
  * failed capture never loses what was typed. The id and test id are both
  * `task-capture` by default: the id keeps the v0.2.0 e2e selector working while
  * the spec moves to `getByTestId`, and the board's per-column rows pass their
- * own `inputId`.
+ * own `inputId` and an `ariaLabel` naming the column so the several inputs do
+ * not all announce "Add a task".
  */
 export function TaskCaptureRow({
   timezone,
   collectionId,
   status,
   placeholder = "Add a task…",
+  ariaLabel = "Add a task",
   inputId = "task-capture",
   onCaptured,
 }: Props) {
@@ -84,7 +91,7 @@ export function TaskCaptureRow({
   return (
     <div className="rounded-md border border-line-strong bg-surface px-2 py-1.5 focus-within:border-violet">
       <label htmlFor={inputId} className="sr-only">
-        Add a task
+        {ariaLabel}
       </label>
       <div className="flex items-center gap-2">
         <PlusIcon size={16} className="shrink-0 text-ink-mute" />
@@ -95,6 +102,7 @@ export function TaskCaptureRow({
           disabled={createTask.isPending}
           placeholder={placeholder}
           autoComplete="off"
+          maxLength={200}
           aria-describedby={hintId}
           data-testid={inputId}
           onChange={(event) => setTitle(event.target.value)}

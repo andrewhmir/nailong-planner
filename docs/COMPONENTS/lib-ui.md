@@ -465,7 +465,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 **Replace, never push** — Toolbar changes must call `router.replace` with `mergeTaskViewParams(searchParams, state)`, not `router.push`: spec §6 makes the non-`view` params view state, so Back must leave `/tasks` instead of stepping through every filter change, while a reload or a shared URL restores the same layout/group/sort/filters. `view` and `task` survive the merge precisely so switching scope or closing the panel does not drop the other params.
 
-**Depends on / Used by** — `TaskLayout`, `GroupBy`, `TaskSort`, `TASK_STATUS_ORDER` and `TASK_PRIORITY_ORDER` from `lib/domain/taskViews`; `TaskStatus`/`TaskPriority` types from `lib/db/schema`. No caller in the branch yet: `components/tasks/TasksShell.tsx` (the shell rewrite) is the intended consumer.
+**Depends on / Used by** — `TaskLayout`, `GroupBy`, `TaskSort`, `TASK_STATUS_ORDER` and `TASK_PRIORITY_ORDER` from `lib/domain/taskViews`; `TaskStatus`/`TaskPriority` types from `lib/db/schema`. Used by `components/tasks/TasksShell.tsx` (the shell parses the initial state, re-parses it on every URL change, and writes it back through `updateState`/`changeScope`/`clearTaskParam`) and rendered from by `components/tasks/TaskToolbar.tsx` (`TaskViewState` only).
 
 **Debugging**
 - A toolbar choice does not survive a reload -> the shell wrote local state only, or `mergeTaskViewParams` was not given the full state -> check the `/tasks` URL and the merge argument.

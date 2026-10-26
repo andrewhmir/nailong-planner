@@ -85,6 +85,9 @@ export function TaskRow({ task, today, selected, onFocus, actions, moveTargets }
         onClick={actions.onOpen}
         className={cn(
           "min-w-0 flex-1 truncate rounded-sm px-0.5 text-left text-sm hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet",
+          // The primary open affordance must be a 44px target on touch too: the
+          // text-sm line box alone is ~20px.
+          "[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:px-2",
           done ? "text-ink-mute line-through" : "text-ink",
         )}
       >

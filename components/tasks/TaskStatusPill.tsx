@@ -11,12 +11,17 @@ import type { TaskStatus } from "@/lib/db/schema";
 import { TASK_STATUS_LABELS, TASK_STATUS_ORDER } from "@/lib/domain/taskViews";
 import { cn } from "@/lib/utils";
 
-/** The pill's fill: the v0.2.1 status tokens for the active pair, existing tokens for closed. */
+/**
+ * The pill's fill: the v0.2.1 status tokens for the active pair, existing tokens
+ * for closed. The **label** is always `text-ink`: the per-status coloured words
+ * failed WCAG AA on these tints at `text-xs` (2.77:1 "To do", 2.89:1
+ * "In progress"), so the dot keeps the colour and the text stays readable.
+ */
 const STATUS_STYLES: Record<TaskStatus, string> = {
-  open: "bg-status-todo-soft text-status-todo",
-  in_progress: "bg-status-progress-soft text-status-progress",
-  done: "bg-success-soft text-success-ink",
-  dropped: "bg-well text-ink-mute",
+  open: "bg-status-todo-soft text-ink",
+  in_progress: "bg-status-progress-soft text-ink",
+  done: "bg-success-soft text-ink",
+  dropped: "bg-well text-ink",
 };
 
 /** The leading dot, so the pill keeps a colour cue when it renders compact. */

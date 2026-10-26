@@ -159,7 +159,8 @@ export function CollectionTree({
     }, 0);
   }
 
-  function toggle(collection: CollectionRowType, children: CollectionRowType[] = []) {    const parent = collection.parentId
+  function toggle(collection: CollectionRowType, children: CollectionRowType[] = []) {
+    const parent = collection.parentId
       ? roots.find((root) => root.id === collection.parentId)
       : undefined;
     const currentlyVisible = isCollectionVisible(

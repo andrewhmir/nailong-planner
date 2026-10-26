@@ -48,6 +48,15 @@ const INPUT =
 const CHIP =
   "inline-flex h-6 shrink-0 items-center gap-1 rounded-sm border border-transparent px-1.5 text-xs text-ink-soft transition-colors hover:bg-well hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11";
 
+/**
+ * The tasks area's primary button recipe: violet-press fill with white text
+ * (5.15:1, WCAG AA for small text; the plain `--color-violet` fill is 4.15:1 and
+ * fails). The shared `Button` primary is the app's accent-blue, which is
+ * deliberately not used inside the tasks workspace.
+ */
+const PRIMARY =
+  "inline-flex h-[38px] shrink-0 items-center justify-center rounded-md bg-violet-press px-3 text-base font-bold text-white transition-colors hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet disabled:cursor-not-allowed disabled:opacity-50 [@media(pointer:coarse)]:min-h-11";
+
 /** The task's list shade, the same fallback the row uses for an unstyled collection. */
 function listDot(task: TaskView): string {
   const hue = task.collection.hueFamily;
@@ -72,13 +81,14 @@ function listDot(task: TaskView): string {
  * panel owns the textarea draft), and the checklist is replaced wholesale on
  * every add/toggle/remove — Task 5's contract — through `onChecklist`.
  *
- * Escape closes, and the panel consumes the key so the page's triage layer does
- * not also clear the selection; while one of its Radix menus or popovers is
- * open that layer owns Escape instead, so the panel only listens when no
- * `[role="menu"]`/popper wrapper is mounted. Focus lands on the title input on
- * open, and the title/notes drafts re-seed from the server snapshot whenever the
- * field is not focused (so an optimistic rollback after a 403 shows the stored
- * value again).
+ * Escape closes — and before it does, it blurs a focused title/notes field so
+ * the draft goes through the same blur save instead of being discarded — and the
+ * panel consumes the key so the page's triage layer does not also clear the
+ * selection; while one of its Radix menus or popovers is open that layer owns
+ * Escape instead, so the panel only listens when no `[role="menu"]`/popper
+ * wrapper is mounted. Focus lands on the title input on open, and the
+ * title/notes drafts re-seed from the server snapshot whenever the field is not
+ * focused (so an optimistic rollback after a 403 shows the stored value again).
  */
 export function TaskPanel(props: Props) {
   const { task } = props;
@@ -136,6 +146,17 @@ function TaskPanelBody({ task, today, onClose, actions, moveTargets, onChecklist
       ) {
         return;
       }
+      // An open draft must not be silently discarded: blurring the field runs
+      // the same commit the pointer path uses (`commitTitle`/`saveNotes`) before
+      // the close unmounts the panel.
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLElement &&
+        active.matches("input, textarea") &&
+        active.closest('[data-testid="task-panel"]') !== null
+      ) {
+        active.blur();
+      }
       event.stopPropagation();
       onClose();
     }
@@ -192,7 +213,7 @@ function TaskPanelBody({ task, today, onClose, actions, moveTargets, onChecklist
     <aside
       role="dialog"
       aria-modal="false"
-      aria-label="Task details"
+      aria-label={`Task details: ${task.title}`}
       data-testid="task-panel"
       className="fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-line-strong bg-surface shadow-menu md:w-[440px]"
     >
@@ -384,20 +405,20 @@ function TaskPanelBody({ task, today, onClose, actions, moveTargets, onChecklist
         </fieldset>
 
         <p className="text-xs text-ink-mute">
-          Esc closes the panel. Title and notes save when the field loses focus.
+          Esc closes the panel and saves a pending title/notes draft; both also
+          save when the field loses focus.
         </p>
       </div>
 
       <footer className="flex flex-wrap items-center gap-2 border-t border-line px-3 py-2">
-        <Button
+        <button
           type="button"
-          variant="primary"
           disabled={task.status === "done"}
           onClick={() => actions.onToggleDone(true)}
-          className="[@media(pointer:coarse)]:min-h-11"
+          className={PRIMARY}
         >
           Complete
-        </Button>
+        </button>
         <Button
           type="button"
           variant="outline"

@@ -127,14 +127,14 @@ export function TaskToolbar({ state, onChange, onAddTask, lists }: Props) {
           <button
             type="button"
             aria-label={activeFilters === 0 ? "Filter" : `Filter, ${activeFilters} active`}
-            className={cn(TRIGGER, activeFilters > 0 && "border-violet text-violet")}
+            className={cn(TRIGGER, activeFilters > 0 && "border-violet text-violet-press")}
           >
             <span>Filter</span>
             {activeFilters === 0 ? null : (
               <span
                 aria-hidden
                 data-testid="task-filter-count"
-                className="rounded-pill bg-violet px-1.5 text-xs font-bold text-white"
+                className="rounded-pill bg-violet-press px-1.5 text-xs font-bold text-white"
               >
                 {activeFilters}
               </span>
@@ -212,7 +212,7 @@ export function TaskToolbar({ state, onChange, onAddTask, lists }: Props) {
         data-testid="task-toggle-closed"
         title={state.closed ? "Stop showing done and dropped tasks" : "Show done and dropped tasks"}
         onClick={() => onChange({ ...state, closed: !state.closed })}
-        className={cn(TRIGGER, "aria-pressed:border-violet aria-pressed:text-violet")}
+        className={cn(TRIGGER, "aria-pressed:border-violet aria-pressed:text-violet-press")}
       >
         Hide closed
       </button>
@@ -221,7 +221,7 @@ export function TaskToolbar({ state, onChange, onAddTask, lists }: Props) {
         type="button"
         data-testid="task-add"
         onClick={onAddTask}
-        className="ml-auto inline-flex h-7 items-center gap-1 rounded-sm bg-violet px-2.5 text-xs font-bold text-white transition-colors hover:bg-violet-press focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet [@media(pointer:coarse)]:min-h-11"
+        className="ml-auto inline-flex h-7 items-center gap-1 rounded-sm bg-violet-press px-2.5 text-xs font-bold text-white transition-colors hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet [@media(pointer:coarse)]:min-h-11"
       >
         <PlusIcon size={14} />
         <span>Add task</span>

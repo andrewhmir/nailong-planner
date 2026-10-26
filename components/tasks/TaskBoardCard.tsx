@@ -78,6 +78,8 @@ export function TaskBoardCard({ task, today, selected, onFocus, actions, moveTar
           onClick={actions.onOpen}
           className={cn(
             "min-w-0 flex-1 rounded-sm px-0.5 text-left text-sm leading-snug hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet",
+            // 44px coarse target for the card's primary open affordance.
+            "[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:px-2",
             task.status === "done" ? "text-ink-mute line-through" : "text-ink",
           )}
         >
