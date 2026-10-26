@@ -101,8 +101,8 @@ rows read `priority = 'none'`, statuses unchanged, so no data migration.
   `bucketOfIncludingClosed` are included. `counts` always count active tasks only.
 - `POST /api/tasks` accepts optional `priority` (default `none`).
 - `PATCH /api/tasks/{id}` accepts `priority` and `in_progress`.
-- New `GET /api/tasks/counts` → `{ buckets: TaskCounts, overdue: number,
-  byCollection: Record<string, number> }` for sidebar badges; counts active tasks
+- New `GET /api/tasks/counts` → `{ counts: TaskCounts, byCollection: Record<string,
+  number> }` for sidebar badges (`counts.overdue` included); counts active tasks
   in visible collections only (privacy unchanged — private lists not owned by the
   viewer are absent).
 - `PATCH /api/tasks/order` treats active tasks as the reorderable set; the error
