@@ -18,12 +18,16 @@ export const checklistInputSchema = z
   )
   .max(50);
 
+/** ClickUp-style importance. Mirrors `TaskPriority` in the schema. */
+export const prioritySchema = z.enum(["none", "low", "normal", "high", "urgent"]);
+
 export const createTaskSchema = z.object({
   title: z.string().trim().min(1, "Give the task a title.").max(200),
   notes: z.string().max(2000).nullish(),
   collectionId: z.string().min(1).optional(),
   scheduledOn: dateOnlySchema.nullish(),
   dueOn: dateOnlySchema.nullish(),
+  priority: prioritySchema.optional(),
 });
 
 /**
@@ -32,7 +36,7 @@ export const createTaskSchema = z.object({
  * `collectionId` moves the task (the service checks write access on both lists).
  */
 export const updateTaskSchema = createTaskSchema.partial().extend({
-  status: z.enum(["open", "done", "dropped"]).optional(),
+  status: z.enum(["open", "in_progress", "done", "dropped"]).optional(),
   checklist: checklistInputSchema.optional(),
   sortOrder: z.number().int().min(0).optional(),
 });

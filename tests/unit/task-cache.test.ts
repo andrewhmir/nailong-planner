@@ -10,6 +10,7 @@ function makeTask(overrides: Partial<TaskView> = {}): TaskView {
     title: "Buy milk",
     notes: null,
     status: "open",
+    priority: "none",
     scheduledOn: null,
     dueOn: null,
     completedAt: null,

@@ -50,6 +50,13 @@
       "when": 1792978809429,
       "tag": "0006_collections_and_tasks",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793008049088,
+      "tag": "0007_sharp_leper_queen",
+      "breakpoints": true
     }
   ]
 }

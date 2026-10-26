@@ -245,6 +245,7 @@ export function createTask(
     title: input.title.trim(),
     notes: input.notes ?? null,
     status: "open",
+    priority: input.priority ?? "none",
     scheduledOn: input.scheduledOn ?? null,
     dueOn: input.dueOn ?? null,
     completedAt: null,

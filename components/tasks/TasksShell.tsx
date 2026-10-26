@@ -40,6 +40,7 @@ const ALREADY_UNSCHEDULED = "Already unscheduled";
 /** Stack label + success toast for each status transition (undo is the reverse). */
 const STATUS_COPY: Record<TaskStatus, { label: string; message: string }> = {
   done: { label: "Complete task", message: "Task completed" },
+  in_progress: { label: "Start task", message: "Task started" },
   open: { label: "Reopen task", message: "Task reopened" },
   dropped: { label: "Drop task", message: "Task dropped" },
 };

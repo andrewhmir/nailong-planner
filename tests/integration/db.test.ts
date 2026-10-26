@@ -263,3 +263,44 @@ describe("migration 0006", () => {
     }
   });
 });
+
+describe("migration 0007", () => {
+  it("adds task.priority as NOT NULL DEFAULT 'none' and backfills existing tasks", async () => {
+    const { db, sqlite, close } = await makeTestDb({ upTo: "0006_collections_and_tasks" });
+    try {
+      db.insert(household).values({ id: "h" }).run();
+      sqlite.exec(`
+        INSERT INTO collection
+          (id, household_id, name, kind, visibility, shade_index, sort_order, created_at, updated_at)
+        VALUES ('l', 'h', 'House', 'list', 'shared', 3, 0, 1, 1);
+        INSERT INTO task
+          (id, household_id, collection_id, title, created_by, created_at, updated_at)
+        VALUES ('t1', 'h', 'l', 'Legacy', 'u1', 1, 1);
+      `);
+
+      migrate(db);
+
+      expect(query<{ priority: string }>(sqlite, "SELECT priority FROM task WHERE id = 't1'")).toEqual([
+        { priority: "none" },
+      ]);
+      expect(
+        query<{ name: string; notnull: number; dflt_value: string }>(
+          sqlite,
+          "SELECT name, \"notnull\", dflt_value FROM pragma_table_info('task') WHERE name = 'priority'",
+        ),
+      ).toEqual([{ name: "priority", notnull: 1, dflt_value: "'none'" }]);
+
+      // The default also applies to new rows that omit the column entirely.
+      sqlite.exec(`
+        INSERT INTO task
+          (id, household_id, collection_id, title, created_by, created_at, updated_at)
+        VALUES ('t2', 'h', 'l', 'Fresh', 'u1', 2, 2);
+      `);
+      expect(query<{ priority: string }>(sqlite, "SELECT priority FROM task WHERE id = 't2'")).toEqual([
+        { priority: "none" },
+      ]);
+    } finally {
+      close();
+    }
+  });
+});

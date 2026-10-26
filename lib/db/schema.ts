@@ -170,7 +170,13 @@ export const task = sqliteTable(
       .references(() => collection.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     notes: text("notes"),
-    status: text("status", { enum: ["open", "done", "dropped"] }).notNull().default("open"),
+    status: text("status", { enum: ["open", "in_progress", "done", "dropped"] })
+      .notNull()
+      .default("open"),
+    /** ClickUp-style importance; drives the flag, sort order and grouping. */
+    priority: text("priority", { enum: ["none", "low", "normal", "high", "urgent"] })
+      .notNull()
+      .default("none"),
     /** "I'll work on this day" — drives Today and the Week view. */
     scheduledOn: text("scheduled_on"),
     /** Deadline; drives the overdue badge. */
@@ -265,7 +271,8 @@ export type CollectionKind = "calendar" | "list";
 export type CollectionVisibility = "shared" | "view_only" | "private";
 export type EventRow = typeof event.$inferSelect;
 export type TaskRow = typeof task.$inferSelect;
-export type TaskStatus = "open" | "done" | "dropped";
+export type TaskStatus = "open" | "in_progress" | "done" | "dropped";
+export type TaskPriority = "none" | "low" | "normal" | "high" | "urgent";
 export type TaskChecklistItemRow = typeof taskChecklistItem.$inferSelect;
 export type ImportBatchRow = typeof importBatch.$inferSelect;
 export type ImportChangeRow = typeof importChange.$inferSelect;
