@@ -12,6 +12,7 @@ import { useCreateTask, useDeleteTask, useTasks, useUpdateTask } from "@/lib/que
 import { canWriteCollection, foldCollectionPermission } from "@/lib/services/permissions";
 import type { TaskView } from "@/lib/services/tasks";
 import { taskDeepLinkAction } from "@/lib/ui/taskDeepLink";
+import { deletedTaskCreateInput, deletedTaskRestorePatch } from "@/lib/ui/taskUndo";
 import {
   mergeTaskViewParams,
   parseTaskViewState,
@@ -565,9 +566,13 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
 
   /**
    * Delete + undo. There is no trash table, so the undo re-creates the task:
-   * `POST /api/tasks` restores the row's own fields, then one PATCH restores the
-   * checklist and the original list position (POST accepts neither). The
-   * re-created task gets a **new id** — the old id is gone.
+   * `POST /api/tasks` restores the row's own fields (priority included, and
+   * `in_progress` through the create body), then one PATCH restores what a
+   * create cannot carry — the checklist, the original list position and a
+   * `done`/`dropped` status (the service stamps those audit timestamps). The
+   * payload builders live in `lib/ui/taskUndo.ts` so they are unit-tested
+   * without a renderer; the PATCH is skipped when the create said everything.
+   * The re-created task gets a **new id** — the old id is gone.
    */
   function deleteTaskWithUndo(target: TaskView): void {
     deleteTask.mutate(target.id, {
@@ -575,18 +580,12 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
         const handle = pushUndo({
           label: "Delete task",
           undo: async () => {
-            const created = await createTask.mutateAsync({
-              title: target.title,
-              notes: target.notes,
-              collectionId: target.collectionId,
-              scheduledOn: target.scheduledOn,
-              dueOn: target.dueOn,
-            });
-            await updateTask.mutateAsync({
-              id: created.task.id,
-              checklist: target.checklist.map((item) => ({ title: item.title, done: item.done })),
-              sortOrder: target.sortOrder,
-            });
+            const created = await createTask.mutateAsync(deletedTaskCreateInput(target));
+            const restore = deletedTaskRestorePatch(target);
+            if (Object.keys(restore).length === 0) {
+              return;
+            }
+            await updateTask.mutateAsync({ id: created.task.id, ...restore });
           },
         });
         undoToast("Task deleted", handle);

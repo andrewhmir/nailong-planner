@@ -25,6 +25,7 @@ calendar still draws, or an undo action does nothing.
 | lib/ui/taskDrag.ts | The `text/x-nailong-task` drag payload contract (id + previous `scheduledOn`) shared by task rows and their drop targets |
 | lib/ui/taskDeepLink.ts | Pure decision table for the one-shot `/tasks?task=` deep link (settle-before-handled rule) |
 | lib/ui/taskViewParams.ts | The `/tasks` toolbar's URL state: defaults, parse and merge (replace, never push) |
+| lib/ui/taskUndo.ts | The delete-undo payloads: the re-create input and the restore PATCH (priority/status survive an undo) |
 | lib/ui/useTaskPlanDrop.ts | Drop→PATCH `scheduledOn` handler with a targeted undo and the `Task planned` toast |
 
 ## View and persistence
@@ -475,6 +476,26 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 **Tests** — `tests/unit/task-view-params.test.ts` (defaults, valid parse with unknown values dropped, duplicate collapse, unknown enum fallbacks, merge preserving `view`/`task`, stale managed params cleared, non-default round-trip).
 
+### lib/ui/taskUndo.ts
+
+**Purpose** — The two payloads behind "delete + undo". There is no trash table, so undoing a delete re-creates the row: `POST /api/tasks` restores everything a create accepts (title, notes, dates, list, **priority**, and `in_progress`), and one PATCH restores what a create cannot — the checklist, the original list position and a closed `done`/`dropped` status, whose `completedAt`/`droppedAt` the service stamps on that transition. Extracted from `TasksShell.deleteTaskWithUndo` so the payloads are unit-tested without a renderer.
+
+**Public API**
+- `deletedTaskCreateInput(task: TaskView): CreateTaskInput` — `{ title, notes, collectionId, scheduledOn, dueOn, priority }`, plus `status: "in_progress"` when the deleted row was in progress. `open` is the server default so no status key is sent for it, and a closed status is never a create value (`POST /api/tasks` accepts only the active pair).
+- `deletedTaskRestorePatch(task: TaskView): UpdateTaskInput` — `checklist` mapped to `{ title, done }` when the task has items, `sortOrder` when it was not `0`, and `status` when it is `done`/`dropped`; `{}` when the create body already said everything.
+
+**State & side effects** — None: pure over the `TaskView`, no fetch, no storage. The shell owns the requests (`createTask.mutateAsync` then, only when the patch is non-empty, `updateTask.mutateAsync`).
+
+**Depends on / Used by** — `TaskView` from `lib/services/tasks` (type only) and `CreateTaskInput`/`UpdateTaskInput` from `lib/validation/tasks` (type only). Used by `components/tasks/TasksShell.tsx` (`deleteTaskWithUndo`). The re-created task gets a new id; the old one is gone.
+
+**Debugging**
+- Undo of a delete brings the task back with `priority: "none"` or `status: "open"` -> the shell inlined the create body again instead of calling `deletedTaskCreateInput` -> this file.
+- Undo of a delete loses the checklist or the position -> the restore PATCH was skipped or built by hand -> `deletedTaskRestorePatch` plus the shell's "only when non-empty" call.
+- Undo of a done/dropped delete leaves the audit timestamps null -> `status` was sent in the create body (which ignores a closed value) instead of the restore PATCH -> `deletedTaskCreateInput`/`deletedTaskRestorePatch`.
+- A delete undo fires a PATCH that changes nothing -> the `{}` guard was dropped -> the shell's `Object.keys(restore).length === 0` early return.
+
+**Tests** — `tests/unit/task-undo.test.ts` (exact create/patch objects for open, in_progress, done with checklist + sortOrder, and dropped, including that `priority` always travels and that no status key is sent for `open`).
+
 ### lib/ui/taskDrag.ts
 
 **Purpose** — One place for the HTML5 drag contract that lets a task row be dragged onto a day: the custom MIME type, the source-side payload (the task id **and** the row's `scheduledOn` at `dragstart`) and the target-side read/guard. Sharing it keeps the row, the month grid and the sidebar mini month from drifting apart on a string literal or a payload shape. The previous date travels with the drag instead of being looked up in a cache at drop time, because cached `["tasks", …]` payloads can disagree and Undo must restore the date the dragged row actually showed.
@@ -549,6 +570,6 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 ## Focused verification
 
 ```bash
-npx vitest run tests/unit/calendarPicker.test.ts tests/unit/view.test.ts tests/unit/visibility.test.ts tests/unit/visibleCollections.test.ts tests/unit/treeFold.test.ts tests/unit/shortcut-guards.test.ts tests/unit/use-task-shortcuts.test.ts tests/unit/undo.test.ts tests/unit/task-drag.test.ts tests/unit/task-deep-link.test.ts
+npx vitest run tests/unit/calendarPicker.test.ts tests/unit/view.test.ts tests/unit/visibility.test.ts tests/unit/visibleCollections.test.ts tests/unit/treeFold.test.ts tests/unit/shortcut-guards.test.ts tests/unit/use-task-shortcuts.test.ts tests/unit/undo.test.ts tests/unit/task-drag.test.ts tests/unit/task-deep-link.test.ts tests/unit/task-undo.test.ts
 npm run lint && npm run typecheck
 ```
