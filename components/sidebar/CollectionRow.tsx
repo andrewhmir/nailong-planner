@@ -19,6 +19,7 @@ import {
   ListIcon,
   LockIcon,
   MoreVerticalIcon,
+  PlusIcon,
 } from "@/components/ui/icons";
 import { PARENT_SHADE_INDEX, shadeTokens, type HueFamily } from "@/lib/color/palette";
 import type {
@@ -48,6 +49,13 @@ interface Props {
   showViewOnlyBadge: boolean;
   /** The calendar "display only this calendar" is showing, if any. */
   onlyId: string | null;
+  /** Active-task total; a muted pill renders only when this is positive. */
+  taskCount?: number;
+  /**
+   * Present only on a list row the viewer may write to: opens the quick-add
+   * dialog. Never passed for calendars, view-only or foreign private lists.
+   */
+  onQuickAdd?: () => void;
   /** Root rows with sub-collections get a disclosure button. */
   foldable?: boolean;
   /** Whether this root's sub-collections are currently shown. */
@@ -75,6 +83,8 @@ export function CollectionRow({
   canChangeVisibility,
   showViewOnlyBadge,
   onlyId,
+  taskCount,
+  onQuickAdd,
   foldable = false,
   expanded = true,
   controlsId,
@@ -180,6 +190,38 @@ export function CollectionRow({
             />
           ))}
         </span>
+      ) : null}
+
+      {/* Zero draws nothing: an active list with no open tasks is not worth a
+          badge, and an absent count (query disabled/not loaded yet) must not
+          flash a misleading "0". */}
+      {taskCount !== undefined && taskCount > 0 ? (
+        <span
+          data-testid={`collection-task-count-${collection.id}`}
+          title={`${taskCount} active ${taskCount === 1 ? "task" : "tasks"}`}
+          className="rounded-pill shrink-0 bg-well px-1.5 text-xs font-bold text-ink-soft"
+        >
+          {taskCount}
+        </span>
+      ) : null}
+
+      {/* Same reveal contract as the options trigger: hidden on fine pointers
+          until the row is hovered or holds focus, always visible on touch. */}
+      {onQuickAdd ? (
+        <button
+          type="button"
+          aria-label={`Add a task to ${collection.name}`}
+          data-testid="sidebar-quick-add"
+          onClick={onQuickAdd}
+          className={cn(
+            "grid h-6 w-6 shrink-0 place-items-center rounded-sm text-ink-mute transition-opacity",
+            "opacity-0 hover:text-ink focus-visible:opacity-100",
+            "group-hover:opacity-100 group-focus-within:opacity-100",
+            "[@media(pointer:coarse)]:opacity-100",
+          )}
+        >
+          <PlusIcon size={16} />
+        </button>
       ) : null}
 
       {/* The menu now renders for view-only calendars too: isolating one for a

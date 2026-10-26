@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { usePathname } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -30,7 +31,8 @@ import {
   useDeleteCollection,
   useUpdateCollection,
 } from "@/lib/query/collections";
-import { foldCollectionPermission } from "@/lib/services/permissions";
+import { useCreateTask, useTaskCounts } from "@/lib/query/tasks";
+import { canWriteCollection, foldCollectionPermission } from "@/lib/services/permissions";
 import { GROUP_ORDER, groupOf, isCollectionVisible, type GroupKey } from "@/lib/ui/visibility";
 import type { TreeFoldApi } from "@/lib/ui/useTreeFold";
 import type { VisibilityApi } from "@/lib/ui/useVisibility";
@@ -94,11 +96,16 @@ export function CollectionTree({
   partnerName,
 }: Props) {
   const { data, isLoading, isError } = useCollections();
+  // Counts are only drawn in the tree, so the sidebar does not pay for the
+  // request on the calendar; `enabled` keeps the cache entry shared once loaded.
+  const pathname = usePathname();
+  const taskCounts = useTaskCounts({ enabled: pathname.startsWith("/tasks") });
   const createCollection = useCreateCollection();
   const updateCollection = useUpdateCollection();
   const deleteCollection = useDeleteCollection();
   const [dialog, setDialog] = useState<CollectionDialogState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<CollectionRowType | null>(null);
+  const [quickAdd, setQuickAdd] = useState<CollectionRowType | null>(null);
   // The desktop aside and the phone sheet each mount this tree, so `aria-controls`
   // ids must be per instance or the sheet would point at the hidden aside's list.
   const instanceId = useId();
@@ -297,6 +304,12 @@ export function CollectionTree({
               {groupRoots.map((root) => {
                 const rootEffective = foldCollectionPermission(root);
                 const rootReadOnly = isReadOnlyFor(currentUserId, rootEffective);
+                // Badges and quick add exist only where a create would be
+                // accepted: a list the viewer may write. Calendars, view-only
+                // and foreign private lists must never offer a control that 403s.
+                const rootQuickAdd =
+                  root.kind === "list" &&
+                  canWriteCollection({ userId: currentUserId, householdId: "" }, rootEffective);
                 const openRoot = fold.isCollectionOpen(root.id);
                 const childrenId = `collection-children-${instanceId}-${root.id}`;
                 return (
@@ -331,6 +344,8 @@ export function CollectionTree({
                         onlyId={only}
                         onShowOnly={() => visibility.setOnly(root.id)}
                         onShowAll={() => visibility.setOnly(null)}
+                        taskCount={rootQuickAdd ? taskCounts.data?.byCollection[root.id] : undefined}
+                        onQuickAdd={rootQuickAdd ? () => setQuickAdd(root) : undefined}
                       />
                     </ul>
                     {root.children.length > 0 ? (
@@ -338,6 +353,12 @@ export function CollectionTree({
                         {root.children.map((child) => {
                           const childEffective = foldCollectionPermission(child, root);
                           const childReadOnly = isReadOnlyFor(currentUserId, childEffective);
+                          const childQuickAdd =
+                            child.kind === "list" &&
+                            canWriteCollection(
+                              { userId: currentUserId, householdId: "" },
+                              childEffective,
+                            );
                           return (
                             <CollectionRow
                               key={child.id}
@@ -369,6 +390,12 @@ export function CollectionTree({
                               onlyId={only}
                               onShowOnly={() => visibility.setOnly(child.id)}
                               onShowAll={() => visibility.setOnly(null)}
+                              taskCount={
+                                childQuickAdd
+                                  ? taskCounts.data?.byCollection[child.id]
+                                  : undefined
+                              }
+                              onQuickAdd={childQuickAdd ? () => setQuickAdd(child) : undefined}
                             />
                           );
                         })}
@@ -415,6 +442,10 @@ export function CollectionTree({
         </Dialog>
       ) : null}
 
+      {quickAdd ? (
+        <QuickAddDialog collection={quickAdd} onClose={() => setQuickAdd(null)} />
+      ) : null}
+
       <CollectionDialog
         state={dialog}
         pending={createCollection.isPending || updateCollection.isPending}
@@ -424,5 +455,90 @@ export function CollectionTree({
         onSubmit={submit}
       />
     </div>
+  );
+}
+
+const QUICK_ADD_CONTROL =
+  "h-[38px] w-full rounded-md border border-field bg-surface px-3 text-base text-ink transition-colors hover:border-ink-soft focus:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-60 [@media(pointer:coarse)]:h-11";
+
+/**
+ * One-field create for a list the viewer owns or that is shared. It is mounted
+ * only while open, so every opening starts empty, and that is also what lets
+ * Radix restore focus to the row's quick-add button on close.
+ * The title is cleared only by unmount: a failed create keeps the dialog and
+ * the typed text, and the mutation's `["tasks"]` invalidation refreshes the
+ * badge once it succeeds.
+ */
+function QuickAddDialog({
+  collection,
+  onClose,
+}: {
+  collection: CollectionRowType;
+  onClose: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const createTask = useCreateTask();
+  const inputId = useId();
+  const value = title.trim();
+
+  function addTask(): void {
+    if (value.length === 0 || createTask.isPending) {
+      return;
+    }
+    createTask.mutate(
+      { title: value, collectionId: collection.id },
+      {
+        onSuccess: () => {
+          toast.success("Task added");
+          onClose();
+        },
+        onError: (error) => toast.error(error.message),
+      },
+    );
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <DialogContent
+        title={`Add a task to ${collection.name}`}
+        description="It appears at the bottom of the list."
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            addTask();
+          }}
+        >
+          <div className="space-y-1">
+            <label htmlFor={inputId} className="block text-base text-ink">
+              Task title
+            </label>
+            <input
+              id={inputId}
+              type="text"
+              value={title}
+              autoFocus
+              maxLength={200}
+              autoComplete="off"
+              disabled={createTask.isPending}
+              data-testid="sidebar-quick-add-input"
+              onChange={(event) => setTitle(event.target.value)}
+              className={QUICK_ADD_CONTROL}
+            />
+          </div>
+          <div className="flex items-center justify-end gap-3">
+            <Button onClick={onClose}>Cancel</Button>
+            <Button
+              variant="primary"
+              type="submit"
+              disabled={createTask.isPending || value.length === 0}
+            >
+              {createTask.isPending ? "Adding…" : "Add task"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

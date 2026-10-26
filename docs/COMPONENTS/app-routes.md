@@ -347,7 +347,7 @@ Four thin routes over `lib/api/handlers/tasks.ts`; bucketing (`lib/domain/tasks.
 
 **State & side effects** — Reads the household for `timezone`/`weekStartsOn`, may lazily create the caller's Inbox (`ensureInbox`), and resolves visibility through `resolveVisibleCollections`; the read is active-only and never writes task rows. No revalidation.
 
-**Depends on / Used by** — `withViewer`; `taskCountsHandler`; `getTaskCountSummary` in `lib/services/tasks.ts`. Client: `useTaskCounts()` in `lib/query/tasks.ts` (query key `["tasks", "counts"]`, `enabled` defaults to true); the sidebar's `/tasks`-only gate lands with the sidebar wiring (Task 15 of the v0.2.1 plan), so there is no call site yet.
+**Depends on / Used by** — `withViewer`; `taskCountsHandler`; `getTaskCountSummary` in `lib/services/tasks.ts`. Client: `useTaskCounts()` in `lib/query/tasks.ts` (query key `["tasks", "counts"]`, `enabled` defaults to true), called by `components/sidebar/CollectionTree.tsx` with `enabled: pathname.startsWith("/tasks")`; badges render only for writable list rows and hide at `0`, and the calendar issues no counts request.
 
 **Debugging** — An empty `byCollection` while tasks exist -> every task is done/dropped or in a private list the viewer does not own -> compare with `GET /api/tasks`. A count differs from the list's badge -> the two requests used different `weekStartsOn` (the household changed) or a stale cache -> `useTaskCounts` invalidates with the `["tasks"]` prefix. 404 for the route itself -> the file was added after a build; restart the dev server.
 
