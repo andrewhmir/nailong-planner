@@ -18,7 +18,8 @@ This area covers everything that is not a click path: the `.mts` scripts under `
 | `drizzle/0002_user_preference.sql` | Per-user preference table |
 | `drizzle/0003_salty_stranger.sql` | Google import ledger (`import_batch`, `import_change`) plus the event external-id columns |
 | `drizzle/0004_normalise_subcalendar_owners.sql` | Backfills each sub-calendar's `owner_id` from its root |
-| `drizzle/0005_collections_and_tasks.sql` | Renames `calendar` -> `collection`, backfills `visibility`, renames the event FK and adds `task`/`task_checklist_item` |
+| `drizzle/0005_sloppy_praxagora.sql` | Adds the recurring-scope exception columns (`event.recurrence_parent_id` self-FK with cascade, `event.recurrence_id`) and `event_recurrence_parent_idx` |
+| `drizzle/0006_collections_and_tasks.sql` | Renames `calendar` -> `collection`, backfills `visibility`, renames the event FK and adds `task`/`task_checklist_item` |
 | `drizzle/meta/_journal.json` | Ordered list of migrations the migrator replays |
 | `drizzle.config.ts` | drizzle-kit config used by `npm run db:generate` |
 | `package.json` | Every npm script, the Node engine floor, and the exact dependency pins |
@@ -114,21 +115,36 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 
 **Tests / verified by** — `tests/integration/db.test.ts` ("backfills sub-calendar owners from their root (0004)"); the visibility fold is covered by `tests/unit/visibility.test.ts` and `tests/unit/visibleCollections.test.ts`.
 
-### drizzle/0005_collections_and_tasks.sql
+### drizzle/0006_collections_and_tasks.sql
 
-**Purpose** — The v0.2.0 schema groundwork: the `calendar` tree becomes the `collection` tree (calendars and task lists), the old view-only flag becomes `visibility`, and the `task`/`task_checklist_item` tables are added.
+**Purpose** — The v0.2.0 schema groundwork: the `calendar` tree becomes the `collection` tree (calendars and task lists), the old view-only flag becomes `visibility`, and the `task`/`task_checklist_item` tables are added. It runs after `0005_sloppy_praxagora.sql` (PR #10's recurring-scope columns), which it leaves untouched.
 
-**Invocation / wiring** — Applied by the same migrator on the first `getDb()`, by `npm run db:migrate`, and by `makeTestDb()`; the snapshot is `drizzle/meta/0005_snapshot.json` and the journal entry was added by hand. The SQL is hand-authored (in place rename, not a create/copy) because SQLite's `ALTER TABLE RENAME` preserves every row, parent link, colour, event FK and index.
+**Invocation / wiring** — Applied by the same migrator on the first `getDb()`, by `npm run db:migrate`, and by `makeTestDb()`; the snapshot is `drizzle/meta/0006_snapshot.json` (chained to `a8f4b44c-f786-4b53-a4f3-c57c548ff067`, main's 0005 snapshot) and the journal entry was added by hand. The SQL is hand-authored (in place rename, not a create/copy) because SQLite's `ALTER TABLE RENAME` preserves every row, parent link, colour, event FK and index. The renumber from `0005` happened when main's `0005_sloppy_praxagora` landed first; the statements are independent of the recurrence columns.
 
 **Behaviour & side effects** — In order: `ALTER TABLE calendar RENAME TO collection`; add `kind` (default `'calendar'`) and `visibility` (default `'shared'`) as `NOT NULL`; backfill `visibility = 'view_only'` where `is_view_only_for_partner = 1`; drop `is_view_only_for_partner`; rename `event.calendar_id` -> `event.collection_id`; replace the indexes with `collection_household_idx`, `collection_parent_idx`, `event_collection_idx`; create `task` (`household_id`/`collection_id` cascade, `status` default `'open'`, `scheduled_on`/`due_on` date-only text, four indexes) and `task_checklist_item` (`task_id` cascade, `done` default `0`, index `task_checklist_task_idx`). Multi-statement file: every statement is separated by `--> statement-breakpoint`, which the Drizzle migrator requires.
 
 **Gotchas** —
 - Renaming `collection` a second time (or recreating it) would orphan the auto-updated `event` FK; the rename is in place on purpose, so do not turn it into create/copy without moving the events too.
 - The Drizzle property and the SQL column now agree (`event.collectionId` over `collection_id`, index `event_collection_idx`); `drizzle-kit generate` compares SQL column names, so the no-op check stays clean.
-- `kind` and `visibility` are added with SQL defaults, so pre-`0005` rows are backfilled by the defaults plus the single `UPDATE`; a new state (`private`) is not backfilled — it is only reachable through validation.
+- `kind` and `visibility` are added with SQL defaults, so pre-`0006` rows are backfilled by the defaults plus the single `UPDATE`; a new state (`private`) is not backfilled — it is only reachable through validation.
 - Indexes are dropped and recreated instead of renamed: SQLite cannot rename an index, and the new names are part of the schema snapshot.
 
-**Tests / verified by** — `tests/integration/db.test.ts` (`describe("migration 0005")`): builds the 0000–0004 schema with `makeTestDb({ upTo: "0004_normalise_subcalendar_owners" })`, inserts the v0.1 rows through raw SQL, applies this migration, and asserts both rows, the visibility backfill, the event FK/indexes and the task cascade. The snapshot is proven by a no-op `npx drizzle-kit generate`.
+**Tests / verified by** — `tests/integration/db.test.ts` (`describe("migration 0006")`): builds the 0000–0004 schema with `makeTestDb({ upTo: "0004_normalise_subcalendar_owners" })`, inserts the v0.1 rows through raw SQL, runs the migrator through `0006`, and asserts both rows, the visibility backfill, the event FK/indexes and the task cascade. The snapshot is asserted against the migrated schema by inspection (the two source snapshots were merged and chained); `drizzle-kit generate` cannot run under the Windows sandbox (`esbuild spawn EPERM`).
+
+### drizzle/0005_sloppy_praxagora.sql
+
+**Purpose** — Adds the per-instance exception link to `event`: `recurrence_parent_id` (nullable self-FK → `event.id`, `ON DELETE CASCADE`), `recurrence_id` (the occurrence key the exception replaced), and the `event_recurrence_parent_idx` index.
+
+**Invocation / wiring** — Generated with `npm run db:generate` from the new `lib/db/schema.ts` columns and applied by the lazy migrator on the first `getDb()` like every other file. The generated SQL omitted `ON DELETE CASCADE` for the self-reference (drizzle-kit does not emit the clause for `ALTER TABLE … ADD COLUMN` self-FKs even though the snapshot records it), so the clause was added to the `.sql` by hand; the snapshot already matches, so a future `db:generate` will not repeat the statement.
+
+**Behaviour & side effects** — Two `ALTER TABLE event ADD COLUMN` statements (nullable, so existing rows get NULL) and one `CREATE INDEX`. From this migration on, deleting a series row cascades to its linked exceptions at the SQL level; a moved instance (`scope: "This event"`) is exactly such a row.
+
+**Gotchas** —
+- SQLite only accepts a `REFERENCES` clause on `ADD COLUMN` while the new column's default is NULL — keep it nullable.
+- The importer's Google overrides remain standalone rows with `external_*` provenance and are **not** linked by this migration; only native “This event” writes set the new columns.
+- A database migrated before this file must run it (or `npm run db:migrate`) before a series delete can cascade.
+
+**Tests / verified by** — `tests/integration/db.test.ts` migrates through it; `tests/integration/events.test.ts` "deletes a series with its linked exceptions and returns them" depends on the cascade.
 
 ### drizzle/meta/_journal.json
 
@@ -136,12 +152,12 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 
 **Invocation / wiring** — Read by `drizzle-orm`'s migrator at runtime and by `drizzle-kit` when generating. No application code imports it.
 
-**Behaviour & side effects** — Lists `0000_even_morg`, `0001_tiny_falcon`, `0002_user_preference`, `0003_salty_stranger`, `0004_normalise_subcalendar_owners` and `0005_collections_and_tasks` with increasing `when` timestamps. The `tag` must equal the SQL filename without `.sql`. Applied migrations are recorded in the database's own `__drizzle_migrations` table, so re-running is a no-op.
+**Behaviour & side effects** — Lists `0000_even_morg`, `0001_tiny_falcon`, `0002_user_preference`, `0003_salty_stranger`, `0004_normalise_subcalendar_owners`, `0005_sloppy_praxagora` (the recurring-scope exception columns, shipped by PR #10) and `0006_collections_and_tasks` (the collection/task migration) with increasing `when` timestamps. The `tag` must equal the SQL filename without `.sql`. Applied migrations are recorded in the database's own `__drizzle_migrations` table, so re-running is a no-op.
 
 **Gotchas** —
 - A `.sql` file that is not listed here is never applied, even though it sits in `drizzle/`.
 - Renaming a tag makes an already-migrated database try to apply the renamed file again.
-- `0002`, `0003`, `0004` and `0005` are hand-named (the first two carry drizzle-kit's generated names), so a future `db:generate` will not follow the same pattern; keep the journal entry in sync manually.
+- `0002`–`0006` are hand-named (the first two carry drizzle-kit's generated names), so a future `db:generate` will not follow the same pattern; keep the journal entry in sync manually.
 
 **Tests / verified by** — Indirect only: every integration test migrates through this journal.
 

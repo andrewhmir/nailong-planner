@@ -108,8 +108,31 @@ The request pipeline in one line:
   zone`), or any `Date.parse`-able string. Malformed JSON or non-string entries
   are **ignored silently** — that is the usual reason a deleted occurrence comes
   back.
-- v0.1.0 edits a recurring event **as a series**; only single-occurrence
-  **deletion** exists (append to `exdates`).
+- Edits, drags/resizes and deletes of a repeating event go through **three
+  scopes** — This event, This and following events, All events. A “This event”
+  write creates an ordinary `event` row linked by `recurrence_parent_id`
+  (self-FK, `ON DELETE CASCADE`) with `recurrence_id` = the replaced occurrence
+  key, and appends that key to the series `exdates`; expansion has **no override
+  branch** (the exception renders from its own row). “This and following”
+  truncates the old row and creates a later segment
+  (`lib/recurrence/scopes.ts`); “All events” shifts the series start, rule,
+  EXDATEs **and its exceptions** by the drag delta. The series maths are
+  wall-clock based (`deltaDays` + `deltaMinutes`) so a DST transition cannot
+  change the clock; a non-first occurrence's move is measured from that
+  occurrence, never from DTSTART. The Edit form opens on the clicked occurrence
+  and asks the same question on Save; an “All events” save sends the clicked
+  occurrence's edited timing so the service can apply the delta (a text-only
+  save has a zero delta).
+- Deleting a recurring series also deletes its exceptions (FK cascade) and the
+  DELETE response returns every deleted row so undo can recreate them
+  parent-first; a “This and following” delete returns `segmentId` so its undo
+  does not recreate the merged-back segment. A row without `rrule` — including
+  an already-moved exception — drags, edits and deletes as a plain single event
+  with no chooser.
+- A per-instance exception inherits title/description/location/calendar edits
+  from its series but keeps its own times. Turning the repeat off **keeps** the
+  link so undoing the edit re-attaches the exception; propagation skips a child
+  in a calendar the viewer cannot write.
 - The repeat controls are a structured view over `rrule`
   (`lib/recurrence/rule.ts`): interval, weekly weekdays, monthly
   day-of-month/nth-weekday, and `Never`/`On`/`After N` ends. The dialog sends
@@ -301,7 +324,17 @@ any wrapper in the shell/calendar tree.
 | A new `(app)` route shows the "Calendar" breadcrumb | `AppShell.ROUTE_CRUMBS` is derived from `LIVE_ENTRIES`; the route's roadmap entry is still `status: "planned"` | `lib/roadmap.ts` |
 | A gated rail icon promises a release that already shipped, or names the wrong one | destinations, `version` and the gate label live in one array and nowhere else | `lib/roadmap.ts`, `ROADMAP[].status`/`ROADMAP[].version` |
 | "Delete this occurrence" wiped the whole series | a DELETE sent with **no JSON body** defaults to `scope: "all"` in the handler; `scope: "this"` needs a non-empty `occurrenceStart` | `lib/api/handlers/events.ts` `deleteEventHandler`, the client mutation in `lib/query/events.ts` |
-| Deleting an occurrence returns 500 | the stored `exdates` JSON is corrupt: the append path parses it strictly, while the read path tolerates it | `lib/services/events.ts` `deleteEvent`, `lib/recurrence/expand.ts` |
+| Deleting an occurrence returns 500 | the stored `exdates` JSON was corrupt and an old write path parsed it strictly; the current path tolerates corruption in `lib/services/events.ts` `parseStoredExdates` | the raw `exdates` column, `deleteEvent` |
+| A recurring drag/resize snaps back with no chooser | the block's id did not parse to a visible series row, or the client sent no `scope`/`occurrenceStart` | `CalendarShell.handleEventMove`/`openScope`, the PATCH body |
+| "This event" leaves the original slot on the grid | the EXDATE key shape does not match expansion (date vs ISO), or the exception row was inserted without the link | `createException`, `lib/recurrence/expand.ts` `parseExdates` |
+| "All events" puts the series start on the dragged occurrence's date instead of shifting by the drag offset | `shiftSeriesTiming` measured the delta from the series start rather than from `occurrenceStart` | `lib/recurrence/scopes.ts` `shiftSeriesTiming`; covered by `tests/unit/recurrence-scopes.test.ts` |
+| "This and following" leaves one segment, or its later segment starts on the series' first date | split at the first occurrence intentionally removes the old row (`truncated: null`); a wrong later start means the dialog payload seeded the series start instead of the clicked occurrence | `splitSeries`/`buildLaterSegment`, `CalendarShell.occurrenceWalls` |
+| Deleting a series leaves moved instances behind, or undo loses them | the `0005` self-FK cascade is missing (stale migration) or the undo recreated exceptions before their series | `drizzle/0005_sloppy_praxagora.sql`, `CalendarShell.recreateDeleted` |
+| "All events" is disabled / PATCH answers "custom repeat rule" | the rule fails the `isShiftableRule` round-trip gate (advanced or a known part the editor drops, e.g. `FREQ=DAILY;BYDAY=…`) — only "This event" is allowed | `isShiftableRule` in `lib/recurrence/scopes.ts`; `canShiftSeries` in `CalendarShell` |
+| An "All events" resize changes nothing | `shiftSeriesTiming` must carry the duration delta onto the series end; a start-only delta is a no-op for a resize | `lib/recurrence/scopes.ts`; covered by the resize unit test |
+| A split's COUNT is one off after a skipped occurrence | the split counted rendered occurrences instead of the RRULE sequence position | `rulePositionBefore` vs `countOccurrencesBefore`; `lib/services/events.ts` `splitSeries` |
+| Following-delete undo shows duplicate later blocks | undo recreated the response's later segment as well as restoring the old rule; exclude `segmentId` and only rebuild the deleted exceptions | `CalendarShell.confirmDeleteScope` undo |
+| A split undo leaves a duplicate or a missing block | the undo closure recreated the pre-split exceptions under the wrong parent, or deleted the later segment before re-linking them | `CalendarShell.confirmMoveScope`/`confirmEditScope` undo bodies |
 | Recurring events appear outside the requested range | `listEvents` returns **every** recurring row and lets the client expand it; only non-recurring rows are range-filtered. All-day overlap is compared against the local date of the exclusive `to` bound | `lib/services/events.ts` `listEvents` |
 | Event list looks shifted when the client omits `from`/`to` | the handler defaults to the household-timezone **current month**, falling back to `Asia/Taipei` if the household row is missing | `lib/api/handlers/events.ts` |
 | A task marked done or dropped vanishes from every task view | `listTasks` only loads `status = 'open'`; `view: "all"` and a `collectionId` filter are open-only too, so no list or view returns finished work — only `GET /api/tasks/{id}` still does (the UI has no done-task surface) | `lib/services/tasks.ts` `listTasks`/`getTask`, the row's `status`/`completedAt`/`droppedAt` |
@@ -335,7 +368,7 @@ any wrapper in the shell/calendar tree.
 | A valid `PATCH /api/settings/preferences` returns 400 | it is the only `.strict()` schema — an extra/renamed key is rejected, while other schemas strip unknown keys silently | `lib/validation/preferences.ts` |
 | `restore-check` cannot find a backup that `npm run backup` just made | `backup` defaults to `--out backups`, `restore-check` hardcodes `.dev/backups`; it also has no npm wrapper and no `loadEnv()` | `scripts/backup.mts`, `scripts/restore-check.mts` |
 | A committed migration never runs | migration ordering comes from `drizzle/meta/_journal.json`, never filenames — an unlisted `.sql` is silently skipped | `drizzle/meta/_journal.json`, `lib/db/migrate.ts` |
-| SQL still names `calendar` or `is_view_only_for_partner` after v0.2 | migration `0005` renamed the table and replaced the flag with `visibility`; the TypeScript layer is unconditionally `collection`/`CollectionRow` (no alias), so check the SQL/snapshot names, not an import name | `drizzle/0005_collections_and_tasks.sql`, `lib/db/schema.ts` |
+| SQL still names `calendar` or `is_view_only_for_partner` after v0.2 | migration `0006` renamed the table and replaced the flag with `visibility`; the TypeScript layer is unconditionally `collection`/`CollectionRow` (no alias), so check the SQL/snapshot names, not an import name | `drizzle/0006_collections_and_tasks.sql`, `lib/db/schema.ts` |
 | A script sees none of the `.env` values | each script must call `loadEnv()` **before** importing `lib/env` (hence the dynamic `await import(...)`); only the first of `.env.local`/`.env` is loaded, from `process.cwd()` | `scripts/load-env.mts`, `lib/env.ts` |
 | E2E sign-in fails though the seed ran | `scripts/seed-test-db.mts` forces a fixed secret after loading env; `playwright.config.ts` must set the same one | both files |
 | E2E passes now but fails on a later date | a spec hardcoded a month/day or assumed an empty task view: the seed derives every date from `localToday(household.timezone)` and now also seeds task rows. Derive dates with `currentMonthLabel()`/`householdToday()`/`endOfWeek()` and assert count deltas or `li[data-task-id]` titles | `tests/e2e/helpers.ts`, `tests/e2e/tasks.spec.ts`, `scripts/seed-test-db.mts` |

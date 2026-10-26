@@ -4,8 +4,12 @@ import { AppError } from "@/lib/errors";
 import { getHousehold } from "@/lib/services/household";
 import {
   createEvent,
+  createException,
   deleteEvent,
+  deleteFollowing,
   listEvents,
+  moveSeries,
+  splitSeries,
   updateEvent,
   type EventRange,
 } from "@/lib/services/events";
@@ -113,7 +117,45 @@ export const updateEventHandler = guarded(
     if (!parsed.success) {
       throw fieldErrors(parsed.error);
     }
-    return NextResponse.json({ event: updateEvent(db, ctx, id, parsed.data) });
+    const { scope, occurrenceStart, ...fields } = parsed.data;
+
+    if (scope === "this" || scope === "following") {
+      if (!occurrenceStart) {
+        throw new AppError("VALIDATION", "occurrenceStart is required for this scope.", 400, {
+          occurrenceStart: "Choose which occurrence to change.",
+        });
+      }
+      if (scope === "this") {
+        return NextResponse.json({ event: createException(db, ctx, id, occurrenceStart, fields) });
+      }
+      return NextResponse.json(splitSeries(db, ctx, id, occurrenceStart, fields));
+    }
+
+    if (scope === "all" && occurrenceStart) {
+      if (fields.allDay === undefined) {
+        throw new AppError("VALIDATION", "allDay is required when moving a series.", 400, {
+          allDay: "Send the moved occurrence's all-day flag.",
+        });
+      }
+      return NextResponse.json(
+        moveSeries(
+          db,
+          ctx,
+          id,
+          occurrenceStart,
+          {
+            allDay: fields.allDay,
+            startAt: fields.startAt ?? null,
+            endAt: fields.endAt ?? null,
+            startDate: fields.startDate ?? null,
+            endDate: fields.endDate ?? null,
+          },
+          fields,
+        ),
+      );
+    }
+
+    return NextResponse.json({ event: updateEvent(db, ctx, id, fields) });
   },
 );
 
@@ -125,9 +167,8 @@ export const deleteEventHandler = guarded(
     request: Request,
   ): Promise<Response> => {
     const raw: unknown = await request.json().catch(() => null);
-    const scope = raw && typeof raw === "object" && (raw as { scope?: unknown }).scope === "this"
-      ? "this"
-      : "all";
+    const requested = raw && typeof raw === "object" ? (raw as { scope?: unknown }).scope : undefined;
+    const scope = requested === "this" ? "this" : requested === "following" ? "following" : "all";
 
     if (scope === "this") {
       const occurrenceStart = (raw as { occurrenceStart?: unknown }).occurrenceStart;
@@ -137,10 +178,28 @@ export const deleteEventHandler = guarded(
         });
       }
       deleteEvent(db, ctx, id, { scope: "this", occurrenceStart });
-    } else {
-      deleteEvent(db, ctx, id, { scope: "all" });
+      return new Response(null, { status: 204 });
     }
 
-    return new Response(null, { status: 204 });
+    if (scope === "following") {
+      const occurrenceStart = (raw as { occurrenceStart?: unknown }).occurrenceStart;
+      if (typeof occurrenceStart !== "string" || occurrenceStart.length === 0) {
+        throw new AppError(
+          "VALIDATION",
+          "occurrenceStart is required when scope is 'following'.",
+          400,
+          { occurrenceStart: "Choose which occurrence to delete from." },
+        );
+      }
+      const result = deleteFollowing(db, ctx, id, occurrenceStart);
+      return NextResponse.json({
+        deleted: result.deleted,
+        truncated: result.truncated,
+        segmentId: result.segmentId,
+      });
+    }
+
+    const deleted = deleteEvent(db, ctx, id, { scope: "all" });
+    return NextResponse.json({ deleted, truncated: null });
   },
 );

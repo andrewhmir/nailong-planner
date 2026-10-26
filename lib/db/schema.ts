@@ -114,6 +114,15 @@ export const event = sqliteTable(
     rrule: text("rrule"),
     exdates: text("exdates"),
     /**
+     * Set only on a per-instance exception: the repeating row this event replaces
+     * one occurrence of. Cascades, so deleting a series deletes its exceptions.
+     */
+    recurrenceParentId: text("recurrence_parent_id").references((): AnySQLiteColumn => event.id, {
+      onDelete: "cascade",
+    }),
+    /** Original occurrence key the exception replaced: YYYY-MM-DD or ISO instant. */
+    recurrenceId: text("recurrence_id"),
+    /**
      * IANA zone a recurring timed series keeps its wall-clock time in. Null means
      * the household zone (every event created in Nailong). Imported series store
      * their source TZID so expansion survives a DST transition.
@@ -138,6 +147,7 @@ export const event = sqliteTable(
     index("event_household_start_idx").on(table.householdId, table.startAt),
     index("event_household_start_date_idx").on(table.householdId, table.startDate),
     index("event_collection_idx").on(table.collectionId),
+    index("event_recurrence_parent_idx").on(table.recurrenceParentId),
     // SQLite permits any number of NULL keys, so native events stay unique-free.
     uniqueIndex("event_household_external_key_idx").on(table.householdId, table.externalKey),
   ],

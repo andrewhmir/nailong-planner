@@ -2,13 +2,15 @@
 
 import { useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { shadeTokens } from "@/lib/color/palette";
-import { applyEventPatch, parseExdates, removeEvent, replaceEvent } from "@/lib/query/eventCache";
+import { applyEventPatch, parseExdates, replaceEvent } from "@/lib/query/eventCache";
 import type { EventView } from "@/lib/services/events";
 
 export interface EventRange {
   from: number;
   to: number;
 }
+
+export type RecurringScope = "this" | "following" | "all";
 
 export interface EventInputPayload {
   collectionId?: string;
@@ -22,6 +24,28 @@ export interface EventInputPayload {
   endDate?: string | null;
   rrule?: string | null;
   exdates?: string[];
+  /** Recurring-edit scope envelope; absent keeps the old all-series PATCH. */
+  scope?: RecurringScope;
+  occurrenceStart?: string;
+  /** Only used by undo to restore an exception under its series. */
+  recurrenceParentId?: string | null;
+  recurrenceId?: string | null;
+}
+
+/** PATCH response: a plain series/exception row, or the split envelope. */
+export interface UpdateEventResult {
+  event: EventView;
+  truncated?: EventView | null;
+  relinked?: EventView[];
+  relinkedPrevious?: EventView[];
+}
+
+/** DELETE response: every row removed (empty for a single-occurrence skip). */
+export interface DeleteEventResult {
+  deleted?: EventView[];
+  truncated?: EventView | null;
+  /** The later segment's id for a “This and following” delete (undo filter). */
+  segmentId?: string;
 }
 
 interface ApiErrorBody {
@@ -101,6 +125,8 @@ function optimisticEvent(input: EventInputPayload): EventView {
     endDate: allDay ? (input.endDate ?? input.startDate ?? day) : null,
     rrule: input.rrule ?? null,
     exdates: input.exdates ? JSON.stringify(input.exdates) : null,
+    recurrenceParentId: null,
+    recurrenceId: null,
     tzid: null,
     externalSource: null,
     externalUid: null,
@@ -152,12 +178,18 @@ export function useUpdateEvent() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...input }: { id: string } & EventInputPayload) =>
-      requestJson<{ event: EventView }>(`/api/events/${id}`, {
+      requestJson<UpdateEventResult>(`/api/events/${id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(input),
       }),
     onMutate: async ({ id, ...input }) => {
+      if (input.scope !== undefined) {
+        // Scoped writes change several rows (or split a series); let the
+        // invalidation below render the authoritative result instead of
+        // guessing an optimistic shape.
+        return { snapshots: undefined };
+      }
       const snapshots = await snapshotEvents(queryClient);
       queryClient.setQueriesData<EventView[]>({ queryKey: ["events"] }, (old) =>
         old ? applyEventPatch(old, id, patchList(input)) : old,
@@ -180,18 +212,24 @@ export function useDeleteEvent() {
       occurrenceStart,
     }: {
       id: string;
-      scope?: "all" | "this";
+      scope?: RecurringScope;
       occurrenceStart?: string;
-    }) => {
+    }): Promise<DeleteEventResult> => {
       const response = await fetch(`/api/events/${id}`, {
         method: "DELETE",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ scope, occurrenceStart }),
       });
+      if (response.status === 204) {
+        return {};
+      }
+      const payload = (await response.json().catch(() => null)) as
+        | (DeleteEventResult & ApiErrorBody)
+        | null;
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as ApiErrorBody | null;
         throw new Error(payload?.error?.message ?? "Could not delete the event.");
       }
+      return payload ?? {};
     },
     onMutate: async ({ id, scope = "all", occurrenceStart }) => {
       const snapshots = await snapshotEvents(queryClient);
@@ -209,9 +247,13 @@ export function useDeleteEvent() {
             exdates: JSON.stringify([...exdates, occurrenceStart]),
           });
         });
-      } else {
+      } else if (scope === "all") {
         queryClient.setQueriesData<EventView[]>({ queryKey: ["events"] }, (old) =>
-          old ? removeEvent(old, id) : old,
+          old
+            ? old.filter(
+                (event) => event.id !== id && event.recurrenceParentId !== id,
+              )
+            : old,
         );
       }
       return { snapshots };

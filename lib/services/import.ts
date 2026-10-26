@@ -414,6 +414,8 @@ function eventRowFromIcs(
     endDate: item.allDay ? item.endDate : null,
     rrule: item.rrule,
     exdates: item.exdates.length > 0 ? JSON.stringify(item.exdates) : null,
+    recurrenceParentId: null,
+    recurrenceId: null,
     tzid: item.tzid,
     externalSource: "ics",
     externalUid: item.uid,

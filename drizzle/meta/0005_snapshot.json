@@ -1,133 +1,11 @@
 {
   "version": "6",
   "dialect": "sqlite",
+  "id": "a8f4b44c-f786-4b53-a4f3-c57c548ff067",
+  "prevId": "a6f5c865-2d42-4c79-99bc-1d2690368875",
   "tables": {
-    "account": {
-      "name": "account",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "account_id": {
-          "name": "account_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "provider_id": {
-          "name": "provider_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "access_token": {
-          "name": "access_token",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "refresh_token": {
-          "name": "refresh_token",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "id_token": {
-          "name": "id_token",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "access_token_expires_at": {
-          "name": "access_token_expires_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "refresh_token_expires_at": {
-          "name": "refresh_token_expires_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "password": {
-          "name": "password",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "account_userId_idx": {
-          "name": "account_userId_idx",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "account_user_id_user_id_fk": {
-          "name": "account_user_id_user_id_fk",
-          "tableFrom": "account",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "collection": {
-      "name": "collection",
+    "calendar": {
+      "name": "calendar",
       "columns": {
         "id": {
           "name": "id",
@@ -149,14 +27,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'calendar'"
         },
         "name": {
           "name": "name",
@@ -187,13 +57,13 @@
           "notNull": false,
           "autoincrement": false
         },
-        "visibility": {
-          "name": "visibility",
-          "type": "text",
+        "is_view_only_for_partner": {
+          "name": "is_view_only_for_partner",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'shared'"
+          "default": 0
         },
         "sort_order": {
           "name": "sort_order",
@@ -219,15 +89,15 @@
         }
       },
       "indexes": {
-        "collection_household_idx": {
-          "name": "collection_household_idx",
+        "calendar_household_idx": {
+          "name": "calendar_household_idx",
           "columns": [
             "household_id"
           ],
           "isUnique": false
         },
-        "collection_parent_idx": {
-          "name": "collection_parent_idx",
+        "calendar_parent_idx": {
+          "name": "calendar_parent_idx",
           "columns": [
             "parent_id"
           ],
@@ -235,9 +105,9 @@
         }
       },
       "foreignKeys": {
-        "collection_household_id_household_id_fk": {
-          "name": "collection_household_id_household_id_fk",
-          "tableFrom": "collection",
+        "calendar_household_id_household_id_fk": {
+          "name": "calendar_household_id_household_id_fk",
+          "tableFrom": "calendar",
           "tableTo": "household",
           "columnsFrom": [
             "household_id"
@@ -248,10 +118,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "collection_parent_id_collection_id_fk": {
-          "name": "collection_parent_id_collection_id_fk",
-          "tableFrom": "collection",
-          "tableTo": "collection",
+        "calendar_parent_id_calendar_id_fk": {
+          "name": "calendar_parent_id_calendar_id_fk",
+          "tableFrom": "calendar",
+          "tableTo": "calendar",
           "columnsFrom": [
             "parent_id"
           ],
@@ -283,8 +153,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "collection_id": {
-          "name": "collection_id",
+        "calendar_id": {
+          "name": "calendar_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -356,6 +226,20 @@
         },
         "exdates": {
           "name": "exdates",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "recurrence_parent_id": {
+          "name": "recurrence_parent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "recurrence_id": {
+          "name": "recurrence_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -442,10 +326,17 @@
           ],
           "isUnique": false
         },
-        "event_collection_idx": {
-          "name": "event_collection_idx",
+        "event_calendar_idx": {
+          "name": "event_calendar_idx",
           "columns": [
-            "collection_id"
+            "calendar_id"
+          ],
+          "isUnique": false
+        },
+        "event_recurrence_parent_idx": {
+          "name": "event_recurrence_parent_idx",
+          "columns": [
+            "recurrence_parent_id"
           ],
           "isUnique": false
         },
@@ -472,12 +363,25 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "event_collection_id_collection_id_fk": {
-          "name": "event_collection_id_collection_id_fk",
+        "event_calendar_id_calendar_id_fk": {
+          "name": "event_calendar_id_calendar_id_fk",
           "tableFrom": "event",
-          "tableTo": "collection",
+          "tableTo": "calendar",
           "columnsFrom": [
-            "collection_id"
+            "calendar_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "event_recurrence_parent_id_event_id_fk": {
+          "name": "event_recurrence_parent_id_event_id_fk",
+          "tableFrom": "event",
+          "tableTo": "event",
+          "columnsFrom": [
+            "recurrence_parent_id"
           ],
           "columnsTo": [
             "id"
@@ -761,6 +665,193 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "user_preference": {
+      "name": "user_preference",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "default_view": {
+          "name": "default_view",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'auto'"
+        },
+        "time_format": {
+          "name": "time_format",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'24h'"
+        },
+        "show_week_numbers": {
+          "name": "show_week_numbers",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "shortcuts_enabled": {
+          "name": "shortcuts_enabled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "last_event_calendar_id": {
+          "name": "last_event_calendar_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "account": {
+      "name": "account",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "access_token": {
+          "name": "access_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "refresh_token": {
+          "name": "refresh_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "id_token": {
+          "name": "id_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "access_token_expires_at": {
+          "name": "access_token_expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "refresh_token_expires_at": {
+          "name": "refresh_token_expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "password": {
+          "name": "password",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "account_userId_idx": {
+          "name": "account_userId_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "account_user_id_user_id_fk": {
+          "name": "account_user_id_user_id_fk",
+          "tableFrom": "account",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "session": {
       "name": "session",
       "columns": {
@@ -852,242 +943,6 @@
           "tableTo": "user",
           "columnsFrom": [
             "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "task": {
-      "name": "task",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "household_id": {
-          "name": "household_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "collection_id": {
-          "name": "collection_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'open'"
-        },
-        "scheduled_on": {
-          "name": "scheduled_on",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "due_on": {
-          "name": "due_on",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "completed_at": {
-          "name": "completed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "dropped_at": {
-          "name": "dropped_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "task_household_status_idx": {
-          "name": "task_household_status_idx",
-          "columns": [
-            "household_id",
-            "status"
-          ],
-          "isUnique": false
-        },
-        "task_collection_idx": {
-          "name": "task_collection_idx",
-          "columns": [
-            "collection_id"
-          ],
-          "isUnique": false
-        },
-        "task_scheduled_idx": {
-          "name": "task_scheduled_idx",
-          "columns": [
-            "scheduled_on"
-          ],
-          "isUnique": false
-        },
-        "task_due_idx": {
-          "name": "task_due_idx",
-          "columns": [
-            "due_on"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "task_household_id_household_id_fk": {
-          "name": "task_household_id_household_id_fk",
-          "tableFrom": "task",
-          "tableTo": "household",
-          "columnsFrom": [
-            "household_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "task_collection_id_collection_id_fk": {
-          "name": "task_collection_id_collection_id_fk",
-          "tableFrom": "task",
-          "tableTo": "collection",
-          "columnsFrom": [
-            "collection_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "task_checklist_item": {
-      "name": "task_checklist_item",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "task_id": {
-          "name": "task_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "done": {
-          "name": "done",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        }
-      },
-      "indexes": {
-        "task_checklist_task_idx": {
-          "name": "task_checklist_task_idx",
-          "columns": [
-            "task_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "task_checklist_item_task_id_task_id_fk": {
-          "name": "task_checklist_item_task_id_task_id_fk",
-          "tableFrom": "task_checklist_item",
-          "tableTo": "task",
-          "columnsFrom": [
-            "task_id"
           ],
           "columnsTo": [
             "id"
@@ -1297,69 +1152,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "user_preference": {
-      "name": "user_preference",
-      "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "default_view": {
-          "name": "default_view",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'auto'"
-        },
-        "time_format": {
-          "name": "time_format",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'24h'"
-        },
-        "show_week_numbers": {
-          "name": "show_week_numbers",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "shortcuts_enabled": {
-          "name": "shortcuts_enabled",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
-        },
-        "last_event_calendar_id": {
-          "name": "last_event_calendar_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "verification": {
       "name": "verification",
       "columns": {
@@ -1426,12 +1218,11 @@
   "views": {},
   "enums": {},
   "_meta": {
+    "schemas": {},
     "tables": {},
     "columns": {}
   },
   "internal": {
     "indexes": {}
-  },
-  "id": "c2e330f2-8dfd-4436-935b-7fa9c390f418",
-  "prevId": "a6f5c865-2d42-4c79-99bc-1d2690368875"
+  }
 }

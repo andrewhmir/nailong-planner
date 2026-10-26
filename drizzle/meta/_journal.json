@@ -40,8 +40,15 @@
     {
       "idx": 5,
       "version": "6",
-      "when": 1792921200000,
-      "tag": "0005_collections_and_tasks",
+      "when": 1792922239319,
+      "tag": "0005_sloppy_praxagora",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792978809429,
+      "tag": "0006_collections_and_tasks",
       "breakpoints": true
     }
   ]

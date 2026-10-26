@@ -27,6 +27,8 @@ function base(overrides: Partial<EventView>): EventView {
     endDate: "2026-10-21",
     rrule: null,
     exdates: null,
+    recurrenceParentId: null,
+    recurrenceId: null,
     tzid: null,
     externalSource: null,
     externalUid: null,

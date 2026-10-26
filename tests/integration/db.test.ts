@@ -137,7 +137,7 @@ describe("database schema", () => {
   });
 });
 
-describe("migration 0005", () => {
+describe("migration 0006", () => {
   it("renames calendar to collection, backfills visibility, and adds task tables", async () => {
     const { db, sqlite, close } = await makeTestDb({ upTo: "0004_normalise_subcalendar_owners" });
     try {
@@ -239,7 +239,7 @@ describe("migration 0005", () => {
     }
   });
 
-  it("maps is_view_only_for_partner = 1 on a root to visibility='view_only' (0005)", async () => {
+  it("maps is_view_only_for_partner = 1 on a root to visibility='view_only' (0006)", async () => {
     const { db, sqlite, close } = await makeTestDb({ upTo: "0004_normalise_subcalendar_owners" });
     try {
       db.insert(household).values({ id: "h" }).run();

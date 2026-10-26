@@ -30,10 +30,12 @@ import {
   useUpdateEvent,
   type EventInputPayload,
   type EventRange,
+  type UpdateEventResult,
 } from "@/lib/query/events";
-import { usePreferences } from "@/lib/query/preferences";
+import { usePreferences, useUpdatePreferences } from "@/lib/query/preferences";
 import { useTasks } from "@/lib/query/tasks";
 import { expandOccurrences } from "@/lib/recurrence/expand";
+import { isShiftableRule } from "@/lib/recurrence/scopes";
 import type { CollectionNode } from "@/lib/services/collections";
 import type { EventView } from "@/lib/services/events";
 import { canWriteCollection, foldCollectionPermission } from "@/lib/services/permissions";
@@ -55,6 +57,7 @@ import { CalendarView, type RenderableOccurrence } from "./CalendarView";
 import { EventDetailsPopover } from "./EventDetailsPopover";
 import { EventDialog, type EventDialogInitial } from "./EventDialog";
 import { QuickCreatePopover, type QuickCreateDraft } from "./QuickCreatePopover";
+import { ScopeDialog, type RecurringScope } from "./ScopeDialog";
 import { ShortcutHelpDialog } from "./ShortcutHelpDialog";
 import {
   defaultRangeForDate,
@@ -94,6 +97,33 @@ interface EventDialogState {
   initialRule: string | null;
 }
 
+/** The moved occurrence's new timing, as FullCalendar reported it. */
+interface MoveTiming {
+  allDay: boolean;
+  startAt: number | null;
+  endAt: number | null;
+  startDate: string | null;
+  endDate: string | null;
+}
+
+/** An occurrence drag/resize or delete waiting for its scope choice. */
+interface PendingScope {
+  kind: "move" | "delete";
+  event: EventView;
+  occurrenceStart: string;
+  move?: MoveTiming;
+  /** False when the rule cannot be shifted/continued (custom pattern). */
+  seriesShiftable: boolean;
+}
+
+/** A repeating edit whose form values wait for the scope choice. */
+interface PendingEdit {
+  event: EventView;
+  occurrenceStart: string;
+  payload: EventInputPayload;
+  repeatTouched: boolean;
+}
+
 const VIEW_TYPES: Record<string, PlannerView> = {
   dayGridMonth: "dayGridMonth",
   timeGridWeek: "timeGridWeek",
@@ -125,6 +155,39 @@ function seriesEndWall(event: EventView, timezone: string): string {
     : utcToLocalWallTime(event.endAt, timezone);
 }
 
+function daysBetweenDates(startDate: string, endDate: string): number {
+  const start = Date.parse(`${startDate.slice(0, 10)}T00:00:00Z`);
+  const end = Date.parse(`${endDate.slice(0, 10)}T00:00:00Z`);
+  return Math.max(1, Math.round((end - start) / DAY_MS) + 1);
+}
+
+/**
+ * The Edit dialog's wall-clock values for one clicked occurrence. A series row
+ * stores its first block, so editing “this Tuesday” must seed from the clicked
+ * occurrence, not from the stored series start.
+ */
+function occurrenceWalls(
+  event: EventView,
+  occurrenceStart: string,
+  timezone: string,
+): { start: string; end: string } {
+  if (event.allDay === 1) {
+    const startDate = occurrenceStart.slice(0, 10);
+    const days = daysBetweenDates(
+      event.startDate ?? startDate,
+      event.endDate ?? event.startDate ?? startDate,
+    );
+    return { start: `${startDate}T09:00`, end: `${addDaysToDate(startDate, days - 1)}T10:00` };
+  }
+  const startMs = Date.parse(occurrenceStart);
+  const seriesStart = event.startAt ?? startMs;
+  const duration = (event.endAt ?? seriesStart) - seriesStart;
+  return {
+    start: utcToLocalWallTime(startMs, timezone),
+    end: utcToLocalWallTime(startMs + duration, timezone),
+  };
+}
+
 /** Rebuilds the create payload from a row so an undo can restore it verbatim. */
 function eventToPayload(event: EventView): EventInputPayload {
   return {
@@ -139,6 +202,8 @@ function eventToPayload(event: EventView): EventInputPayload {
     endDate: event.endDate,
     rrule: event.rrule,
     exdates: parseExdates(event.exdates),
+    recurrenceParentId: event.recurrenceParentId,
+    recurrenceId: event.recurrenceId,
   };
 }
 
@@ -157,6 +222,7 @@ export function CalendarShell({
   const visibility = useVisibilityApi();
   const { data: collections } = useCollections();
   const preferences = usePreferences(initialPreferences);
+  const updatePreferences = useUpdatePreferences();
   const calendarRef = useRef<CalendarRef | null>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -180,10 +246,8 @@ export function CalendarShell({
   const [helpOpen, setHelpOpen] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const [selection, setSelection] = useState<EventSelection | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<{
-    event: EventView;
-    occurrenceStart: string;
-  } | null>(null);
+  const [pendingScope, setPendingScope] = useState<PendingScope | null>(null);
+  const [pendingEdit, setPendingEdit] = useState<PendingEdit | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
   const gridRef = useRef<HTMLElement | null>(null);
   // Wheel navigation: carry sub-threshold trackpad deltas across events, and
@@ -575,6 +639,7 @@ export function CalendarShell({
     rememberOpener();
     overlaySeqRef.current += 1;
     setDialogDirty(dirty);
+    setPendingEdit(null);
     setQuickDraft(null);
     // One surface at a time: never leave the details popover under the form.
     setSelection(null);
@@ -590,13 +655,15 @@ export function CalendarShell({
     });
   }
 
-  function openEdit(event: EventView) {
+  function openEdit(event: EventView, occurrenceStart: string) {
+    const walls = occurrenceWalls(event, occurrenceStart, timezone);
     openDialog({
       mode: "edit",
       initial: {
         event,
-        start: seriesStartWall(event, timezone),
-        end: seriesEndWall(event, timezone),
+        occurrenceStart,
+        start: walls.start,
+        end: walls.end,
         allDay: event.allDay === 1,
       },
       initialRule: event.rrule,
@@ -617,10 +684,136 @@ export function CalendarShell({
     });
   }
 
+  /** Close the Edit dialog after a scoped (or plain) save. */
+  function finishScopedEdit(payload: EventInputPayload): void {
+    updatePreferences.mutate({ lastEventCalendarId: payload.collectionId });
+    setDialogDirty(false);
+    finishCloseDialog();
+  }
+
+  /** EventDialog hands edit saves here so the shell can ask for the scope. */
+  function handleEditSaveRequest(
+    payload: EventInputPayload,
+    meta: { repeatTouched: boolean },
+  ): void {
+    const state = dialog;
+    if (!state || state.mode !== "edit" || !state.initial.event) {
+      return;
+    }
+    const event = state.initial.event;
+    if (!event.rrule) {
+      // A single event (or an exception row) has nothing to choose.
+      updateEvent.mutate(
+        { id: event.id, ...payload },
+        {
+          onSuccess: () => finishScopedEdit(payload),
+          onError: (error) => toast.error(error.message),
+        },
+      );
+      return;
+    }
+    setPendingEdit({
+      event,
+      occurrenceStart: state.initial.occurrenceStart ?? occurrenceKey(event),
+      payload,
+      repeatTouched: meta.repeatTouched,
+    });
+  }
+
+  function confirmEditScope(scope: RecurringScope): void {
+    const pending = pendingEdit;
+    if (!pending) {
+      return;
+    }
+    const { event, occurrenceStart, payload } = pending;
+    const onError = (error: Error) => toast.error(error.message);
+    setPendingEdit(null);
+
+    if (scope === "this") {
+      updateEvent.mutate(
+        { id: event.id, scope: "this", occurrenceStart, ...payload },
+        {
+          onSuccess: ({ event: exception }) => {
+            const previousExdates = parseExdates(event.exdates);
+            const handle = pushUndo({
+              label: "Change occurrence",
+              undo: async () => {
+                await deleteEvent.mutateAsync({ id: exception.id, scope: "all" });
+                await updateEvent.mutateAsync({ id: event.id, exdates: previousExdates });
+              },
+            });
+            undoToast("This occurrence changed", handle);
+            finishScopedEdit(payload);
+          },
+          onError,
+        },
+      );
+      return;
+    }
+
+    if (scope === "following") {
+      updateEvent.mutate(
+        { id: event.id, scope: "following", occurrenceStart, ...payload },
+        {
+          onSuccess: (result) => {
+            const handle = pushUndo({
+              label: "Change following events",
+              undo: async () => {
+                let oldSeriesId = result.truncated?.id ?? null;
+                if (!oldSeriesId) {
+                  const recreated = await createEvent.mutateAsync(eventToPayload(event));
+                  oldSeriesId = recreated.event.id;
+                }
+                for (const previousException of result.relinkedPrevious ?? []) {
+                  await createEvent.mutateAsync({
+                    ...eventToPayload(previousException),
+                    recurrenceParentId: oldSeriesId,
+                  });
+                }
+                await deleteEvent.mutateAsync({ id: result.event.id, scope: "all" });
+                if (result.truncated) {
+                  await updateEvent.mutateAsync({
+                    id: event.id,
+                    rrule: event.rrule,
+                    exdates: parseExdates(event.exdates),
+                  });
+                }
+              },
+            });
+            undoToast("Following events changed", handle);
+            finishScopedEdit(payload);
+          },
+          onError,
+        },
+      );
+      return;
+    }
+
+    updateEvent.mutate(
+      { id: event.id, scope: "all", occurrenceStart, ...payload },
+      {
+        onSuccess: (result) => {
+          const previous = eventToPayload(event);
+          const handle = pushUndo({
+            label: "Change series",
+            undo: async () => {
+              await restoreShiftedExceptions(event, result);
+              await updateEvent.mutateAsync({ id: result.event.id, ...previous });
+            },
+          });
+          undoToast("Series changed", handle);
+          finishScopedEdit(payload);
+        },
+        onError,
+      },
+    );
+  }
+
   function finishCloseDialog(): void {
     setDialog(null);
     setConfirmDiscard(false);
     setDialogDirty(false);
+    setPendingEdit(null);
     openerRef.current?.focus();
     openerRef.current = null;
   }
@@ -763,14 +956,7 @@ export function CalendarShell({
   function handleEventMove(info: DropInfo) {
     const parsed = parseOccurrenceFcId(info.event.id);
     const base = parsed ? visibleEvents.find((event) => event.id === parsed.eventId) : undefined;
-    if (!base) {
-      return;
-    }
-
-    // Dragging one occurrence of a series would silently rewrite the series.
-    if (base.rrule) {
-      info.revert();
-      toast("This event repeats. Edit the series to change its time.");
+    if (!parsed || !base) {
       return;
     }
 
@@ -802,6 +988,14 @@ export function CalendarShell({
           startDate: null,
           endDate: null,
         };
+
+    if (base.rrule) {
+      // The chooser replaces the grid's optimistic drop: revert now and apply
+      // the move once the user picks a scope.
+      info.revert();
+      openScope("move", base, parsed.startKey, payload);
+      return;
+    }
 
     updateEvent.mutate(
       { id: base.id, ...payload },
@@ -853,22 +1047,106 @@ export function CalendarShell({
     };
   }
 
+  /** True when the rule can be shifted by a whole-series move. */
+  function canShiftSeries(event: EventView): boolean {
+    if (!event.rrule) {
+      return false;
+    }
+    const startDate =
+      event.allDay === 1
+        ? (event.startDate ?? utcToLocalDate(Date.now(), timezone))
+        : utcToLocalDate(event.startAt ?? Date.now(), timezone);
+    return isShiftableRule(event.rrule, startDate, {
+      allDay: event.allDay === 1,
+      timezone,
+    });
+  }
+
+  function openScope(
+    kind: "move" | "delete",
+    event: EventView,
+    occurrenceStart: string,
+    move?: MoveTiming,
+  ): void {
+    // The chooser is a surface: it replaces the details popover/quick create.
+    overlaySeqRef.current += 1;
+    setSelection(null);
+    setQuickDraft(null);
+    setPendingScope({
+      kind,
+      event,
+      occurrenceStart,
+      move,
+      seriesShiftable: kind === "delete" || canShiftSeries(event),
+    });
+  }
+
+  /** Recreates rows the server deleted, parents before their exceptions. */
+  async function recreateDeleted(rows: EventView[]): Promise<void> {
+    const ids = new Set(rows.map((row) => row.id));
+    const ordered = [...rows].sort((left, right) => {
+      const leftParent = left.recurrenceParentId && ids.has(left.recurrenceParentId) ? 1 : 0;
+      const rightParent = right.recurrenceParentId && ids.has(right.recurrenceParentId) ? 1 : 0;
+      return leftParent - rightParent;
+    });
+    const remap = new Map<string, string>();
+    for (const row of ordered) {
+      const oldParent =
+        row.recurrenceParentId && ids.has(row.recurrenceParentId) ? row.recurrenceParentId : null;
+      const created = await createEvent.mutateAsync({
+        ...eventToPayload(row),
+        recurrenceParentId: oldParent ? (remap.get(oldParent) ?? null) : null,
+        recurrenceId: oldParent ? row.recurrenceId : null,
+      });
+      remap.set(row.id, created.event.id);
+    }
+  }
+
+  /** The timing/rule fields an all-events move or edit can be undone from. */
+  function seriesRestorePayload(event: EventView): EventInputPayload {
+    return {
+      allDay: event.allDay === 1,
+      startAt: event.startAt,
+      endAt: event.endAt,
+      startDate: event.startDate,
+      endDate: event.endDate,
+      rrule: event.rrule,
+      exdates: parseExdates(event.exdates),
+    };
+  }
+
+  /**
+   * Restores a series' exceptions after an “All events” move/edit: recreate the
+   * pre-change rows under the series, then delete the shifted ones.
+   */
+  async function restoreShiftedExceptions(
+    series: EventView,
+    result: UpdateEventResult,
+  ): Promise<void> {
+    for (const row of result.relinkedPrevious ?? []) {
+      await createEvent.mutateAsync({
+        ...eventToPayload(row),
+        recurrenceParentId: series.id,
+      });
+    }
+    for (const row of result.relinked ?? []) {
+      await deleteEvent.mutateAsync({ id: row.id, scope: "all" });
+    }
+  }
+
   function requestDeleteFor(event: EventView, occurrenceStart: string) {
     if (event.rrule) {
-      // The scope prompt replaces the details popover; it must not sit under it.
-      overlaySeqRef.current += 1;
-      setSelection(null);
-      setPendingDelete({ event, occurrenceStart });
+      openScope("delete", event, occurrenceStart);
       return;
     }
     deleteEvent.mutate(
       { id: event.id, scope: "all" },
       {
-        onSuccess: () => {
+        onSuccess: (result) => {
           const handle = pushUndo({
             label: "Delete event",
             undo: async () => {
-              await createEvent.mutateAsync(eventToPayload(event));
+              await recreateDeleted(result.deleted ?? [event]);
             },
           });
           undoToast("Event deleted", handle);
@@ -887,28 +1165,13 @@ export function CalendarShell({
     requestDeleteFor(selectedEvent, selection.occurrenceStart);
   }
 
-  function confirmSeriesDelete(scope: "all" | "this") {
-    if (!pendingDelete) {
-      return;
-    }
-    const { event, occurrenceStart } = pendingDelete;
-    deleteEvent.mutate(
-      {
-        id: event.id,
-        scope,
-        occurrenceStart: scope === "this" ? occurrenceStart : undefined,
-      },
-      {
-        onSuccess: () => {
-          if (scope === "all") {
-            const handle = pushUndo({
-              label: "Delete series",
-              undo: async () => {
-                await createEvent.mutateAsync(eventToPayload(event));
-              },
-            });
-            undoToast("Series deleted", handle);
-          } else {
+  function confirmDeleteScope(pending: PendingScope, scope: RecurringScope): void {
+    const { event, occurrenceStart } = pending;
+    if (scope === "this") {
+      deleteEvent.mutate(
+        { id: event.id, scope: "this", occurrenceStart },
+        {
+          onSuccess: () => {
             const remaining = parseExdates(event.exdates).filter(
               (key) => key !== occurrenceStart,
             );
@@ -919,13 +1182,191 @@ export function CalendarShell({
               },
             });
             undoToast("Occurrence skipped", handle);
-          }
-          setPendingDelete(null);
-          setSelection(null);
+          },
+          onError: (error) => toast.error(error.message),
+        },
+      );
+      return;
+    }
+
+    if (scope === "following") {
+      deleteEvent.mutate(
+        { id: event.id, scope: "following", occurrenceStart },
+        {
+          onSuccess: (result) => {
+            const handle = pushUndo({
+              label: "Delete following events",
+              undo: async () => {
+                const segmentId = result.segmentId;
+                const children = (result.deleted ?? []).filter(
+                  (row) => row.id !== segmentId && row.id !== event.id,
+                );
+                let seriesId = event.id;
+                if (!result.truncated) {
+                  const recreated = await createEvent.mutateAsync(eventToPayload(event));
+                  seriesId = recreated.event.id;
+                }
+                for (const child of children) {
+                  await createEvent.mutateAsync({
+                    ...eventToPayload(child),
+                    recurrenceParentId: seriesId,
+                  });
+                }
+                if (result.truncated) {
+                  await updateEvent.mutateAsync({
+                    id: seriesId,
+                    rrule: event.rrule,
+                    exdates: parseExdates(event.exdates),
+                  });
+                }
+              },
+            });
+            undoToast("Following events deleted", handle);
+          },
+          onError: (error) => toast.error(error.message),
+        },
+      );
+      return;
+    }
+
+    deleteEvent.mutate(
+      { id: event.id, scope: "all" },
+      {
+        onSuccess: (result) => {
+          const handle = pushUndo({
+            label: "Delete series",
+            undo: async () => {
+              await recreateDeleted(result.deleted ?? [event]);
+            },
+          });
+          undoToast("Series deleted", handle);
         },
         onError: (error) => toast.error(error.message),
       },
     );
+  }
+
+  function confirmMoveScope(pending: PendingScope, scope: RecurringScope): void {
+    const { event, occurrenceStart, move } = pending;
+    if (!move) {
+      return;
+    }
+
+    if (scope === "this") {
+      updateEvent.mutate(
+        { id: event.id, scope: "this", occurrenceStart, ...move },
+        {
+          onSuccess: ({ event: exception }) => {
+            const previousExdates = parseExdates(event.exdates);
+            const handle = pushUndo({
+              label: "Move occurrence",
+              undo: async () => {
+                await deleteEvent.mutateAsync({ id: exception.id, scope: "all" });
+                await updateEvent.mutateAsync({ id: event.id, exdates: previousExdates });
+              },
+            });
+            undoToast(
+              `Occurrence moved to ${formatOccurrenceWhen(
+                exception,
+                occurrenceKey(exception),
+                timezone,
+                preferences.timeFormat,
+              )}`,
+              handle,
+            );
+          },
+          onError: (error) => toast.error(error.message),
+        },
+      );
+      return;
+    }
+
+    if (scope === "following") {
+      updateEvent.mutate(
+        { id: event.id, scope: "following", occurrenceStart, ...move },
+        {
+          onSuccess: (result) => {
+            const previous = event;
+            const handle = pushUndo({
+              label: "Move following events",
+              undo: async () => {
+                let oldSeriesId = result.truncated?.id ?? null;
+                if (!oldSeriesId) {
+                  const recreated = await createEvent.mutateAsync(eventToPayload(previous));
+                  oldSeriesId = recreated.event.id;
+                }
+                for (const previousException of result.relinkedPrevious ?? []) {
+                  await createEvent.mutateAsync({
+                    ...eventToPayload(previousException),
+                    recurrenceParentId: oldSeriesId,
+                  });
+                }
+                await deleteEvent.mutateAsync({ id: result.event.id, scope: "all" });
+                if (result.truncated) {
+                  await updateEvent.mutateAsync({
+                    id: previous.id,
+                    rrule: previous.rrule,
+                    exdates: parseExdates(previous.exdates),
+                  });
+                }
+              },
+            });
+            undoToast(
+              `Following events moved to ${formatOccurrenceWhen(
+                result.event,
+                occurrenceKey(result.event),
+                timezone,
+                preferences.timeFormat,
+              )}`,
+              handle,
+            );
+          },
+          onError: (error) => toast.error(error.message),
+        },
+      );
+      return;
+    }
+
+    updateEvent.mutate(
+      { id: event.id, scope: "all", occurrenceStart, ...move },
+      {
+        onSuccess: (result) => {
+          const moved = result.event;
+          const previous = seriesRestorePayload(event);
+          const handle = pushUndo({
+            label: "Move series",
+            undo: async () => {
+              await restoreShiftedExceptions(event, result);
+              await updateEvent.mutateAsync({ id: moved.id, ...previous });
+            },
+          });
+          undoToast(
+            `Series moved to ${formatOccurrenceWhen(
+              moved,
+              occurrenceKey(moved),
+              timezone,
+              preferences.timeFormat,
+            )}`,
+            handle,
+          );
+        },
+        onError: (error) => toast.error(error.message),
+      },
+    );
+  }
+
+  function confirmScope(scope: RecurringScope): void {
+    const pending = pendingScope;
+    if (!pending) {
+      return;
+    }
+    setPendingScope(null);
+    setSelection(null);
+    if (pending.kind === "delete") {
+      confirmDeleteScope(pending, scope);
+    } else {
+      confirmMoveScope(pending, scope);
+    }
   }
 
   // Mounted once: the hook reads the latest handlers through a ref.
@@ -945,12 +1386,12 @@ export function CalendarShell({
     onEditSelected: () => {
       const target = focusedEvent();
       if (target) {
-        openEdit(target.event);
+        openEdit(target.event, target.occurrenceStart);
         setSelection(null);
         return;
       }
       if (selectedEvent && selection) {
-        openEdit(selectedEvent);
+        openEdit(selectedEvent, selection.occurrenceStart);
         setSelection(null);
       }
     },
@@ -1053,6 +1494,11 @@ export function CalendarShell({
             if (open) {
               return;
             }
+            if (pendingEdit) {
+              // Escape/Cancel returns to the form with its edits intact.
+              setPendingEdit(null);
+              return;
+            }
             if (confirmDiscard) {
               keepEditing();
               return;
@@ -1062,22 +1508,29 @@ export function CalendarShell({
         >
           <DialogContent
             title={
-              confirmDiscard
-                ? "Discard this event?"
-                : dialog.mode === "edit"
-                  ? "Edit event"
-                  : "New event"
+              pendingEdit
+                ? "Change repeating event"
+                : confirmDiscard
+                  ? "Discard this event?"
+                  : dialog.mode === "edit"
+                    ? "Edit event"
+                    : "New event"
             }
             description={
-              confirmDiscard
-                ? "Your changes will be lost."
-                : `Times are in ${timezone.replace("_", " ")}.`
+              pendingEdit
+                ? "This event repeats. What should change?"
+                : confirmDiscard
+                  ? "Your changes will be lost."
+                  : `Times are in ${timezone.replace("_", " ")}.`
             }
             sheet
           >
-            {/* The form stays mounted while the confirm is shown, so "Keep
-                editing" returns with every keystroke intact. */}
-            <div className={confirmDiscard ? "hidden" : undefined} aria-hidden={confirmDiscard}>
+            {/* The form stays mounted while the confirm/prompt is shown, so
+                Cancel returns with every keystroke intact. */}
+            <div
+              className={confirmDiscard || pendingEdit ? "hidden" : undefined}
+              aria-hidden={confirmDiscard || Boolean(pendingEdit)}
+            >
               <EventDialog
                 mode={dialog.mode}
                 initial={dialog.initial}
@@ -1090,6 +1543,8 @@ export function CalendarShell({
                 onClose={finishCloseDialog}
                 onCancel={requestCloseDialog}
                 onDirtyChange={setDialogDirty}
+                onSaveRequest={handleEditSaveRequest}
+                externalPending={updateEvent.isPending || createEvent.isPending}
               />
             </div>
             {confirmDiscard ? (
@@ -1099,6 +1554,19 @@ export function CalendarShell({
                   Discard
                 </Button>
               </div>
+            ) : null}
+            {pendingEdit ? (
+              <ScopeDialog
+                description="Choose whether the edits apply to this event only, this and following events, or the whole series."
+                disabled={pendingEdit.repeatTouched ? ["this"] : []}
+                note={
+                  pendingEdit.repeatTouched
+                    ? "Changing the repeat applies to the series. Choose This and following events or All events."
+                    : undefined
+                }
+                onChoose={confirmEditScope}
+                onCancel={() => setPendingEdit(null)}
+              />
             ) : null}
           </DialogContent>
         </Dialog>
@@ -1116,7 +1584,7 @@ export function CalendarShell({
           anchorRect={selection.anchorRect}
           anchorElement={selection.anchorElement}
           onEdit={() => {
-            openEdit(selectedEvent);
+            openEdit(selectedEvent, selection.occurrenceStart);
             setSelection(null);
           }}
           onDuplicate={() => {
@@ -1128,21 +1596,31 @@ export function CalendarShell({
         />
       ) : null}
 
-      {pendingDelete ? (
-        <Dialog open onOpenChange={(open) => (open ? undefined : setPendingDelete(null))}>
+      {pendingScope ? (
+        <Dialog open onOpenChange={(open) => (open ? undefined : setPendingScope(null))}>
           <DialogContent
-            title="Delete repeating event"
-            description="This event repeats. Skip only this one, or delete the series?"
+            title={pendingScope.kind === "move" ? "Move repeating event" : "Delete repeating event"}
+            description={
+              pendingScope.kind === "move"
+                ? "This event repeats. What should change?"
+                : "This event repeats. What should be deleted?"
+            }
           >
-            <div className="flex flex-col gap-2">
-              <Button onClick={() => confirmSeriesDelete("this")}>This event</Button>
-              <Button variant="primary" onClick={() => confirmSeriesDelete("all")}>
-                All events
-              </Button>
-              <Button variant="ghost" onClick={() => setPendingDelete(null)}>
-                Cancel
-              </Button>
-            </div>
+            <ScopeDialog
+              description={
+                pendingScope.kind === "move"
+                  ? "Choose whether the new day and time apply to this occurrence only, this and later occurrences, or the whole series."
+                  : "Choose whether to remove this occurrence only, this and later occurrences, or the whole series."
+              }
+              disabled={pendingScope.seriesShiftable ? [] : ["following", "all"]}
+              note={
+                pendingScope.seriesShiftable
+                  ? undefined
+                  : "This series uses a custom repeat rule the app can't shift, so only this event can be changed here."
+              }
+              onChoose={confirmScope}
+              onCancel={() => setPendingScope(null)}
+            />
           </DialogContent>
         </Dialog>
       ) : null}
