@@ -84,7 +84,7 @@ Cross-table rules that are enforced in code rather than SQL:
 - Re-importing the same Google export creates duplicates -> the upsert is keyed on `(household_id, external_key)`; a duplicate means `external_key` was null or rebuilt differently -> check `parseIcs` in `lib/import/ics.ts`.
 - A recurring imported event shifts by an hour after a DST change -> `event.tzid` is null or expansion is UTC-anchored -> check `expandOccurrences` in `lib/recurrence/expand.ts`.
 
-**Tests** — `tests/integration/db.test.ts` (migrations apply, cascade deletes, FK enforcement, all-day/timed column separation, migration `0004` owner backfill, migration `0005` rename/visibility backfill/task tables); `tests/integration/import-schema.test.ts` (external-key uniqueness, NULL keys, import ledger cascade); fixtures in `tests/helpers/fixtures.ts`.
+**Tests** — `tests/integration/db.test.ts` (migrations apply, cascade deletes, FK enforcement, all-day/timed column separation, migration `0004` owner backfill, migration `0006` rename/visibility backfill/task tables); `tests/integration/import-schema.test.ts` (external-key uniqueness, NULL keys, import ledger cascade); fixtures in `tests/helpers/fixtures.ts`.
 
 ### lib/db/auth-schema.ts
 

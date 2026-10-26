@@ -208,14 +208,14 @@ The request pipeline in one line:
 - A missing `member` row means the household was never provisioned → run
   `npm run provision`.
 
-**Collections and tasks (migration 0005)**
+**Collections and tasks (migration 0006)**
 
 - `calendar` was renamed in place to `collection`; SQL queries must use
   `collection`. The TypeScript layer imports `collection` and its row type is
   `CollectionRow` — there is no `calendar` alias left to import.
 - `collection.kind` (`calendar`/`list`, default `calendar`) says what the node
   holds. `collection.visibility` (`shared`/`view_only`/`private`, default `shared`)
-  replaced `is_view_only_for_partner`; migration `0005` backfilled `1` →
+  replaced `is_view_only_for_partner`; migration `0006` backfilled `1` →
   `view_only`. There is no `is_view_only_for_partner` column any more — a query or
   a snapshot that mentions it is stale.
 - `event.calendar_id` is now `event.collection_id`; the Drizzle property is
@@ -330,6 +330,7 @@ any wrapper in the shell/calendar tree.
 | "All events" puts the series start on the dragged occurrence's date instead of shifting by the drag offset | `shiftSeriesTiming` measured the delta from the series start rather than from `occurrenceStart` | `lib/recurrence/scopes.ts` `shiftSeriesTiming`; covered by `tests/unit/recurrence-scopes.test.ts` |
 | "This and following" leaves one segment, or its later segment starts on the series' first date | split at the first occurrence intentionally removes the old row (`truncated: null`); a wrong later start means the dialog payload seeded the series start instead of the clicked occurrence | `splitSeries`/`buildLaterSegment`, `CalendarShell.occurrenceWalls` |
 | Deleting a series leaves moved instances behind, or undo loses them | the `0005` self-FK cascade is missing (stale migration) or the undo recreated exceptions before their series | `drizzle/0005_sloppy_praxagora.sql`, `CalendarShell.recreateDeleted` |
+| A partner's private occurrence vanishes after a whole-series delete or a "this and following" split/delete from the first occurrence | accepted privacy asymmetry: the series-wide paths read/relink only visible children, but the self-FK cascade still deletes the invisible private exception rows — no leak, and no undo row | `lib/services/events.ts` (`visibleChildren`, `splitSeries`, `deleteFollowing`, `deleteEvent`); `tests/integration/events.test.ts` (the privacy-cascade cases) |
 | "All events" is disabled / PATCH answers "custom repeat rule" | the rule fails the `isShiftableRule` round-trip gate (advanced or a known part the editor drops, e.g. `FREQ=DAILY;BYDAY=…`) — only "This event" is allowed | `isShiftableRule` in `lib/recurrence/scopes.ts`; `canShiftSeries` in `CalendarShell` |
 | An "All events" resize changes nothing | `shiftSeriesTiming` must carry the duration delta onto the series end; a start-only delta is a no-op for a resize | `lib/recurrence/scopes.ts`; covered by the resize unit test |
 | A split's COUNT is one off after a skipped occurrence | the split counted rendered occurrences instead of the RRULE sequence position | `rulePositionBefore` vs `countOccurrencesBefore`; `lib/services/events.ts` `splitSeries` |

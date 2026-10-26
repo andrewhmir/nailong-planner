@@ -239,8 +239,7 @@ Historical design specs and plans (never edited):
 
 Reminders and notifications · two-way Google Calendar sync and read-only ICS
 subscriptions / export feeds · a 30-day trash bin (undo is session-only) ·
-per-occurrence overrides and "this and following" edits · dark mode · PWA ·
-notes, focus and the Today page · more than two users.
+dark mode · PWA · notes, focus and the Today page · more than two users.
 
 ## Contributing
 

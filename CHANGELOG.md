@@ -42,9 +42,27 @@ Nothing yet — the next promised release is v0.3.0 (Today).
 - **Three-state visibility** — `visibility` (`shared` / `view_only` / `private`)
   replaces the `is_view_only_for_partner` flag. Private collections are filtered
   server-side on every read and write, not just in the sidebar.
-- **Migration `0005`** — renames in place (`calendar` -> `collection`,
+- **Migration `0006`** — renames in place (`calendar` -> `collection`,
   `event.calendar_id` -> `collection_id`), adds `kind`/`visibility`, backfills
-  the old flag, and creates `task` + `task_checklist_item`.
+  the old flag, and creates `task` + `task_checklist_item`. It runs after main's
+  `0005_sloppy_praxagora` (the recurring-scope exception columns), which this
+  release also ships and leaves untouched.
+
+### Added — recurring event edit scopes
+
+- **Google's three scopes** — a repeating event can now be changed as **This
+  event**, **This and following events** or **All events** from a drag, a resize,
+  the Edit form or Delete. "This event" moves just that occurrence into an
+  ordinary linked exception (`recurrence_parent_id` self-FK plus
+  `recurrence_id`, migration `0005_sloppy_praxagora`) and excludes the original
+  slot; "this and following" splits the series and re-links later exceptions to
+  the new segment; "all events" shifts the series start, rule and EXDATEs and
+  carries its exceptions with it, returning the relink data every undo needs.
+- **DST-safe series moves** — the series maths are wall-clock based (whole days
+  plus minutes, never a raw millisecond offset), so moving a London 09:00 series
+  across a DST boundary keeps 09:00, and its undo restores the same wall clock.
+- This shipped on `main` (PR #10) after this branch forked; it is part of the
+  integrated v0.2.0 release, not a local-only change.
 
 ### Changed
 
@@ -77,9 +95,21 @@ Nothing yet — the next promised release is v0.3.0 (Today).
 
 ### Upgrade note
 
-- Migration `0005` applies automatically the first time the app opens the
-  database (`migrate()` already runs on boot); there is no manual step. Rows and
-  ids are renamed in place, so no calendar or event data is recreated.
+- Migrations `0005_sloppy_praxagora` and `0006_collections_and_tasks` apply
+  automatically the first time the app opens the database (`migrate()` already
+  runs on boot); there is no manual step. `0005` (main's recurring-scope columns)
+  runs first; `0006` renames rows and ids in place, so no calendar or event data
+  is recreated.
+- **Reset a pre-merge dev/staging database.** While this branch was in review it
+  carried the collection migration as `0005_collections_and_tasks`. The merged
+  journal gives that slot to main's `0005_sloppy_praxagora` and moves the
+  collection migration to `0006`, so a database that already applied the
+  pre-merge migration no longer matches it: Drizzle records each migration's
+  `when` timestamp, and the next boot therefore replays `0005` and tries to run
+  the `0006` rename again against an already-renamed schema, where it fails and
+  rolls back on every retry. Delete the dev/staging database file (or
+  `DATABASE_URL`) and reseed/re-provision. Production never ran the pre-merge
+  branch migration, so no production action is required.
 - Any client calling `/api/calendars*` must switch to `/api/collections*`; the
   old route no longer exists.
 - Visibility and sidebar-fold state saved by v0.1.0 stored a `calendars` map

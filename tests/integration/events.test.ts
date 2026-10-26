@@ -997,6 +997,123 @@ describe("recurring edit scopes", () => {
     }
   });
 
+  it("keeps a partner's private exception on the earlier segment when a later split relinks", async () => {
+    const { db, close, ctxA, ctxB, root } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        collectionId: root.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-10-03",
+        endDate: "2026-10-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA",
+      });
+      const privateCollection = createCollection(db, ctxA, {
+        name: "Private",
+        hueFamily: "violet",
+        ownerId: "user-a",
+        visibility: "private",
+      });
+      const privateException = createException(db, ctxA, series.id, "2026-10-17", {
+        allDay: true,
+        startDate: "2026-10-18",
+        endDate: "2026-10-18",
+        collectionId: privateCollection.id,
+      });
+      const visibleException = createException(db, ctxA, series.id, "2026-10-24", {
+        allDay: true,
+        startDate: "2026-10-25",
+        endDate: "2026-10-25",
+      });
+
+      // The partner splits after the first occurrence: the earlier segment
+      // survives, so its invisible private child survives with it. Only the
+      // visible exception is relinked, and the payload carries visible rows only.
+      const result = splitSeries(db, ctxB, series.id, "2026-10-10", {
+        rrule: series.rrule,
+      });
+
+      expect(result.truncated?.id).toBe(series.id);
+      expect(result.event.id).not.toBe(series.id);
+      expect(result.event.startDate).toBe("2026-10-10");
+      expect(result.relinked.map((row) => row.id)).toEqual([visibleException.id]);
+      expect(result.relinkedPrevious.map((row) => row.id)).toEqual([visibleException.id]);
+      expect(storedRow(db, visibleException.id)?.recurrenceParentId).toBe(result.event.id);
+      const kept = storedRow(db, privateException.id)!;
+      expect(kept.recurrenceParentId).toBe(series.id);
+      expect(kept.recurrenceId).toBe("2026-10-17");
+      expect(kept.startDate).toBe("2026-10-18");
+    } finally {
+      close();
+    }
+  });
+
+  it("cascades a partner's invisible exception when following scopes remove the series", async () => {
+    const { db, close, ctxA, ctxB, root } = await setup();
+    try {
+      const makeSeries = (title: string) =>
+        createEvent(db, ctxA, {
+          collectionId: root.id,
+          title,
+          allDay: true,
+          startDate: "2026-10-03",
+          endDate: "2026-10-03",
+          rrule: "FREQ=WEEKLY;BYDAY=SA",
+        });
+      const privateCollection = createCollection(db, ctxA, {
+        name: "Private",
+        hueFamily: "violet",
+        ownerId: "user-a",
+        visibility: "private",
+      });
+
+      // A split at the first occurrence removes the old series row, so the FK
+      // cascade takes the invisible private child with it. Accepted debt: no
+      // leak (the payload has visible rows only), but no undo row either.
+      const splitTarget = makeSeries("Split");
+      const splitPrivate = createException(db, ctxA, splitTarget.id, "2026-10-10", {
+        allDay: true,
+        startDate: "2026-10-11",
+        endDate: "2026-10-11",
+        collectionId: privateCollection.id,
+      });
+      const split = splitSeries(db, ctxB, splitTarget.id, "2026-10-03", {
+        rrule: splitTarget.rrule,
+      });
+      expect(split.truncated).toBeNull();
+      expect(split.relinked).toEqual([]);
+      expect(split.relinkedPrevious).toEqual([]);
+      expect(storedRow(db, splitTarget.id)).toBeUndefined();
+      expect(storedRow(db, splitPrivate.id)).toBeUndefined();
+
+      // The same happens to "this and following" delete from the first
+      // occurrence: the visible segment and its exception are returned for undo,
+      // the invisible private child is not.
+      const deleteTarget = makeSeries("Delete following");
+      const deletePrivate = createException(db, ctxA, deleteTarget.id, "2026-10-10", {
+        allDay: true,
+        startDate: "2026-10-11",
+        endDate: "2026-10-11",
+        collectionId: privateCollection.id,
+      });
+      const visibleException = createException(db, ctxA, deleteTarget.id, "2026-10-17", {
+        allDay: true,
+        startDate: "2026-10-18",
+        endDate: "2026-10-18",
+      });
+      const following = deleteFollowing(db, ctxB, deleteTarget.id, "2026-10-03");
+      expect(following.truncated).toBeNull();
+      expect(following.deleted.map((row) => row.id).sort()).toEqual(
+        [deleteTarget.id, visibleException.id, following.segmentId].sort(),
+      );
+      expect(storedRow(db, deleteTarget.id)).toBeUndefined();
+      expect(storedRow(db, visibleException.id)).toBeUndefined();
+      expect(storedRow(db, deletePrivate.id)).toBeUndefined();
+    } finally {
+      close();
+    }
+  });
+
   it("refuses a scope target that is a task list", async () => {
     const { db, close, ctxA, child } = await setup();
     try {
