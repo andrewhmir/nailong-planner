@@ -42,8 +42,9 @@ interface Props {
  * cross-cutting overdue pill) and the List/Board segmented control. The count
  * badge keeps `data-testid="tasks-count-<bucket>"` from the v0.2.0 switcher.
  *
- * Board layout is selected here and persisted in the URL, but the board itself
- * lands in a later change: `TasksShell` keeps rendering the list and says so.
+ * Board layout is selected here and persisted in the URL as `layout=board`;
+ * `TasksShell` then renders `TaskBoard` in place of the list, and the toolbar
+ * disables its Group control because a board is always grouped by status.
  */
 export function TaskViewTabs({ view, counts, layout, onScope, onLayout, activeRef }: Props) {
   return (

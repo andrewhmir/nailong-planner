@@ -22,6 +22,7 @@ import { undoToast } from "@/lib/ui/undoToast";
 import { resolveSomedayTriage, useTaskShortcuts } from "@/lib/ui/useTaskShortcuts";
 import { useUndoHotkey } from "@/lib/ui/useUndoHotkey";
 import type { UpdateTaskInput } from "@/lib/validation/tasks";
+import { TaskBoard } from "./TaskBoard";
 import { TaskCaptureRow } from "./TaskCaptureRow";
 import { TaskList } from "./TaskList";
 import { TaskPanel } from "./TaskPanel";
@@ -97,16 +98,17 @@ function sameTaskViewState(a: TaskViewState, b: TaskViewState): boolean {
 
 /**
  * The `/tasks` workspace: the capture row, scope tabs, view toolbar, the grouped
- * list, the right slide-over task panel, plus the page-scoped keyboard
- * triage/undo layers.
+ * list (or the status board in `layout=board`), the right slide-over task panel,
+ * plus the page-scoped keyboard triage/undo layers.
  *
  * `TaskViewState` (layout/group/sort/closed/filters) is the single URL-backed
  * state: it is parsed once from `useSearchParams`, written with `router.replace`
  * through `mergeTaskViewParams` on every toolbar change, and re-parsed when the
  * URL changes underneath (Back/Forward). The scope (Inbox/Today/Week/Someday)
  * stays local like v0.2.0 and switching it clears the selection while keeping
- * the URL state. Rows are a pure projection: `sortTasks(filterTasks(...))` then
- * `groupTasks(...)`.
+ * the URL state. Rows are a pure projection: `sortTasks(filterTasks(...))`. The
+ * list renders it through `groupTasks`; the board gets the same sorted array and
+ * splits it by status, so a filter/sort change drives both layouts identically.
  *
  * Selection is an id over the visible rows. `j`/`k` move it (clamped, starting
  * at the first/last row when nothing is selected) and focus the row; clicking
@@ -120,7 +122,9 @@ function sameTaskViewState(a: TaskViewState, b: TaskViewState): boolean {
  * handle, so the toast reverts exactly what it describes. `z`/`Ctrl+Z` mount
  * here too and consume the shared stack LIFO, exactly as on the calendar. Title
  * edits are the one silent mutation (the field is inline and retyping reverts
- * it); notes and checklist edits keep the v0.2.0 editor's silent save.
+ * it); notes and checklist edits keep the v0.2.0 editor's silent save. Status
+ * changes from either layout — the pill, the board menu, a column drop — share
+ * `patchStatus`, so the toast/undo contract cannot differ by surface.
  */
 export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUserId }: Props) {
   const router = useRouter();
@@ -202,7 +206,15 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
       ),
     [state.collectionId, state.priority, state.sort, state.status, tasks],
   );
-  const groups = useMemo(() => groupTasks(rows, state.group), [rows, state.group]);
+  // The list groups by the toolbar's choice; the board is always grouped by
+  // status, so its flattened order is column order. Using one `visibleRows`
+  // projection for both means `j`/`k` traverse exactly the painted order in
+  // either layout (a stale `group=priority` from list layout cannot make the
+  // board's traversal disagree with its columns).
+  const groups = useMemo(
+    () => groupTasks(rows, state.layout === "board" ? "status" : state.group),
+    [rows, state.group, state.layout],
+  );
   const visibleRows = useMemo(() => groups.flatMap((group) => group.tasks), [groups]);
   const selectedTask = visibleRows.find((task) => task.id === selectedTaskId) ?? null;
   const filtersActive =
@@ -552,7 +564,10 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     setSelectedTaskId(null);
   }
 
-  /** Focus the row that already carries the target id (rows render before state commits). */
+  /**
+   * Focus the row/card that already carries the target id (both layouts render
+   * `data-task-id` before the state commits).
+   */
   function focusRow(id: string): void {
     const rows = Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-task-id]") ?? []);
     rows.find((row) => row.dataset.taskId === id)?.focus();
@@ -716,6 +731,14 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     document.getElementById("task-capture")?.focus();
   }
 
+  /**
+   * The board's column `+` focuses that column's own capture row. Its id is
+   * `task-capture-<status>`; the top row keeps the plain `task-capture` id.
+   */
+  function focusColumnCapture(status: TaskStatus): void {
+    document.getElementById(`task-capture-${status}`)?.focus();
+  }
+
   function clearFilters(): void {
     updateState({ ...state, status: [], priority: [], collectionId: null });
   }
@@ -769,15 +792,6 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
         lists={moveTargets}
       />
 
-      {state.layout === "board" ? (
-        <p
-          role="status"
-          className="rounded-md border border-line bg-well px-3 py-2 text-sm text-ink-soft"
-        >
-          Board view ships in the next change — showing the list for now.
-        </p>
-      ) : null}
-
       {tasksQuery.isError ? (
         <div role="alert" className="rounded-md border border-line-strong bg-surface p-6">
           <p className="text-ink">Could not load the tasks.</p>
@@ -795,18 +809,32 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
         </p>
       ) : (
         <div ref={listRef} role="group" aria-label={`${TASK_BUCKET_LABELS[view]} tasks`}>
-          <TaskList
-            groups={groups}
-            today={today}
-            selectedId={selectedTaskId}
-            onFocus={setSelectedTaskId}
-            actionsFor={actionsFor}
-            moveTargets={moveTargets}
-            emptyMessage={
-              filtersActive ? "No tasks match these filters." : "Nothing here. Enjoy the quiet."
-            }
-            onClearFilters={filtersActive ? clearFilters : null}
-          />
+          {state.layout === "board" ? (
+            <TaskBoard
+              tasks={rows}
+              today={today}
+              timezone={timezone}
+              selectedId={selectedTaskId}
+              closed={state.closed}
+              onFocus={setSelectedTaskId}
+              actionsFor={actionsFor}
+              moveTargets={moveTargets}
+              onCreate={focusColumnCapture}
+            />
+          ) : (
+            <TaskList
+              groups={groups}
+              today={today}
+              selectedId={selectedTaskId}
+              onFocus={setSelectedTaskId}
+              actionsFor={actionsFor}
+              moveTargets={moveTargets}
+              emptyMessage={
+                filtersActive ? "No tasks match these filters." : "Nothing here. Enjoy the quiet."
+              }
+              onClearFilters={filtersActive ? clearFilters : null}
+            />
+          )}
         </div>
       )}
 

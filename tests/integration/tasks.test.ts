@@ -175,6 +175,47 @@ describe("createTask", () => {
     }
   });
 
+  it("creates directly in progress and never as a closed task", async () => {
+    const seeded = await makeSeededDb();
+    const { db, close, ctxA } = seeded;
+    const { shared } = makeLists(seeded);
+    try {
+      const started = createTask(db, ctxA, {
+        title: "Already moving",
+        collectionId: shared.id,
+        status: "in_progress",
+      });
+      // The board's per-column capture sends the status in the create body. The
+      // two active states are the only ones accepted, so a create never needs
+      // the audit stamps a closed row carries.
+      expect(started.status).toBe("in_progress");
+      expect(started.completedAt).toBeNull();
+      expect(started.droppedAt).toBeNull();
+
+      const listed = listTasks(db, ctxA, {
+        view: "someday",
+        timezone: TIMEZONE,
+        weekStartsOn: 0,
+      });
+      expect(listed.tasks.find((row) => row.id === started.id)?.status).toBe("in_progress");
+      expect(listed.counts.someday).toBe(1);
+
+      // The create schema is the contract: `in_progress` is accepted, an
+      // omitted status stays `open` at the service, and the closed pair is not a
+      // create status at all (done/dropped are PATCH transitions by design).
+      expect(createTaskSchema.parse({ title: "x", status: "in_progress" }).status).toBe(
+        "in_progress",
+      );
+      expect(createTaskSchema.parse({ title: "x" }).status).toBeUndefined();
+      expect(createTaskSchema.safeParse({ title: "x", status: "done" }).success).toBe(false);
+      expect(createTaskSchema.safeParse({ title: "x", status: "dropped" }).success).toBe(false);
+      expect(createTaskSchema.safeParse({ title: "x", status: "archived" }).success).toBe(false);
+      expect(updateTaskSchema.safeParse({ status: "done" }).success).toBe(true);
+    } finally {
+      close();
+    }
+  });
+
   it("hides a private list (404) and refuses a partner's view-only list (403)", async () => {
     const seeded = await makeSeededDb();
     const { db, close, ctxB, ctxOther } = seeded;

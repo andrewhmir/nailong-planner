@@ -21,6 +21,12 @@ export const checklistInputSchema = z
 /** ClickUp-style importance. Mirrors `TaskPriority` in the schema. */
 export const prioritySchema = z.enum(["none", "low", "normal", "high", "urgent"]);
 
+/**
+ * `status` on create exists for the board's per-column quick add. Only the two
+ * **active** statuses are accepted: `done`/`dropped` are closed states with
+ * audit semantics (they own `completedAt`/`droppedAt`), so a task is never born
+ * closed — complete or drop it through a PATCH instead.
+ */
 export const createTaskSchema = z.object({
   title: z.string().trim().min(1, "Give the task a title.").max(200),
   notes: z.string().max(2000).nullish(),
@@ -28,6 +34,7 @@ export const createTaskSchema = z.object({
   scheduledOn: dateOnlySchema.nullish(),
   dueOn: dateOnlySchema.nullish(),
   priority: prioritySchema.optional(),
+  status: z.enum(["open", "in_progress"]).optional(),
 });
 
 /**

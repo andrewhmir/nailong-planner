@@ -493,6 +493,24 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 **Tests** — `tests/unit/task-drag.test.ts` (source stamp incl. a null date, move effect, type recognition, read-back of the undo date, and rejection of other drags / empty / raw-id / corrupt / bad-date payloads).
 
+### lib/ui/taskBoardDrag.ts
+
+**Purpose** — The status board's HTML5 drag contract: one custom MIME type (`application/x-nailong-task-status`) plus the source/target helpers, so a board card and a board column agree on the payload without duplicating a string literal. It is deliberately a **third** drag type, separate from `lib/ui/taskDrag.ts`'s row→day payload: a column accepts only the board type, so dragging a row onto a column (or a card onto a calendar day) cannot change a status or plan a task.
+
+**Public API** — `export const BOARD_DRAG_TYPE = "application/x-nailong-task-status"`; `export type BoardDragTransfer = DragTransfer` (the `DataTransfer` subset from `lib/ui/taskDrag.ts`: `types`, `getData`, `setData`, `effectAllowed`, `dropEffect`); `setBoardDragPayload(transfer, taskId): void` (writes the raw id and sets `effectAllowed = "move"`); `readBoardDragPayload(transfer: BoardDragTransfer | null | undefined): string | null`.
+
+**State & side effects** — None; pure and DOM-free (the caller owns the real `DataTransfer`). The payload is the raw task id, not JSON: a drop needs nothing else, and the column already has the task because the id must name a card that is currently rendered. **Corrupt payload handling:** the only corruption a plain string can carry is an empty or whitespace-only value (a browser that exposes the type on `dragover` but withholds the data on `drop`, or a hand-built empty `setData`) — it reads as `null`, and a padded value is trimmed back to the id. A non-empty id that no longer names a rendered card is not "corrupt" at this layer: `TaskBoard` resolves it against the cards it is rendering and silently ignores a miss, so a stale drag can never PATCH an unknown task.
+
+**Depends on / Used by** — `lib/ui/taskDrag.ts` (`DragTransfer`, type-only). Used by `components/tasks/TaskBoardCard.tsx` (`setBoardDragPayload` on `dragstart`) and `components/tasks/TaskBoard.tsx` (`BOARD_DRAG_TYPE` in `dragover`, `readBoardDragPayload` on `drop`).
+
+**Debugging**
+- A card drag is rejected by every column -> the card wrote the row's `text/x-nailong-task` payload instead of this type -> `components/tasks/TaskBoardCard.tsx` `onDragStart`.
+- A column accepts a task row dragged from the list -> the `dragover` guard stopped checking `BOARD_DRAG_TYPE` -> `components/tasks/TaskBoard.tsx`.
+- A drop is a silent no-op -> the payload read as `null` (empty/whitespace) or the id is not in the current filtered board -> this file plus `TaskBoard`'s `byId` lookup.
+- A same-column drop produces no toast -> intended: the column ignores a drop whose card already has that status -> `TaskBoard.onDrop`.
+
+**Tests** — `tests/unit/task-board-drag.test.ts` (round trip, move effect, board type only — the calendar type and plain text are rejected — null for a missing type/empty/whitespace payload, trimming, null transfer).
+
 ### lib/ui/taskDeepLink.ts
 
 **Purpose** — The pure decision table behind `TasksShell`'s `/tasks?task=<id>` effect (the link a calendar task chip pushes). It exists because the effect's correctness is an ordering rule, not a branch: the param may only be marked handled once its lookup settles. React 19's development StrictMode (`reactStrictMode: true`) runs setup → cleanup → setup, so the first closure is cancelled before its `GET` lands; an early marker makes the second setup return and no editor ever opens. The table keeps the second setup on `await-request` (the promise is cached in a ref keyed by the param) and only then on `skip`.

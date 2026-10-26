@@ -77,13 +77,16 @@ rather not have edited.
   roadmap is part of the app instead of a document nobody reads. Only the next
   version is ever promised; everything after it says `Planned`.
 - **Tasks, captured and triaged** — `Shift+K` captures anything from any screen;
-  `/tasks` buckets it into Inbox · Today · Week · Someday, schedules it with the
-  Plan picker, and files it from the keyboard (`j`/`k` to move, `1`–`3` to
-  schedule, `4` to move to another list, `x` to complete, `z` to undo). A task
-  can carry notes, an optional due date and a checklist. Lists sit in the same
-  nested tree as calendars and can be private, shared or view-only, with the
-  same two-person rules; a scheduled task shows on the calendar as a read-only
-  chip, and dragging a row onto the sidebar mini month plans it onto that day.
+  `/tasks` buckets it into Inbox · Today · Week · Someday, then shows it as a
+  dense grouped list or a status board: drag a card between To do and In progress
+  (or into Done/Dropped with "show closed" on), or capture straight into a
+  column. Rows and cards edit their status, priority, dates and list inline, and
+  clicking one opens a right-hand slide-over for the title, notes and checklist.
+  The keyboard does the rest (`j`/`k` to move, `1`–`3` to schedule, `4` to move to
+  another list, `x` to complete, `z` to undo). Lists sit in the same nested tree
+  as calendars and can be private, shared or view-only, with the same two-person
+  rules; a scheduled task shows on the calendar as a read-only chip, and dragging
+  a row onto the sidebar mini month plans it onto that day.
 - **Google-Calendar-shaped daily loops** — a day/slot click, a range drag or
   `Shift+C` opens a quick-create bubble (Enter saves, "More options" escalates to
   the full editor); clicking an event opens anchored details with its repeat

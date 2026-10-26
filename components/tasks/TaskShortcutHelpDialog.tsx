@@ -19,13 +19,13 @@ const GROUPS: Array<{ title: string; rows: Array<{ keys: string[]; description: 
   {
     title: "Triage",
     rows: [
-      { keys: ["j"], description: "Next task" },
-      { keys: ["k"], description: "Previous task" },
+      { keys: ["j"], description: "Next task or card" },
+      { keys: ["k"], description: "Previous task or card" },
       { keys: ["1"], description: "Schedule for today" },
       { keys: ["2"], description: "Schedule for the end of this week" },
       { keys: ["3"], description: "Someday: clear dates, or file an Inbox task to a list" },
       { keys: ["4"], description: "Move to the next writable list" },
-      { keys: ["x"], description: "Complete the selected task" },
+      { keys: ["x"], description: "Complete the selected task or card" },
       { keys: ["Enter"], description: "Open the selected task in the panel" },
       { keys: ["Escape"], description: "Clear the selection" },
     ],
@@ -35,8 +35,9 @@ const GROUPS: Array<{ title: string; rows: Array<{ keys: string[]; description: 
 /**
  * The `?` sheet on `/tasks`: the global capture gesture plus the triage keys.
  * Same dialog primitives as the calendar's `ShortcutHelpDialog`, but a separate
- * group set because `j`/`k` mean something else here (row selection, not period
- * navigation).
+ * group set because `j`/`k` mean something else here (row/card selection, not
+ * period navigation), and a closing note that spells out the board's drag/menu
+ * status path and the no-within-column-reorder rule.
  */
 export function TaskShortcutHelpDialog({ open, onClose }: Props) {
   return (
@@ -76,6 +77,11 @@ export function TaskShortcutHelpDialog({ open, onClose }: Props) {
             </section>
           ))}
         </div>
+        <p className="mt-4 text-sm text-ink-soft">
+          Board view: j / k move through the cards in column order, x completes the selected card,
+          and a card&apos;s menu or a drag between columns changes its status (there is no
+          within-column reorder).
+        </p>
         <div className="mt-5 flex justify-end">
           <Button onClick={onClose}>Close</Button>
         </div>

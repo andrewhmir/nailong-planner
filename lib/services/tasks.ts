@@ -302,6 +302,10 @@ function assertTaskList(access: CollectionAccess): void {
 /**
  * Captures into the caller's Inbox unless an explicit collection is given. The
  * target must be a list, so a calendar is a `VALIDATION` 400.
+ *
+ * `status` may only arrive as one of the two active states (`createTaskSchema`
+ * rejects `done`/`dropped`), so a create never needs audit stamps: both
+ * `completedAt` and `droppedAt` stay null, exactly like the `open` default.
  */
 export function createTask(
   db: Database,
@@ -320,7 +324,7 @@ export function createTask(
     collectionId: access.collection.id,
     title: input.title.trim(),
     notes: input.notes ?? null,
-    status: "open",
+    status: input.status ?? "open",
     priority: input.priority ?? "none",
     scheduledOn: input.scheduledOn ?? null,
     dueOn: input.dueOn ?? null,
