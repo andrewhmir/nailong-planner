@@ -96,6 +96,38 @@ export function DropdownMenuSubContent({ children }: { children: React.ReactNode
   );
 }
 
+/**
+ * A multi-select item with a check indicator, for filter menus. Radix keeps the
+ * menu open after a toggle, so several boxes can be ticked in one visit.
+ */
+export function DropdownMenuCheckboxItem({
+  children,
+  checked,
+  onCheckedChange,
+  disabled = false,
+}: {
+  children: React.ReactNode;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <DropdownPrimitive.CheckboxItem
+      checked={checked}
+      onCheckedChange={(value) => onCheckedChange(value === true)}
+      disabled={disabled}
+      className={cn(ITEM, "data-[state=checked]:font-bold")}
+    >
+      <span className="grid h-4 w-4 shrink-0 place-items-center">
+        <DropdownPrimitive.ItemIndicator>
+          <CheckIcon size={14} />
+        </DropdownPrimitive.ItemIndicator>
+      </span>
+      <span className="min-w-0 flex-1">{children}</span>
+    </DropdownPrimitive.CheckboxItem>
+  );
+}
+
 /** A radio item with a check indicator, for menus that pick one of a set. */
 export function DropdownMenuRadioItem({
   children,

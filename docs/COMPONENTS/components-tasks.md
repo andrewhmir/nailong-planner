@@ -241,6 +241,48 @@ States: `isError` renders `role="alert"` with "Could not load the tasks." and a 
 
 **Tests** — No direct unit coverage; `tests/e2e/tasks.spec.ts` (inline date set/clear) is the UI gate. `MiniMonth` itself is covered by `tests/e2e/mini-month.spec.ts` and `tests/e2e/event-fields.spec.ts`.
 
+### components/tasks/TaskCaptureRow.tsx
+
+**Purpose** — The ClickUp-style add-task row above the list: one input, `Enter` captures into the Inbox (or the supplied list), `Shift+Enter` also schedules it for the household's today. Replaces the deleted `TaskCaptureBar`; the id and test id stay `task-capture`.
+
+**Public API** — `export function TaskCaptureRow(props: { timezone: string; collectionId?: string; status?: TaskStatus; placeholder?: string; onCaptured?: (task: TaskView) => void })`. `timezone` drives `localToday`; `collectionId` files the task in that list; `status` is for the later board's per-column quick add.
+
+**State & side effects** — Local `title` only. `useCreateTask()` posts `{ title }` / `{ title, collectionId }` / `+ scheduledOn: localToday(timezone)`; the trimmed title must be non-empty and the input is disabled while the mutation is pending. The text is cleared and `onCaptured` fired only on success, so a failed create keeps what was typed and toasts exactly `Could not add the task.` Because `POST /api/tasks` does not accept `status` (the create schema predates the field), a non-`open` `status` costs one follow-up PATCH through `useUpdateTask`; if that PATCH fails the task still exists and the toast says `Task added, but its status could not be set.` The element carries `id="task-capture"` and `data-testid="task-capture"` (the old e2e selector and the new contract), an `sr-only` label plus hint (`Enter adds the task to Inbox. Shift+Enter also schedules it for today.`).
+
+**Depends on / Used by** — `lib/domain/tasks` (`localToday`), `lib/query/tasks` (`useCreateTask`, `useUpdateTask`), `lib/services/tasks` (`TaskView`), `lib/validation/tasks` (`CreateTaskInput`), `components/ui/icons` (`PlusIcon`), `sonner`. Rendered by `components/tasks/TasksShell.tsx`; the later board renders one per column.
+
+**Debugging** — Typing + Enter does nothing -> the title is blank after trimming or a create is in flight (input disabled) -> this file's `capture`. Shift+Enter files it in Inbox -> `event.shiftKey` was not forwarded or the household zone is wrong -> `capture` and `household.timezone`. The typed text disappears after a server error -> `setTitle("")` left `onSuccess` -> this file's callbacks. A board quick-add leaves the task in To do -> the follow-up status PATCH failed; read the toast -> this file's `onSuccess`.
+
+**Tests** — No direct unit coverage; `tests/e2e/tasks.spec.ts` (capture + persistence) is the UI gate.
+
+### components/tasks/TaskViewTabs.tsx
+
+**Purpose** — The scope tabs (Inbox · Today · Week · Someday with open counts and the cross-cutting overdue pill) plus the List/Board segmented control. Replaces the deleted `TaskViewSwitcher.tsx`.
+
+**Public API** — `export const TASK_BUCKET_LABELS: Record<TaskBucket, string>` — **moved here** from `TaskViewSwitcher.tsx` (deleted in the same release); `TasksShell` reads it for the list's accessible name. `export function TaskViewTabs(props: { view: TaskBucket; counts?: TaskCounts; layout: TaskLayout; onScope(view: TaskBucket): void; onLayout(layout: TaskLayout): void; activeRef?: Ref<HTMLButtonElement> })`. `activeRef` is attached to the current scope's button so an emptied view can hand focus back there.
+
+**State & side effects** — Stateless/controlled; the scope and layout live in `TasksShell` (scope local, layout in the URL). Scope buttons render in `TASK_BUCKETS` order with `aria-pressed` and `aria-label="<Label>, <count> open"` once counts exist; before the first payload the badge is absent (never a false row of zeros). The count badge is `aria-hidden` with `data-testid="tasks-count-<bucket>"`; `counts.overdue > 0` renders one separate danger pill (`data-testid="tasks-overdue-count"`, `N overdue`) because overdue is not a fifth bucket. The List/Board control is a `role="group"` of two `aria-pressed` buttons; choosing Board persists `layout=board` but the board itself lands later — `TasksShell` keeps rendering the list with a "Board view ships next" note and disables the toolbar's Group menu. No query, no storage.
+
+**Depends on / Used by** — `lib/domain/tasks` (`TASK_BUCKETS`, `TaskBucket`), `lib/domain/taskViews` (`TaskLayout`), `lib/services/tasks` (`TaskCounts`), `components/ui/icons` (`ListIcon`, `BoardIcon`), `lib/utils` (`cn`). Rendered by `components/tasks/TasksShell.tsx`.
+
+**Debugging** — A count looks wrong while the rows look right -> `counts` is global across every visible active task, even when the rows are filtered -> `GET /api/tasks` returns global counts. The overdue pill hides -> the task is done/dropped (inactive) or `dueOn === today` -> `isOverdue` in `lib/domain/tasks.ts`. `getByRole("button", { name: "Today" })` matches two controls -> the picker's Today shortcut and this scope both exist; this one's name is `Today, N open` -> scope the locator. Choosing Board shows a list -> intended until the board change; the note and the disabled Group control are the honest state, not a bug.
+
+**Tests** — No direct unit coverage; `tests/e2e/tasks.spec.ts` asserts the scope rows and count badges.
+
+### components/tasks/TaskToolbar.tsx
+
+**Purpose** — The dense view toolbar: Add task, Group (status/priority/list), Filter (status/priority/list checkboxes with a Clear action), Sort (manual/priority/due/created/title) and the Hide closed toggle.
+
+**Public API** — `export function TaskToolbar(props: { state: TaskViewState; onChange(next: TaskViewState): void; onAddTask(): void; lists: WritableList[] })`. Every menu change calls `onChange({ ...state, key })`; the shell writes the result into the URL. `onAddTask` focuses the capture row's input (the shell owns `#task-capture`); `lists` populates the filter's List group with the writable lists.
+
+**State & side effects** — No local state; the Radix dropdowns own open/focus and close on selection (checkbox items stay open so several can be ticked). Group is **disabled** when `state.layout === "board"` (the board is always grouped by status) with a `title` explaining it; Sort, Filter and Hide closed stay enabled. The Filter trigger shows a violet active count (`data-testid="task-filter-count"`); Clear filters resets `status`, `priority` and `collectionId` only. Hide closed is a toggle whose `aria-pressed` is `!state.closed`: pressed means done/dropped rows are hidden (the default), and clicking it sets `closed=1` in the URL. Add task is the violet primary control (`data-testid="task-add"`). No query, no storage.
+
+**Depends on / Used by** — `components/ui/dropdown-menu` (radio/checkbox/label/separator), `components/ui/icons` (`ChevronDownIcon`, `PlusIcon`), `lib/domain/taskViews` (`TASK_STATUS_ORDER`/`LABELS`, `TASK_PRIORITY_ORDER`/`LABELS`, `GroupBy`, `TaskSort`), `lib/ui/taskViewParams` (`TaskViewState`), `./types` (`WritableList`), `lib/utils` (`cn`). Rendered by `components/tasks/TasksShell.tsx`.
+
+**Debugging** — Group is greyed out -> the URL says `layout=board`; switch to List to regroup -> `state.layout`. A filter tick does not narrow the list -> the shell stopped passing `state.status`/`priority`/`collectionId` to `filterTasks`, or the selected status is outside the fetched rows -> `TasksShell`'s `filterTasks` call. Hide closed looks pressed on first load -> intended: closed rows are hidden by default, so "Hide closed" is on; pressing it sets `closed=1`. The List filter is missing a list -> only writable `kind="list"` collections are passed (the shell's `moveTargets`); private or view-only lists are deliberately absent.
+
+**Tests** — No direct unit coverage; `tests/e2e/tasks.spec.ts` (grouping, filtering, hide-closed) is the UI gate. `tests/unit/task-views.test.ts` pins the group/sort/filter maths it drives.
+
 ## Known debt (deferred)
 
 - **The date-popover wiring is duplicated a third time in `TaskEditorDialog`.** Its due-date field hand-rolls the `PopoverPrimitive.Root`/`Trigger`/`Portal`/`Content` shell, the Clear action and the keyed `DatePickerPopover` that `components/calendar/DateField.tsx` already provides (the other copy is `Toolbar`'s title picker). Consolidating them into one shared field is deliberately deferred: it is presentation-only duplication, and the nested-layer Escape behaviour it encodes (the popover must be the topmost Radix `DismissableLayer`) is pinned by the editor-persistence test in `tests/e2e/tasks.spec.ts`. Do not refactor it as part of a docs sweep.
