@@ -10,7 +10,7 @@
  */
 
 /** Must equal `version` in package.json; `tests/unit/roadmap.test.ts` enforces it. */
-export const APP_VERSION = "0.2.0";
+export const APP_VERSION = "0.2.1";
 
 export type RoadmapStatus = "live" | "planned";
 

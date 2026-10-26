@@ -34,7 +34,7 @@ export default async function TasksPage() {
     .get();
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className="mx-auto w-full max-w-6xl">
       <h1>Tasks</h1>
       <TasksShell
         timezone={household?.timezone ?? "Asia/Taipei"}

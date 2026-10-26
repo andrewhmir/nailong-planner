@@ -313,7 +313,7 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 
 **Purpose** — Declares the app's scripts, the Node engine floor (`>=22`), and the exact dependency versions the stack is pinned to.
 
-**Invocation / wiring** — Every command in this doc starts here. `npm ci` in the Dockerfile and in CI installs from `package-lock.json`.
+**Invocation / wiring** — Every command in this doc starts here. `npm ci` in the Dockerfile and in CI installs from `package-lock.json`. The `version` field must stay equal to `APP_VERSION` in `lib/roadmap.ts` — both are `0.2.1` for the v0.2.1 tasks workspace — and `tests/unit/roadmap.test.ts` fails on a mismatch.
 
 **Behaviour & side effects** — The `scripts` block:
 

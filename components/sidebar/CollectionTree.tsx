@@ -98,8 +98,11 @@ export function CollectionTree({
   const { data, isLoading, isError } = useCollections();
   // Counts are only drawn in the tree, so the sidebar does not pay for the
   // request on the calendar; `enabled` keeps the cache entry shared once loaded.
+  // The *prop* is gated too: a cached counts entry must not paint on a calendar
+  // route just because it was loaded on `/tasks` a moment ago.
   const pathname = usePathname();
-  const taskCounts = useTaskCounts({ enabled: pathname.startsWith("/tasks") });
+  const onTasksRoute = pathname.startsWith("/tasks");
+  const taskCounts = useTaskCounts({ enabled: onTasksRoute });
   const createCollection = useCreateCollection();
   const updateCollection = useUpdateCollection();
   const deleteCollection = useDeleteCollection();
@@ -344,7 +347,11 @@ export function CollectionTree({
                         onlyId={only}
                         onShowOnly={() => visibility.setOnly(root.id)}
                         onShowAll={() => visibility.setOnly(null)}
-                        taskCount={rootQuickAdd ? taskCounts.data?.byCollection[root.id] : undefined}
+                        taskCount={
+                          onTasksRoute && rootQuickAdd
+                            ? taskCounts.data?.byCollection[root.id]
+                            : undefined
+                        }
                         onQuickAdd={rootQuickAdd ? () => setQuickAdd(root) : undefined}
                       />
                     </ul>
@@ -391,7 +398,7 @@ export function CollectionTree({
                               onShowOnly={() => visibility.setOnly(child.id)}
                               onShowAll={() => visibility.setOnly(null)}
                               taskCount={
-                                childQuickAdd
+                                onTasksRoute && childQuickAdd
                                   ? taskCounts.data?.byCollection[child.id]
                                   : undefined
                               }

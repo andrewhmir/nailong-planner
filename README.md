@@ -80,13 +80,15 @@ rather not have edited.
   `/tasks` buckets it into Inbox · Today · Week · Someday, then shows it as a
   dense grouped list or a status board: drag a card between To do and In progress
   (or into Done/Dropped with "show closed" on), or capture straight into a
-  column. Rows and cards edit their status, priority, dates and list inline, and
-  clicking one opens a right-hand slide-over for the title, notes and checklist.
-  The keyboard does the rest (`j`/`k` to move, `1`–`3` to schedule, `4` to move to
-  another list, `x` to complete, `z` to undo). Lists sit in the same nested tree
-  as calendars and can be private, shared or view-only, with the same two-person
-  rules; a scheduled task shows on the calendar as a read-only chip, and dragging
-  a row onto the sidebar mini month plans it onto that day.
+  column. Rows and cards edit their status (including the new **In progress**
+  state), priority, dates and list inline, and clicking one opens a right-hand
+  slide-over for the title, notes and checklist. Lists in the sidebar show their
+  active-task counts and carry a one-click quick add. The keyboard does the rest
+  (`j`/`k` to move, `1`–`3` to schedule, `4` to move to another list, `x` to
+  complete, `Enter` to open the panel, `z` to undo). Lists sit in the same nested
+  tree as calendars and can be private, shared or view-only, with the same
+  two-person rules; a scheduled task shows on the calendar as a read-only chip,
+  and dragging a row onto the sidebar mini month plans it onto that day.
 - **Google-Calendar-shaped daily loops** — a day/slot click, a range drag or
   `Shift+C` opens a quick-create bubble (Enter saves, "More options" escalates to
   the full editor); clicking an event opens anchored details with its repeat
@@ -238,7 +240,7 @@ Historical design specs and plans (never edited):
 - Implementation plan: [`docs/superpowers/plans/2026-10-19-nailong-planner-v0.1.0.md`](docs/superpowers/plans/2026-10-19-nailong-planner-v0.1.0.md)
 - Operations, backups, recovery: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 
-## Out of scope for v0.2.0
+## Out of scope for v0.2.1
 
 Reminders and notifications · two-way Google Calendar sync and read-only ICS
 subscriptions / export feeds · a 30-day trash bin (undo is session-only) ·
