@@ -26,7 +26,7 @@ const GROUPS: Array<{ title: string; rows: Array<{ keys: string[]; description: 
       { keys: ["3"], description: "Someday: clear dates, or file an Inbox task to a list" },
       { keys: ["4"], description: "Move to the next writable list" },
       { keys: ["x"], description: "Complete the selected task" },
-      { keys: ["Enter"], description: "Open the selected task" },
+      { keys: ["Enter"], description: "Open the selected task in the panel" },
       { keys: ["Escape"], description: "Clear the selection" },
     ],
   },

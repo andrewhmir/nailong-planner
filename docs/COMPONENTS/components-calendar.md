@@ -383,13 +383,13 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 
 ### components/calendar/DatePickerPopover.tsx
 
-**Purpose** — Popover body for the toolbar title, the event dialog's date field and the task date fields (the row's scheduled/due chips and the editor's due date): a `MiniMonth` plus a right-aligned "Today" button.
+**Purpose** — Popover body for the toolbar title, the event dialog's date field and the task date fields (the row's and the panel's scheduled/due chips): a `MiniMonth` plus a right-aligned "Today" button.
 
 **Public API** — `export function DatePickerPopover(props: Props)`. Props: `anchorDate`, `selectedDate?`, `eventDates?: ReadonlySet<string>`, `today?: string` (household-local today; falls back to the device clock), `onPick(date: string)`. No exported types.
 
 **State & side effects** — Local `anchor` seeded from `anchorDate`; only `onAnchorChange` updates it. `today` is the caller's `today` prop when supplied, else `new Date()` formatted `YYYY-MM-DD` in the device's local zone. The Today button is a ghost button in link colour (`variant="ghost"`, `className="text-link"`). `onPick` is called for both a day click and the Today button; closing the popover is the caller's job. No queries or storage.
 
-**Depends on / Used by** — `components/ui/button`, `./MiniMonth`. Rendered by `Toolbar` inside its popover (which keys it by `anchorDate` so it re-seeds), by `DateField` inside the event dialog's popover (keyed by the field value), and by `TaskDateChips` (one picker per chip, keyed by that chip's date) and `TaskEditorDialog` (keyed by `dueOn`), whose popover shells live in those files.
+**Depends on / Used by** — `components/ui/button`, `./MiniMonth`. Rendered by `Toolbar` inside its popover (which keys it by `anchorDate` so it re-seeds), by `DateField` inside the event dialog's popover (keyed by the field value), and by `TaskDateChips` (one picker per chip, keyed by that chip's date), whose popover shell lives in that file.
 
 **Debugging** —
 - Picker opens on the wrong month -> the `key={anchorDate}` (toolbar) or `key={value}` (date field) remount was removed -> `Toolbar` / `DateField`.

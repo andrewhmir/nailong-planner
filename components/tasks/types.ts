@@ -8,8 +8,14 @@ import type { TaskPriority, TaskStatus } from "@/lib/db/schema";
  * The shell owns the mutations, toasts and undo; a surface only calls these.
  */
 export interface TaskActions {
-  /** Open the task's detail surface (row title, menu "Open", `Enter`). */
+  /** Open the task's detail surface (row/card title, menu "Open", `Enter`). */
   onOpen(): void;
+  /**
+   * The slide-over panel's inline title. Deliberately silent: no success toast
+   * and no undo handle, because retyping the old title is the revert. Errors
+   * still toast.
+   */
+  onTitle(title: string): void;
   onStatus(status: TaskStatus): void;
   onPriority(priority: TaskPriority): void;
   /** One or both date fields; `null` clears the field that is present. */

@@ -321,7 +321,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 | `3` | `bucket` 3 | Dated task: clears both `scheduledOn` and `dueOn`. Already-undated Inbox task: files it into the next writable list and toasts `Filed to Someday`; with no other writable list it toasts `Already unscheduled`. Already-undated outside the Inbox: toasts `Already in Someday`. |
 | `4` | `next-list` | Cycles through the viewer's writable `kind="list"` collections; the shell toasts when there is no other list. |
 | `x` | `complete` | PATCHes `status: "done"`. |
-| `Enter` | `open` | Calls the shell's `openTask`, which opens `TaskEditorDialog` for the selection. |
+| `Enter` | `open` | Calls the shell's `openTask`, which opens `TaskPanel` for the selection. |
 | `?` | `help` | Opens `TaskShortcutHelpDialog`. |
 | `Escape` | `escape` | Clears the selection (no overlay is open when this fires). |
 

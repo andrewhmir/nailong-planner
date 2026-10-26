@@ -23,8 +23,8 @@ import { resolveSomedayTriage, useTaskShortcuts } from "@/lib/ui/useTaskShortcut
 import { useUndoHotkey } from "@/lib/ui/useUndoHotkey";
 import type { UpdateTaskInput } from "@/lib/validation/tasks";
 import { TaskCaptureRow } from "./TaskCaptureRow";
-import { TaskEditorDialog } from "./TaskEditorDialog";
 import { TaskList } from "./TaskList";
+import { TaskPanel } from "./TaskPanel";
 import { TaskShortcutHelpDialog } from "./TaskShortcutHelpDialog";
 import { TaskToolbar } from "./TaskToolbar";
 import { TASK_BUCKET_LABELS, TaskViewTabs } from "./TaskViewTabs";
@@ -97,7 +97,8 @@ function sameTaskViewState(a: TaskViewState, b: TaskViewState): boolean {
 
 /**
  * The `/tasks` workspace: the capture row, scope tabs, view toolbar, the grouped
- * list and the task editor, plus the page-scoped keyboard triage/undo layers.
+ * list, the right slide-over task panel, plus the page-scoped keyboard
+ * triage/undo layers.
  *
  * `TaskViewState` (layout/group/sort/closed/filters) is the single URL-backed
  * state: it is parsed once from `useSearchParams`, written with `router.replace`
@@ -117,7 +118,9 @@ function sameTaskViewState(a: TaskViewState, b: TaskViewState): boolean {
  * Undo is targeted: every complete/reopen/drop/delete/schedule/move/priority
  * change pushes a compensating action and shows `undoToast` with that action's
  * handle, so the toast reverts exactly what it describes. `z`/`Ctrl+Z` mount
- * here too and consume the shared stack LIFO, exactly as on the calendar.
+ * here too and consume the shared stack LIFO, exactly as on the calendar. Title
+ * edits are the one silent mutation (the field is inline and retyping reverts
+ * it); notes and checklist edits keep the v0.2.0 editor's silent save.
  */
 export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUserId }: Props) {
   const router = useRouter();
@@ -136,10 +139,10 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   // The last rendered rows, so a vanished selection can be located even though
   // the fetch that removed it has already painted.
   const previousTasksRef = useRef<TaskView[]>([]);
-  // The deep link is a one-shot: it must not reopen the editor after the user
+  // The deep link is a one-shot: it must not reopen the panel after the user
   // closes it and the task list re-renders underneath. The marker is only set
   // once a lookup settles — see `lib/ui/taskDeepLink.ts` for the StrictMode
-  // ordering rule that makes an early marker lose the editor entirely.
+  // ordering rule that makes an early marker lose the panel entirely.
   const deepLinkHandledRef = useRef<string | null>(null);
   // One in-flight GET per deep-linked id. React's development double-invoke
   // (setup → cleanup → setup) cancels the first closure before the response;
@@ -205,6 +208,15 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   const filtersActive =
     state.status.length > 0 || state.priority.length > 0 || state.collectionId !== null;
 
+  // What the panel renders: the live row while it is still in the payload, and
+  // `editorTask` once a mutation removes it. `editorTask` is not the open-time
+  // snapshot for long — `patch` refreshes it from every successful PATCH echo —
+  // so completing or dropping from the panel cannot rewind it to its old status
+  // when the open-only payload drops the row on the settle refetch.
+  const livePanelTask =
+    editorTask === null ? null : (tasks.find((task) => task.id === editorTask.id) ?? null);
+  const panelTask = livePanelTask ?? editorTask;
+
   // The deep-link effect runs once per param and must not re-run when rows
   // arrive, so it reads the latest rows through a ref instead of a dependency.
   useEffect(() => {
@@ -212,8 +224,8 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   }, [tasks]);
 
   // A calendar task chip navigates to `/tasks?task=<id>`: open that task's
-  // editor. The current view's rows are preferred (they are the live snapshot
-  // the editor expects); otherwise one GET covers a task that is not in the
+  // panel. The current view's rows are preferred (they are the live snapshot
+  // the panel expects); otherwise one GET covers a task that is not in the
   // open bucket yet — and a scheduled task is never in the Inbox view, so that
   // GET is the normal path, not a fallback. A missing/unreadable task toasts
   // and drops the param.
@@ -283,10 +295,10 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   // refetch (or the local filter) paints. The stale id would then name no row,
   // so the next triage key would silently no-op; move the selection (and focus,
   // because focus follows selection) to the row that took its place, or hand
-  // focus to the current scope tab when nothing is visible. While the editor is
-  // open the selection still moves (the dialog is modal and owns focus), and
-  // `closeEditor` focuses the live selection on close. Runs only after a painted
-  // list change, never during load or a scope switch.
+  // focus to the current scope tab when nothing is visible. While the panel is
+  // open the selection still moves (it is non-modal, so the list keeps painting
+  // underneath), and `closeEditor` focuses the live selection on close. Runs
+  // only after a painted list change, never during load or a scope switch.
   useEffect(() => {
     const previous = previousTasksRef.current;
     previousTasksRef.current = visibleRows;
@@ -376,10 +388,38 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     updateTask.mutate(
       { id: target.id, ...input },
       {
-        onSuccess: ({ task: saved }) => options.onSuccess?.(saved),
+        onSuccess: ({ task: saved }) => {
+          // Keep the open panel's snapshot current: a complete/drop/reschedule
+          // can remove the row from an open-only payload on the settle refetch,
+          // and the panel must keep painting the saved row, not its open-time
+          // copy. Only the task the panel is showing is refreshed.
+          setEditorTask((current) => (current !== null && current.id === saved.id ? saved : current));
+          options.onSuccess?.(saved);
+        },
         onError: () => toast.error(options.failure),
       },
     );
+  }
+
+  /**
+   * The panel's title edit: the one deliberately silent mutation. There is no
+   * success toast and no undo handle because the field is inline and retyping
+   * the old title is the revert; a rejected PATCH still toasts.
+   */
+  function patchTitle(target: TaskView, title: string): void {
+    if (title === target.title) {
+      return;
+    }
+    patch(target, { title }, { failure: "Could not rename the task." });
+  }
+
+  /**
+   * The panel's checklist. Task 5's contract is a whole-array replacement, so
+   * every add/toggle/remove sends the complete list (the service regenerates
+   * the item ids). Like the v0.2.0 editor's checklist save it is silent.
+   */
+  function patchChecklist(target: TaskView, items: { title: string; done: boolean }[]): void {
+    patch(target, { checklist: items }, { failure: "Could not save the checklist." });
   }
 
   /** Status transition + the compensating PATCH, skipped when the server echoes. */
@@ -518,21 +558,28 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     rows.find((row) => row.dataset.taskId === id)?.focus();
   }
 
+  /** Open the slide-over for one task, selecting its row first. */
   function openTask(target: TaskView): void {
-    // Select first so the row is already the return target when the editor
-    // closes (or its save re-buckets the task out of this view).
+    // Select first so the row is already the return target when the panel
+    // closes (or a panel edit re-buckets the task out of this view).
     setSelectedTaskId(target.id);
     setEditorTask(target);
   }
 
+  /**
+   * Close the panel (Esc, the header button, Delete or a deep-link close) and
+   * hand focus back to the live selection. The name predates the panel and is
+   * kept because the mechanism — clear the snapshot, drop `?task=`, focus the
+   * selected row on the next paint — is unchanged from the modal editor.
+   */
   function closeEditor(): void {
     setEditorTask(null);
-    // A deep-linked editor leaves the URL clean on close; otherwise a reload
-    // (or a back navigation) would reopen a dialog the user already dismissed.
+    // A deep-linked panel leaves the URL clean on close; otherwise a reload
+    // (or a back navigation) would reopen a panel the user already dismissed.
     clearTaskParam();
-    // Radix restores focus to the opener on close, but that opener can be a row
-    // that a save just removed from the view. Focus the live selection on the
-    // next paint instead (the rows have re-rendered by then).
+    // The panel is non-modal and takes no focus hostage, but its opener can be a
+    // row that a panel edit just removed from the view. Focus the live selection
+    // on the next paint instead (the rows have re-rendered by then).
     window.setTimeout(() => {
       const selected = listRef.current?.querySelector<HTMLElement>('[data-selected="true"]');
       if (selected) {
@@ -649,10 +696,11 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     return patch.scheduledOn === null ? "Task unscheduled" : "Task scheduled";
   }
 
-  /** The row/board/panel callbacks, bound to one task. */
+  /** The row/card/panel callbacks, bound to one task. */
   function actionsFor(task: TaskView): TaskActions {
     return {
       onOpen: () => openTask(task),
+      onTitle: (title) => patchTitle(task, title),
       onStatus: (status) => patchStatus(task, status),
       onPriority: (priority) => patchPriority(task, priority),
       onDates: (patch) => patchSchedule(task, patch, dateMessage(patch)),
@@ -762,15 +810,24 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
         </div>
       )}
 
-      <TaskEditorDialog
-        task={editorTask}
-        today={today}
-        onClose={closeEditor}
-        onDelete={(target) => {
-          closeEditor();
-          deleteTaskWithUndo(target);
-        }}
-      />
+      {panelTask === null ? null : (
+        // The panel gets the row's own actions, except Delete, which closes the
+        // panel first so the undo toast is not hidden behind it.
+        <TaskPanel
+          task={panelTask}
+          today={today}
+          onClose={closeEditor}
+          moveTargets={moveTargets}
+          actions={{
+            ...actionsFor(panelTask),
+            onDelete: () => {
+              closeEditor();
+              deleteTaskWithUndo(panelTask);
+            },
+          }}
+          onChecklist={(items) => patchChecklist(panelTask, items)}
+        />
+      )}
       <TaskShortcutHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
     </section>
   );
