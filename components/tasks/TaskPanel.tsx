@@ -37,7 +37,7 @@ interface Props {
 
 /** The one editable title recipe: bold, borderless until hover/focus, violet ring. */
 const TITLE =
-  "w-full rounded-sm border border-transparent bg-transparent px-1 py-0.5 text-lg font-bold text-ink transition-colors hover:border-field focus:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet";
+  "w-full rounded-sm border border-transparent bg-transparent px-1 py-0.5 text-lg font-bold text-ink transition-colors hover:border-field focus:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet [@media(pointer:coarse)]:min-h-11";
 
 const TEXTAREA =
   "min-h-24 w-full resize-y rounded-md border border-field bg-surface px-3 py-2 text-base text-ink transition-colors duration-150 hover:border-ink-soft focus:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";

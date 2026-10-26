@@ -387,4 +387,32 @@ describe("task API", () => {
     const payload = await body<{ error: { code: string } }>(response);
     expect(payload.error.code).toBe("UNAUTHENTICATED");
   });
+
+  it("creates a task in a requested active status and rejects a closed one", async () => {
+    const { db, close, ctxA } = await setup();
+    try {
+      const started = await createTaskHandler(
+        db,
+        ctxA,
+        jsonRequest("/api/tasks", "POST", { title: "Started", status: "in_progress" }),
+      );
+      expect(started.status).toBe(201);
+      const created = await body<{ task: TaskView }>(started);
+      expect(created.task.status).toBe("in_progress");
+
+      const closed = await createTaskHandler(
+        db,
+        ctxA,
+        jsonRequest("/api/tasks", "POST", { title: "Born done", status: "done" }),
+      );
+      expect(closed.status).toBe(400);
+      const payload = await body<{ error: { code: string; fields?: Record<string, unknown> } }>(
+        closed,
+      );
+      expect(payload.error.code).toBe("VALIDATION");
+      expect(Object.keys(payload.error.fields ?? {})).toContain("status");
+    } finally {
+      close();
+    }
+  });
 });

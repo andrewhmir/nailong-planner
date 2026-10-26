@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { TASK_BUCKETS } from "@/lib/domain/tasks";
+import type { TaskStatus } from "@/lib/db/schema";
+import { TASK_ACTIVE_STATUSES, TASK_BUCKETS } from "@/lib/domain/tasks";
 
 /**
  * `scheduledOn` and `dueOn` are date-only household-local `YYYY-MM-DD` strings,
@@ -34,7 +35,11 @@ export const createTaskSchema = z.object({
   scheduledOn: dateOnlySchema.nullish(),
   dueOn: dateOnlySchema.nullish(),
   priority: prioritySchema.optional(),
-  status: z.enum(["open", "in_progress"]).optional(),
+  // Derived from the domain's active pair, so a future active status cannot be
+  // forgotten here (a hand-copied enum would drift silently).
+  status: z
+    .enum(TASK_ACTIVE_STATUSES as unknown as [TaskStatus, ...TaskStatus[]])
+    .optional(),
 });
 
 /**
