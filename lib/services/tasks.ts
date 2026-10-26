@@ -8,6 +8,7 @@ import {
   type TaskRow,
 } from "@/lib/db/schema";
 import {
+  TASK_ACTIVE_STATUSES,
   bucketOf,
   endOfWeek,
   isOverdue,
@@ -145,10 +146,10 @@ function writableTask(db: Database, ctx: ViewerContext, id: string) {
 }
 
 /**
- * Every open task in a visible collection, bucketed with `bucketOf`. The
+ * Every active task in a visible collection, bucketed with `bucketOf`. The
  * `collectionId` and `view` filters only narrow `tasks`: `counts` always covers
- * all visible open tasks, because the rail badges must not change when the user
- * narrows a list. Done and dropped tasks are deliberately absent from every
+ * all visible active tasks, because the rail badges must not change when the
+ * user narrows a list. Done and dropped tasks are deliberately absent from every
  * list view; a task dated beyond this week has no bucket, so only `"all"` shows
  * it. `ensureInbox` may create the caller's Inbox on the first call.
  */
@@ -171,19 +172,19 @@ export function listTasks(
     inboxId: inbox.id,
   };
 
-  const open = db
+  const active = db
     .select()
     .from(task)
     .where(
       and(
         eq(task.householdId, ctx.householdId),
-        eq(task.status, "open"),
+        inArray(task.status, TASK_ACTIVE_STATUSES),
         inArray(task.collectionId, visibleIds),
       ),
     )
     .all();
 
-  for (const row of open) {
+  for (const row of active) {
     const bucket = bucketOf(row, bucketContext);
     if (bucket) {
       counts[bucket] += 1;
@@ -194,7 +195,7 @@ export function listTasks(
   }
 
   const view = input.view ?? "all";
-  const rows = open
+  const rows = active
     .filter((row) => input.collectionId === undefined || row.collectionId === input.collectionId)
     .filter((row) => view === "all" || bucketOf(row, bucketContext) === view)
     .sort(
@@ -313,6 +314,9 @@ export function updateTask(
   if (input.notes !== undefined) {
     patch.notes = input.notes ?? null;
   }
+  if (input.priority !== undefined) {
+    patch.priority = input.priority;
+  }
   if (input.scheduledOn !== undefined) {
     patch.scheduledOn = input.scheduledOn ?? null;
   }
@@ -386,26 +390,26 @@ export function reorderTasks(
   assertCollectionWritable(ctx, access);
   assertTaskList(access);
 
-  const open = db
+  const active = db
     .select()
     .from(task)
     .where(
       and(
         eq(task.householdId, ctx.householdId),
         eq(task.collectionId, input.collectionId),
-        eq(task.status, "open"),
+        inArray(task.status, TASK_ACTIVE_STATUSES),
       ),
     )
     .all();
-  const openIds = new Set(open.map((row) => row.id));
+  const activeIds = new Set(active.map((row) => row.id));
   const sentIds = new Set(input.orderedIds);
   const exact =
     sentIds.size === input.orderedIds.length &&
-    sentIds.size === openIds.size &&
-    input.orderedIds.every((taskId) => openIds.has(taskId));
+    sentIds.size === activeIds.size &&
+    input.orderedIds.every((taskId) => activeIds.has(taskId));
 
   if (!exact) {
-    throw new AppError("VALIDATION", "Send exactly the open tasks of this list.", 400);
+    throw new AppError("VALIDATION", "Send exactly the active tasks of this list.", 400);
   }
 
   const now = Date.now();

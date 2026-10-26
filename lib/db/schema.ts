@@ -173,7 +173,7 @@ export const task = sqliteTable(
     status: text("status", { enum: ["open", "in_progress", "done", "dropped"] })
       .notNull()
       .default("open"),
-    /** ClickUp-style importance; drives the flag, sort order and grouping. */
+    /** ClickUp-style importance; `none` means no flag is shown. */
     priority: text("priority", { enum: ["none", "low", "normal", "high", "urgent"] })
       .notNull()
       .default("none"),

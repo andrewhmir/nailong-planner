@@ -130,7 +130,7 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 - `kind` and `visibility` are added with SQL defaults, so pre-`0006` rows are backfilled by the defaults plus the single `UPDATE`; a new state (`private`) is not backfilled — it is only reachable through validation.
 - Indexes are dropped and recreated instead of renamed: SQLite cannot rename an index, and the new names are part of the schema snapshot.
 
-**Tests / verified by** — `tests/integration/db.test.ts` (`describe("migration 0006")`): builds the 0000–0004 schema with `makeTestDb({ upTo: "0004_normalise_subcalendar_owners" })`, inserts the v0.1 rows through raw SQL, runs the migrator through `0006`, and asserts both rows, the visibility backfill, the event FK/indexes and the task cascade. The snapshot is asserted against the migrated schema by inspection (the two source snapshots were merged and chained); `drizzle-kit generate` cannot run under the Windows sandbox (`esbuild spawn EPERM`). **Verification after the renumber:** a dev/CI `npm run db:generate` is the proof that `lib/db/schema.ts` and `drizzle/meta/0006_snapshot.json` still agree — it must exit without writing a new migration or snapshot (an empty diff). Keep it a documented check, not a script.
+**Tests / verified by** — `tests/integration/db.test.ts` (`describe("migration 0006")`): builds the 0000–0004 schema with `makeTestDb({ upTo: "0004_normalise_subcalendar_owners" })`, inserts the v0.1 rows through raw SQL, runs the migrator through `0006`, and asserts both rows, the visibility backfill, the event FK/indexes and the task cascade. The snapshot is asserted against the migrated schema by inspection (the two source snapshots were merged and chained); at the time of writing `drizzle-kit generate` could not run under the then-confined sandbox (`esbuild spawn EPERM`) — a full-access shell runs it, as migration `0007` demonstrated. **Verification after the renumber:** a dev/CI `npm run db:generate` is the proof that `lib/db/schema.ts` and `drizzle/meta/0006_snapshot.json` still agree — it must exit without writing a new migration or snapshot (an empty diff). Keep it a documented check, not a script.
 
 ### drizzle/0007_sharp_leper_queen.sql
 
@@ -144,7 +144,7 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 - `in_progress` is not a migration: the status column is plain text validated by Zod, so there is no DDL and no table rebuild.
 - A `NOT NULL` column can only be added to SQLite with a constant default; a dynamic default would force the create/copy/rename dance.
 - Re-running `npm run db:generate` after this file must produce an empty diff; a new migration means `lib/db/schema.ts` and the snapshot diverged.
-- The filename is drizzle-kit's auto-generated name (`0007_sharp_leper_queen`), unlike the hand-named `0002`–`0006`; keep the tag and the filename identical.
+- The filename is drizzle-kit's auto-generated name (`0007_sharp_leper_queen`); keep the tag and the filename identical.
 
 **Tests / verified by** — `tests/integration/db.test.ts` (`describe("migration 0007")`): builds the 0000–0006 schema with `makeTestDb({ upTo: "0006_collections_and_tasks" })`, inserts a legacy task through raw SQL, runs the migrator through `0007`, and asserts the backfilled `priority`, the `NOT NULL DEFAULT 'none'` column shape and the default on a fresh insert.
 
@@ -174,7 +174,7 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 **Gotchas** —
 - A `.sql` file that is not listed here is never applied, even though it sits in `drizzle/`.
 - Renaming a tag makes an already-migrated database try to apply the renamed file again.
-- `0002`–`0007` are hand-named or generated out of band (only the first two carry drizzle-kit's original names), so a future `db:generate` may not follow the same pattern; keep the journal entry in sync manually.
+- `0002`–`0007` were added across sessions (only `0000`/`0001` carry drizzle-kit's original generated names), so a future `db:generate` may not follow the same pattern; keep the journal entry in sync manually.
 
 **Tests / verified by** — Indirect only: every integration test migrates through this journal.
 

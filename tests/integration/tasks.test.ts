@@ -728,7 +728,7 @@ describe("reorderTasks", () => {
     const seeded = await makeSeededDb();
     const { db, close, ctxA } = seeded;
     const { shared, privateList } = makeLists(seeded);
-    const message = "Send exactly the open tasks of this list.";
+    const message = "Send exactly the active tasks of this list.";
     try {
       const first = createTask(db, ctxA, { title: "First", collectionId: shared.id });
       const second = createTask(db, ctxA, { title: "Second", collectionId: shared.id });
@@ -793,7 +793,7 @@ describe("reorderTasks", () => {
           }),
         "VALIDATION",
         400,
-        "Send exactly the open tasks of this list.",
+        "Send exactly the active tasks of this list.",
       );
 
       const reordered = reorderTasks(db, ctxA, {
@@ -854,6 +854,8 @@ describe("task validation schemas", () => {
   it("parses a partial update with status, checklist and sortOrder", () => {
     expect(updateTaskSchema.parse({ title: "  Renamed  " }).title).toBe("Renamed");
     expect(updateTaskSchema.parse({ status: "done" }).status).toBe("done");
+    expect(updateTaskSchema.parse({ status: "in_progress" }).status).toBe("in_progress");
+    expect(updateTaskSchema.parse({ priority: "high" }).priority).toBe("high");
     expect(updateTaskSchema.safeParse({ status: "archived" }).success).toBe(false);
     expect(updateTaskSchema.parse({ scheduledOn: null })).toEqual({ scheduledOn: null });
     expect(updateTaskSchema.parse({ sortOrder: 3 }).sortOrder).toBe(3);
@@ -878,5 +880,74 @@ describe("task validation schemas", () => {
     expect(
       reorderTasksSchema.safeParse({ collectionId: "list-1", orderedIds: ["task-1"] }).success,
     ).toBe(true);
+  });
+});
+
+describe("priority", () => {
+  it("creates with a priority, defaults to none and patches it", async () => {
+    const seeded = await makeSeededDb();
+    const { db, close, ctxA } = seeded;
+    const { shared } = makeLists(seeded);
+    try {
+      const urgent = createTask(db, ctxA, {
+        title: "Book the van",
+        collectionId: shared.id,
+        priority: "urgent",
+      });
+      const plain = createTask(db, ctxA, { title: "Dishes", collectionId: shared.id });
+
+      expect(urgent.priority).toBe("urgent");
+      expect(plain.priority).toBe("none");
+      expect(updateTask(db, ctxA, plain.id, { priority: "low" }).priority).toBe("low");
+      // An empty patch still returns the stored priority untouched.
+      expect(updateTask(db, ctxA, plain.id, {}).priority).toBe("low");
+    } finally {
+      close();
+    }
+  });
+});
+
+describe("in_progress tasks", () => {
+  it("are listed in their bucket, counted and reorderable", async () => {
+    const seeded = await makeSeededDb();
+    const { db, close, ctxA } = seeded;
+    const { shared } = makeLists(seeded);
+    try {
+      const started = createTask(db, ctxA, { title: "Started", collectionId: shared.id });
+      updateTask(db, ctxA, started.id, { status: "in_progress" });
+
+      const listed = listTasks(db, ctxA, {
+        view: "someday",
+        timezone: TIMEZONE,
+        weekStartsOn: 0,
+      });
+      const row = listed.tasks.find((candidate) => candidate.id === started.id);
+      expect(row?.status).toBe("in_progress");
+      expect(listed.counts.someday).toBe(1);
+
+      const reordered = reorderTasks(db, ctxA, {
+        collectionId: shared.id,
+        orderedIds: [started.id],
+      });
+      expect(ids(reordered)).toEqual([started.id]);
+      expect(reordered[0]?.sortOrder).toBe(0);
+    } finally {
+      close();
+    }
+  });
+
+  it("still stays out of the views once it is done", async () => {
+    const seeded = await makeSeededDb();
+    const { db, close, ctxA } = seeded;
+    const { shared } = makeLists(seeded);
+    try {
+      const task = createTask(db, ctxA, { title: "Finish me", collectionId: shared.id });
+      updateTask(db, ctxA, task.id, { status: "done" });
+      const listed = listTasks(db, ctxA, { view: "all", timezone: TIMEZONE, weekStartsOn: 0 });
+      expect(ids(listed.tasks)).not.toContain(task.id);
+      expect(listed.counts.someday).toBe(0);
+    } finally {
+      close();
+    }
   });
 });

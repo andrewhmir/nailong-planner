@@ -315,7 +315,7 @@ Three thin routes over `lib/api/handlers/tasks.ts`; bucketing (`lib/domain/tasks
 
 **Purpose** — Reads, patches or deletes one task; the dynamic route unwraps `params` itself because Next 16 hands it a `Promise`.
 
-**API** — `GET` → `200 { task }`. `PATCH` body `updateTaskSchema` (every create field optional plus `status: open|done|dropped`, `checklist: { title, done }[]` up to 50, `sortOrder`; a present `checklist` replaces the whole list) → `200 { task }`. `DELETE` takes no body → `204` with an empty body. Errors: 401/403 from `withViewer`; `404` "Task not found." for an id outside the household **or a private list the caller does not own** (existence hidden); `403` "This collection is view-only." when the task's list denies the write; `400` "Tasks live in lists." when `collectionId` moves the task into a calendar, and 400 for a malformed body. A move needs write access on both the source and the target and appends at the target's end; `status` stamps `completedAt`/`droppedAt` only on a real transition.
+**API** — `GET` → `200 { task }`. `PATCH` body `updateTaskSchema` (every create field optional plus `status: open|in_progress|done|dropped`, `priority: none|low|normal|high|urgent`, `checklist: { title, done }[]` up to 50, `sortOrder`; a present `checklist` replaces the whole list) → `200 { task }`. `DELETE` takes no body → `204` with an empty body. Errors: 401/403 from `withViewer`; `404` "Task not found." for an id outside the household **or a private list the caller does not own** (existence hidden); `403` "This collection is view-only." when the task's list denies the write; `400` "Tasks live in lists." when `collectionId` moves the task into a calendar, and 400 for a malformed body. A move needs write access on both the source and the target and appends at the target's end; `status` stamps `completedAt`/`droppedAt` only on a real transition.
 
 **State & side effects** — `PATCH` writes only the defined fields; a body that changes nothing returns the current row without bumping `updatedAt`. A checklist replacement shares one transaction with the row patch. `DELETE` hard-deletes; the checklist rows cascade. No revalidation.
 
@@ -329,13 +329,13 @@ Three thin routes over `lib/api/handlers/tasks.ts`; bucketing (`lib/domain/tasks
 
 **Purpose** — Rewrites the manual order of one list from the full open-task id set.
 
-**API** — `PATCH` body `reorderTasksSchema` (`collectionId`, `orderedIds` of at least one id) → `200 { tasks: TaskView[] }` in the requested order. Errors: 401/403 from `withViewer`; `400 VALIDATION` with `fields.collectionId`/`fields.orderedIds` for a malformed body, `400` "Send exactly the open tasks of this list." when the ids are partial, duplicated or from another list (a stale client must refetch, never guess), `400` "Tasks live in lists." for a calendar, `403` for a view-only list, and `404` "Calendar not found." for the partner's private list.
+**API** — `PATCH` body `reorderTasksSchema` (`collectionId`, `orderedIds` of at least one id) → `200 { tasks: TaskView[] }` in the requested order. Errors: 401/403 from `withViewer`; `400 VALIDATION` with `fields.collectionId`/`fields.orderedIds` for a malformed body, `400` "Send exactly the active tasks of this list." when the ids are partial, duplicated or from another list (a stale client must refetch, never guess), `400` "Tasks live in lists." for a calendar, `403` for a view-only list, and `404` "Calendar not found." for the partner's private list.
 
 **State & side effects** — One transaction writes `sortOrder = index` and `updatedAt` for every id, then returns the fresh views in the sent order. No revalidation.
 
 **Depends on / Used by** — `withViewer`; `reorderTasksHandler`; `reorderTasksSchema`; `reorderTasks`. Client: `useReorderTasks()` in `lib/query/tasks.ts`, which invalidates `["tasks"]` on settle instead of reordering the cache optimistically.
 
-**Debugging** — `400` "Send exactly the open tasks of this list." -> another session created or completed a task between the read and the drop; refetch `["tasks"]` and retry -> `reorderTasks`. The order survives a drop but resets on reload -> the PATCH failed or never fired; the hook invalidates `["tasks"]`, so a failed request restores the server order. `404`/`403` on a list the caller can see -> privacy is checked before kind; a view-only list can be read but not reordered.
+**Debugging** — `400` "Send exactly the active tasks of this list." -> another session created or completed a task between the read and the drop; refetch `["tasks"]` and retry -> `reorderTasks`. The order survives a drop but resets on reload -> the PATCH failed or never fired; the hook invalidates `["tasks"]`, so a failed request restores the server order. `404`/`403` on a list the caller can see -> privacy is checked before kind; a view-only list can be read but not reordered.
 
 **Tests** — `tests/integration/tasks-api.test.ts` (reorder round-trip plus the partial-set 400).
 
