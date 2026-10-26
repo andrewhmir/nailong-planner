@@ -256,7 +256,7 @@ calendar still draws, or an undo action does nothing.
 
 **Public API**
 - `isTextEntryTarget(target: EventTarget | null): boolean` — true when the target is an `HTMLElement` whose `tagName` is `INPUT`, `TEXTAREA` or `SELECT`, or whose `isContentEditable` is true. Non-element targets (`window`, `document`, `null`) are false.
-- `hasOpenOverlay(): boolean` — `document.querySelector('[role="dialog"], [role="menu"], [data-radix-popper-content-wrapper]') !== null`. Radix Dialog and DropdownMenu provide those roles; a Radix Popover's content carries no role, so its positioned wrapper is matched by the data attribute instead — the Plan and due-date popovers block page keys while they are open.
+- `hasOpenOverlay(): boolean` — `document.querySelector('[role="dialog"], [role="menu"], [data-radix-popper-content-wrapper]') !== null`. Radix Dialog and DropdownMenu provide those roles; a Radix Popover's content carries no role, so its positioned wrapper is matched by the data attribute instead — the task date-chip and due-date popovers block page keys while they are open.
 
 **State & side effects** — Neither function stores state; both read browser globals at call time (`HTMLElement`, `document`). They must not be called during SSR; importing the module is safe because nothing runs until a function is invoked.
 
@@ -327,7 +327,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 `resolveTaskShortcut` ignores `event.repeat`, Ctrl/Cmd/Alt, and shifted keys other than `?` (so the calendar's `Shift+C` never reaches triage); Caps Lock uppercase letters still map because letter comparison is lower-cased.
 
-**Guards** — `useTaskShortcuts` applies the shared `isTextEntryTarget(event.target)` and `hasOpenOverlay()` from `./shortcutGuards` before resolving: typing `j` in the capture field or a task title never moves the selection, and no task key leaks through an open dialog/menu/popover. `Enter` is also left to native activation when focus is on a button, link, menu item or checkbox inside the row (Plan, Options and the completion checkbox are all buttons), so the focused control opens/toggles instead of the editor hand-off. When `enabled` is false (the `shortcutsEnabled` preference) the listener is never attached.
+**Guards** — `useTaskShortcuts` applies the shared `isTextEntryTarget(event.target)` and `hasOpenOverlay()` from `./shortcutGuards` before resolving: typing `j` in the capture field or a task title never moves the selection, and no task key leaks through an open dialog/menu/popover. `Enter` is also left to native activation when focus is on a button, link, menu item or checkbox inside the row (the status/priority/date chips, Options and the completion checkbox are all buttons), so the focused control opens/toggles instead of the panel hand-off. When `enabled` is false (the `shortcutsEnabled` preference) the listener is never attached.
 
 **State & side effects** — One `window` `keydown` listener plus a handlers ref (the listener closes over the latest handlers while re-subscribing only when `enabled` flips). No storage, no queries.
 

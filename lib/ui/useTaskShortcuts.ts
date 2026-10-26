@@ -152,9 +152,9 @@ function runAction(handlers: TaskShortcutHandlers, action: TaskShortcutAction): 
 
 /**
  * A button, link, menu item or checkbox already owns Enter/click activation. The
- * row's Plan/Options triggers and its completion checkbox are all buttons, so
- * letting triage swallow Enter would open the task editor instead of the control
- * the user actually focused.
+ * row's status/priority/date chips, its Options menu and its completion checkbox
+ * are all buttons, so letting triage swallow Enter would open the task panel
+ * instead of the control the user actually focused.
  */
 function isActivatableTarget(target: EventTarget | null): boolean {
   return (
@@ -185,8 +185,8 @@ export function useTaskShortcuts(enabled: boolean, handlers: TaskShortcutHandler
         return;
       }
       if (action.kind === "open" && isActivatableTarget(event.target)) {
-        // Leave native activation (Plan, Options, the completion checkbox, the
-        // view switcher, "Try again") to the focused control.
+        // Leave native activation (row chips, Options, the completion checkbox,
+        // the scope tabs, "Try again") to the focused control.
         return;
       }
       event.preventDefault();

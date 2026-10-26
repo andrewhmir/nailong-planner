@@ -72,7 +72,10 @@ export function TaskToolbar({ state, onChange, onAddTask, lists }: Props) {
     const statuses = state.status.includes(status)
       ? state.status.filter((value) => value !== status)
       : [...state.status, status];
-    onChange({ ...state, status: statuses });
+    // Done/Dropped rows are only fetched when closed rows are shown; ticking one
+    // of those filters without the flag would silently produce an empty list.
+    const needsClosed = statuses.includes("done") || statuses.includes("dropped");
+    onChange({ ...state, status: statuses, closed: needsClosed ? true : state.closed });
   }
 
   function togglePriority(priority: TaskPriority): void {
@@ -91,7 +94,7 @@ export function TaskToolbar({ state, onChange, onAddTask, lists }: Props) {
   }
 
   return (
-    <div role="toolbar" aria-label="Task view controls" className="flex flex-wrap items-center gap-1.5">
+    <div role="group" aria-label="Task view controls" className="flex flex-wrap items-center gap-1.5">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button

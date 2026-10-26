@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { TaskPriority, TaskStatus } from "@/lib/db/schema";
-import { endOfWeek, localToday, type TaskBucket } from "@/lib/domain/tasks";
+import { TASK_BUCKETS, endOfWeek, localToday, type TaskBucket } from "@/lib/domain/tasks";
 import { filterTasks, groupTasks, sortTasks } from "@/lib/domain/taskViews";
 import { useCollections } from "@/lib/query/collections";
 import { useCreateTask, useDeleteTask, useTasks, useUpdateTask } from "@/lib/query/tasks";
@@ -56,6 +56,12 @@ const STATUS_COPY: Record<TaskStatus, { label: string; message: string }> = {
 
 /** One deep-link lookup: the task, or the message the settle site should toast. */
 type DeepLinkResult = { ok: true; task: TaskView } | { ok: false; error: string };
+
+/** The `?view=` scope from a URL; anything unknown falls back to the default Inbox. */
+function scopeFromSearch(params: URLSearchParams): TaskBucket {
+  const value = params.get("view");
+  return TASK_BUCKETS.includes(value as TaskBucket) ? (value as TaskBucket) : "inbox";
+}
 
 /**
  * The deep link's single `GET /api/tasks/{id}`. It resolves instead of toasting
@@ -134,7 +140,15 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   const [state, setState] = useState<TaskViewState>(() =>
     parseTaskViewState(new URLSearchParams(searchParams.toString())),
   );
-  const [view, setView] = useState<TaskBucket>("inbox");
+  // The scope is URL state too (`?view=`), so a pasted `/tasks?view=today` link
+  // and Back/Forward land on the same bucket the tab bar shows.
+  const [view, setView] = useState<TaskBucket>(() =>
+    scopeFromSearch(new URLSearchParams(searchParams.toString())),
+  );
+  // Group collapse is a paint-only concern, but the shell owns it because
+  // keyboard traversal must skip rows the user cannot see. Default: every group
+  // open; the board has no collapse.
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [editorTask, setEditorTask] = useState<TaskView | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -184,10 +198,15 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   const searchKey = searchParams.toString();
   const [syncedSearchKey, setSyncedSearchKey] = useState(searchKey);
   if (searchKey !== syncedSearchKey) {
-    const fromUrl = parseTaskViewState(new URLSearchParams(searchKey));
+    const params = new URLSearchParams(searchKey);
+    const fromUrl = parseTaskViewState(params);
+    const nextView = scopeFromSearch(params);
     setSyncedSearchKey(searchKey);
     if (!sameTaskViewState(state, fromUrl)) {
       setState(fromUrl);
+    }
+    if (nextView !== view) {
+      setView(nextView);
     }
   }
 
@@ -215,7 +234,18 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     () => groupTasks(rows, state.layout === "board" ? "status" : state.group),
     [rows, state.group, state.layout],
   );
-  const visibleRows = useMemo(() => groups.flatMap((group) => group.tasks), [groups]);
+  // A collapsed group is not painted, so its rows are not traversable: `j`/`k`,
+  // the selection-coherence effect and the list all read this projection. Before
+  // the collapse state lived in `TaskList`, a collapsed row could be selected and
+  // then mutated while invisible. The board has no collapse, so every column's
+  // cards stay in column order.
+  const visibleRows = useMemo(
+    () =>
+      groups.flatMap((group) =>
+        state.layout === "board" || !collapsedGroups[group.key] ? group.tasks : [],
+      ),
+    [collapsedGroups, groups, state.layout],
+  );
   const selectedTask = visibleRows.find((task) => task.id === selectedTaskId) ?? null;
   const filtersActive =
     state.status.length > 0 || state.priority.length > 0 || state.collectionId !== null;
@@ -376,6 +406,8 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   function updateState(next: TaskViewState): void {
     setState(next);
     const params = mergeTaskViewParams(new URLSearchParams(searchParams.toString()), next);
+    // Keep the scope in the URL even when it was the implicit default.
+    params.set("view", view);
     const query = params.toString();
     router.replace(query.length > 0 ? `/tasks?${query}` : "/tasks");
   }
@@ -387,6 +419,7 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     }
     const params = mergeTaskViewParams(new URLSearchParams(searchParams.toString()), state);
     params.delete("task");
+    params.set("view", view);
     const query = params.toString();
     router.replace(query.length > 0 ? `/tasks?${query}` : "/tasks");
   }
@@ -482,7 +515,10 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     message: string,
   ): void {
     patch(target, input, {
-      failure: "Could not schedule the task.",
+      failure:
+        input.dueOn !== undefined
+          ? "Could not update the due date."
+          : "Could not schedule the task.",
       onSuccess: (saved) => {
         if (saved.scheduledOn === target.scheduledOn && saved.dueOn === target.dueOn) {
           return;
@@ -562,6 +598,15 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     // in; keeping the id would leave an invisible selection behind the switch.
     setView(next);
     setSelectedTaskId(null);
+    const params = mergeTaskViewParams(new URLSearchParams(searchParams.toString()), state);
+    params.set("view", next);
+    const query = params.toString();
+    router.replace(`/tasks?${query}`);
+  }
+
+  /** Collapse/expand one list group; a collapsed group's rows leave `visibleRows`. */
+  function toggleGroup(key: string): void {
+    setCollapsedGroups((previous) => ({ ...previous, [key]: !(previous[key] ?? false) }));
   }
 
   /**
@@ -829,6 +874,8 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
               onFocus={setSelectedTaskId}
               actionsFor={actionsFor}
               moveTargets={moveTargets}
+              collapsedGroups={collapsedGroups}
+              onToggleGroup={toggleGroup}
               emptyMessage={
                 filtersActive ? "No tasks match these filters." : "Nothing here. Enjoy the quiet."
               }

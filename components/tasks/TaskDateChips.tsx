@@ -80,6 +80,7 @@ function DateChip({
               variant="ghost"
               disabled={date === null}
               data-testid={`${testId}-clear`}
+              className="[@media(pointer:coarse)]:min-h-11"
               onClick={() => pick(null)}
             >
               {clearLabel}

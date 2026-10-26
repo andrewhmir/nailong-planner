@@ -60,8 +60,8 @@ export function TaskStatusPill({ status, onChange, compact = false }: Props) {
           <span
             aria-hidden
             className={cn(
-              "h-1.5 w-1.5 shrink-0 rounded-pill",
-              compact ? "h-2 w-2" : null,
+              "shrink-0 rounded-pill",
+              compact ? "h-2 w-2" : "h-1.5 w-1.5",
               STATUS_DOTS[status],
             )}
           />

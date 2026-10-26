@@ -24,8 +24,8 @@ export function isTextEntryTarget(target: EventTarget | null): boolean {
  * a dialog can never leak `j`/`x` to the page underneath.
  *
  * Popover content carries no role: Radix only marks its positioned wrapper with
- * `data-radix-popper-content-wrapper`, so the Plan/due-date popover needs that
- * selector or triage keys and `Shift+K` fire underneath it.
+ * `data-radix-popper-content-wrapper`, so the task date-chip and due-date popovers
+ * need that selector or triage keys and `Shift+K` fire underneath them.
  */
 export function hasOpenOverlay(): boolean {
   return (
