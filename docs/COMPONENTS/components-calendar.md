@@ -111,7 +111,7 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 - A drop lands one day off -> the cell date was built from a timestamp instead of `utcToLocalDate` -> the `dayCellDidMount` date line.
 - A drag of an event or a file is accepted by a day cell -> `preventDefault` was moved out of the `isTaskDrag` guard -> this file's `dragover`/`drop` listeners.
 
-**Tests** — `tests/e2e/events.spec.ts` (including the regression that four chips on a quiet day fold into "+N more" while an event drag still works), `tests/e2e/calendar-style.spec.ts`, `tests/e2e/viewport-fit.spec.ts`, `tests/e2e/view-preference.spec.ts`, `tests/e2e/tasks.spec.ts` (chip visibility, `data-task-id`/aria label, chip click; the mini-month drag leg covers the shared PATCH).
+**Tests** — `tests/e2e/events.spec.ts` (including the regression that four chips on a quiet day fold into "+N more" while an event drag still works), `tests/e2e/calendar-style.spec.ts`, `tests/e2e/viewport-fit.spec.ts`, `tests/e2e/view-preference.spec.ts`, `tests/e2e/tasks.spec.ts` (chip visibility, `data-task-id`/aria label, chip click). The mini-month drop leg has no e2e after the v0.2.1 rewrite; its payload is unit-tested in `tests/unit/task-drag.test.ts`.
 
 ## Quick create
 
@@ -379,7 +379,7 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 - A task row dropped on a mini-month day does nothing -> no `onTaskDrop` reached `MiniMonth`, or the drag was not the task MIME type (only that type is accepted) -> the caller and `lib/ui/taskDrag`.
 - The drop highlight sticks to a day -> `onDragLeave`/`onDrop` stopped deleting `data-task-drop-active` -> this file's `taskDropProps`.
 
-**Tests** — `tests/e2e/mini-month.spec.ts`; the task-row drop on the sidebar mini month is `tests/e2e/tasks.spec.ts` scenario 3.
+**Tests** — `tests/e2e/mini-month.spec.ts`; the task-row drop payload is unit-tested in `tests/unit/task-drag.test.ts` — no e2e drives the row→mini-month drop after the v0.2.1 rewrite (the old `tasks.spec` scenario 3 was removed with the Plan popover).
 
 ### components/calendar/DatePickerPopover.tsx
 

@@ -43,7 +43,7 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 - Dragging a task row onto the sidebar mini month does nothing -> the `onTaskDrop` prop was dropped from either `SidebarMiniMonth`, or it is the wrong MIME type -> this file plus `components/calendar/MiniMonth.tsx` and `lib/ui/taskDrag.ts`.
 - A drop plans the wrong day or its Undo restores the wrong date -> the handler bypassed `useTaskPlanDrop`, or the drag payload no longer carries the row's previous `scheduledOn` (stamped at `dragstart`) -> this file's `planTaskDrop`, `lib/ui/taskDrag.ts`.
 
-**Tests** — `tests/e2e/shell.spec.ts`, `tests/e2e/mobile.spec.ts`, `tests/e2e/viewport-fit.spec.ts`, `tests/e2e/sidebar.spec.ts`, `tests/e2e/roadmap-nav.spec.ts`; the mounted `GlobalCapture` gesture is scenario 2 of `tests/e2e/tasks.spec.ts` and the task-row drop on the mini month is scenario 3 there.
+**Tests** — `tests/e2e/shell.spec.ts`, `tests/e2e/mobile.spec.ts`, `tests/e2e/viewport-fit.spec.ts`, `tests/e2e/sidebar.spec.ts`, `tests/e2e/roadmap-nav.spec.ts`; the mounted `GlobalCapture` gesture is scenario 2 of `tests/e2e/tasks.spec.ts`. The task-row→mini-month drop has no e2e after the v0.2.1 rewrite (the old scenario 3 was removed with the Plan popover); its payload is unit-tested in `tests/unit/task-drag.test.ts`.
 
 ### components/shell/GlobalCapture.tsx
 
@@ -273,7 +273,7 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 - Two mini months disagree after toggling a calendar -> both read the same context; a stale render means the provider value was memoised incorrectly -> `AppShell`/`useVisibility`.
 - A task row dropped on a day does nothing -> `AppShell` stopped passing `onTaskDrop`, or the drag is not the task MIME type -> this file's prop pass-through, `lib/ui/taskDrag`, `useTaskPlanDrop`.
 
-**Tests** — `tests/e2e/mini-month.spec.ts`, `tests/e2e/sidebar.spec.ts`, `tests/e2e/only-this-calendar.spec.ts`; the task-row drop is `tests/e2e/tasks.spec.ts` scenario 3.
+**Tests** — `tests/e2e/mini-month.spec.ts`, `tests/e2e/sidebar.spec.ts`, `tests/e2e/only-this-calendar.spec.ts`; the task-row drop payload is unit-tested in `tests/unit/task-drag.test.ts` — no e2e drives the row→mini-month drop after the v0.2.1 rewrite.
 
 ## Focused verification
 ```bash

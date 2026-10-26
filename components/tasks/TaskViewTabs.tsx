@@ -65,7 +65,7 @@ export function TaskViewTabs({ view, counts, layout, onScope, onLayout, activeRe
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-sm border px-2.5 py-1 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet [@media(pointer:coarse)]:min-h-11",
                 active
-                  ? "border-violet bg-violet-soft font-bold text-violet-press"
+                  ? "border-violet bg-surface font-bold text-violet-press"
                   : "border-transparent text-ink-soft hover:bg-well hover:text-ink",
               )}
             >

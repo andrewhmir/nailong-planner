@@ -103,7 +103,7 @@ States: `isError` renders `role="alert"` with "Could not load the tasks." and a 
 - `?` does nothing while the sheet is open -> expected: `hasOpenOverlay()` blocks all page keys and Radix owns Escape/close.
 - A key advertised here does not work -> compare `GROUPS` with `resolveTaskShortcut` in `lib/ui/useTaskShortcuts.ts`; the dialog must not advertise a gesture the resolver does not own.
 
-**Tests** — No direct unit test (static markup); scenario 2 of `tests/e2e/tasks.spec.ts` exercises the keys it lists.
+**Tests** — No direct unit test (static markup); scenario 2 of `tests/e2e/tasks.spec.ts` exercises a subset of the keys it lists (selection, triage and the panel hand-off), not all 12.
 
 ### components/tasks/TaskRow.tsx
 
@@ -125,7 +125,7 @@ States: `isError` renders `role="alert"` with "Could not load the tasks." and a 
 - Clicking the title opens nothing -> `actions.onOpen` was not wired or the shell's `openTask` lost `setEditorTask` -> this file plus `TasksShell`.
 - Dragging a row drops nothing -> the `onDragStart` payload was inlined again and renamed, so the drop targets' `text/x-nailong-task` no longer matches -> this file plus `lib/ui/taskDrag.ts`.
 
-**Tests** — `tests/e2e/tasks.spec.ts` (row selection/focus, the title button opening the panel, and the inline status/priority changes with their targeted undo). The drag payload helpers are pinned by `tests/unit/task-drag.test.ts`. No direct e2e coverage yet of the overflow menu's `Open`/`Delete` items or the row→mini-month drop.
+**Tests** — `tests/e2e/tasks.spec.ts` (row selection/focus, the title button opening the panel, the inline status change with its targeted undo — the priority change test asserts its toast but not the undo — and the two capture paths). The drag payload helpers are pinned by `tests/unit/task-drag.test.ts`. No direct e2e coverage yet of the overflow menu's `Open`/`Delete` items, the row→mini-month drop, group collapse, the empty-state Clear filters, or the panel's title/notes/checklist saves.
 
 ### components/tasks/TaskGroupHeader.tsx
 

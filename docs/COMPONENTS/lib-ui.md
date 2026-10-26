@@ -565,7 +565,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 - A drop on the same day shows a toast -> the `scheduledOn === date` no-op guard was dropped -> this file.
 - Two drops in one toast window undo the wrong plan -> the toast was shown without `pushUndo`'s handle -> this file plus `lib/ui/undoToast.ts`.
 
-**Tests** — No direct unit test (a TanStack mutation hook; the repo has no hook-test harness). The payload it consumes is unit-tested in `tests/unit/task-drag.test.ts`; `tests/e2e/tasks.spec.ts` scenario 3 drives the row→mini-month drop, asserts `scheduledOn` through `GET /api/tasks/{id}`, then clicks the `Task planned` toast's Undo and proves the date returns to `null` exactly once.
+**Tests** — No direct unit test (a TanStack mutation hook; the repo has no hook-test harness). The payload it consumes is unit-tested in `tests/unit/task-drag.test.ts`. The row→mini-month drop has **no e2e after the v0.2.1 rewrite** (the old `tasks.spec` scenario 3 was deleted with the Plan popover); the hook's PATCH/undo path is shared with the calendar's own drop handling.
 
 ## Focused verification
 
