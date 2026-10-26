@@ -120,8 +120,8 @@ States: `isError` renders `role="alert"` with "Could not load the tasks." and a 
 **Depends on / Used by** — `lib/domain/tasks` (`TASK_BUCKETS`, `TaskBucket`), `lib/services/tasks` (`TaskCounts`), `lib/utils` (`cn`). Rendered by `TasksShell`.
 
 **Debugging** —
-- A count looks wrong but the rows look right -> `counts` is global across every visible open task, even when the rows are filtered -> `GET /api/tasks` returns global counts (documented in `app-routes.md`).
-- The overdue badge disappears while a due date is in the past -> the task is done/dropped (no longer open) or `dueOn === today` (not overdue) -> `isOverdue` in `lib/domain/tasks.ts`.
+- A count looks wrong but the rows look right -> `counts` is global across every visible active task, even when the rows are filtered -> `GET /api/tasks` returns global counts (documented in `app-routes.md`).
+- The overdue badge disappears while a due date is in the past -> the task is done/dropped (no longer active) or `dueOn === today` (not overdue) -> `isOverdue` in `lib/domain/tasks.ts`.
 - `getByRole("button", { name: "Today" })` matches two controls -> the popover's Today shortcut and this bucket both exist; this one's name is `Today, N open` -> scope the locator.
 
 **Tests** — `tests/e2e/tasks.spec.ts` asserts the bucket rows and the count badges after reload.

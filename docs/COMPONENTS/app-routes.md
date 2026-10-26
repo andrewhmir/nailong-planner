@@ -307,7 +307,7 @@ Three thin routes over `lib/api/handlers/tasks.ts`; bucketing (`lib/domain/tasks
 
 **Depends on / Used by** — `withViewer`; `listTasksHandler`, `createTaskHandler`; `getHousehold`; `listTasksQuerySchema`, `createTaskSchema`. Clients: `useTasks(view?, collectionId?)` (query key `["tasks", view, collectionId]`) and `useCreateTask()` in `lib/query/tasks.ts`.
 
-**Debugging** — Badge counts do not move when a collection filter is applied -> expected: `counts` always covers every visible open task -> compare `useTasks()` with `useTasks(view, id)`. A task created without `collectionId` appears under Inbox -> intended (`ensureInbox`). `400 fields.view` -> the caller sent a bucket name `lib/domain/tasks.ts` does not define -> `taskViewSchema`. A new task is missing from `view=today` -> it has no `scheduledOn`/`dueOn` yet, so it sits in Inbox or Someday -> check the body.
+**Debugging** — Badge counts do not move when a collection filter is applied -> expected: `counts` always covers every visible active task -> compare `useTasks()` with `useTasks(view, id)`. A task created without `collectionId` appears under Inbox -> intended (`ensureInbox`). `400 fields.view` -> the caller sent a bucket name `lib/domain/tasks.ts` does not define -> `taskViewSchema`. A new task is missing from `view=today` -> it has no `scheduledOn`/`dueOn` yet, so it sits in Inbox or Someday -> check the body.
 
 **Tests** — `tests/integration/tasks-api.test.ts`; the workspace that calls it is covered by `tests/e2e/tasks.spec.ts` and documented in `docs/COMPONENTS/components-tasks.md`.
 
@@ -327,7 +327,7 @@ Three thin routes over `lib/api/handlers/tasks.ts`; bucketing (`lib/domain/tasks
 
 ### app/api/tasks/order/route.ts
 
-**Purpose** — Rewrites the manual order of one list from the full open-task id set.
+**Purpose** — Rewrites the manual order of one list from the full active-task id set.
 
 **API** — `PATCH` body `reorderTasksSchema` (`collectionId`, `orderedIds` of at least one id) → `200 { tasks: TaskView[] }` in the requested order. Errors: 401/403 from `withViewer`; `400 VALIDATION` with `fields.collectionId`/`fields.orderedIds` for a malformed body, `400` "Send exactly the active tasks of this list." when the ids are partial, duplicated or from another list (a stale client must refetch, never guess), `400` "Tasks live in lists." for a calendar, `403` for a view-only list, and `404` "Calendar not found." for the partner's private list.
 

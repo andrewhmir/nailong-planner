@@ -267,14 +267,14 @@ A foreign `householdId` is 404 and invisible even when the row is `shared`.
 - A done or dropped task still appears in a view -> the query filtered on something other than the active pair (`open`/`in_progress`) -> `listTasks`.
 - Badge counts change when a list or view is selected -> `counts` were computed after the filter instead of from all visible active tasks -> `listTasks`.
 - A task dated beyond this week is missing from Today/Week/Someday -> intended: `bucketOf` returns `null`, so only `view: "all"` includes it -> `lib/domain/tasks.ts`.
-- Reorder returns 400 "Send exactly the active tasks of this list." -> the payload was not the full open set (partial, duplicate, done/dropped, cross-list or missing id); a stale client must re-fetch -> `reorderTasks`.
+- Reorder returns 400 "Send exactly the active tasks of this list." -> the payload was not the full active set (partial, duplicate, done/dropped, cross-list or missing id); a stale client must re-fetch -> `reorderTasks`.
 - A deleted task cannot be restored from a trash -> there is none: `deleteTask` hard-deletes and the checklist cascades, so undo re-creates the task with a new id -> the undo call site, `lib/services/tasks.ts`.
 - Checklist item ids change on every save -> intended: a checklist PATCH is a full replacement, not a diff -> `replaceChecklist`.
 - A task moved between lists lands last -> intended: a move appends at `max + 1` in the target list, like a create -> `updateTask`.
 - Sending the current status again rewrites `completedAt`/`droppedAt` -> it must not: the stamps move only on a real transition, so an echoed status leaves the row untouched -> `updateTask`.
 - Creating or moving a task into a calendar, or reordering a calendar, returns 400 "Tasks live in lists." -> intended: a task lives only in a `kind: "list"` collection; calendars hold events -> `assertTaskList`.
 
-**Tests** — `tests/integration/tasks.test.ts` (Inbox default and insert order, explicit dates and list summary, private/view-only/foreign create guards, calendar-kind rejection for create/move/reorder, both week-start conventions across all four buckets, global counts vs view/collection filters, overdue boundaries, move permissions, append-on-move, transition-only status timestamps, checklist replace/clear and id regeneration, reorder success plus partial/duplicate/cross-list/done rejection, partner 404 on get/list/update/delete, view-only read/write split, cascade delete, schema parsing).
+**Tests** — `tests/integration/tasks.test.ts` (Inbox default and insert order, explicit dates and list summary, private/view-only/foreign create guards, calendar-kind rejection for create/move/reorder, both week-start conventions across all four buckets, global counts vs view/collection filters, overdue boundaries, move permissions, append-on-move, transition-only status timestamps, checklist replace/clear and id regeneration, reorder success plus partial/duplicate/cross-list/done rejection, partner 404 on get/list/update/delete, view-only read/write split, cascade delete, schema parsing, priority create/patch/defaults, and in_progress listing/counting/reorder).
 
 ## Focused verification
 
