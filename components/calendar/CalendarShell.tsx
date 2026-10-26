@@ -21,6 +21,7 @@ import {
   shadeTokens,
   type HueFamily,
 } from "@/lib/color/palette";
+import { isActiveStatus } from "@/lib/domain/tasks";
 import { useCollections } from "@/lib/query/collections";
 import { parseExdates } from "@/lib/query/eventCache";
 import {
@@ -377,7 +378,7 @@ export function CalendarShell({
   }, []);
 
   const { data: events } = useEvents(range);
-  // The month grid draws every open scheduled task the viewer may see; the
+  // The month grid draws every active scheduled task the viewer may see; the
   // global list is also the cache the drop handler reads its previous date from.
   const { data: taskData } = useTasks("all");
   const planTaskDrop = useTaskPlanDrop();
@@ -402,9 +403,10 @@ export function CalendarShell({
 
   // Task chips cover the visible grid window (the month view's cells, including
   // the adjacent-month days it paints) and only visible collections. A date
-  // compare on `YYYY-MM-DD` strings avoids any timezone round-trip. Only open
-  // tasks draw: the optimistic task cache can still hold a done/dropped row for
-  // a beat after `x`/Drop, and a chip for a finished task would be a lie.
+  // compare on `YYYY-MM-DD` strings avoids any timezone round-trip. Only active
+  // (open/in_progress) tasks draw: the optimistic task cache can still hold a
+  // done/dropped row for a beat after `x`/Drop, and a chip for a finished task
+  // would be a lie.
   const visibleTasks = useMemo(() => {
     if (!range) {
       return [];
@@ -413,7 +415,7 @@ export function CalendarShell({
     const to = utcToLocalDate(range.to, timezone);
     return (taskData?.tasks ?? []).filter(
       (task) =>
-        task.status === "open" &&
+        isActiveStatus(task.status) &&
         task.scheduledOn !== null &&
         task.scheduledOn >= from &&
         task.scheduledOn < to &&

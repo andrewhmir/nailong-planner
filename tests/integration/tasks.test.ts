@@ -7,6 +7,7 @@ import {
   createTask,
   deleteTask,
   getTask,
+  getTaskCountSummary,
   listTasks,
   reorderTasks,
   updateTask,
@@ -16,6 +17,7 @@ import {
   checklistInputSchema,
   createTaskSchema,
   dateOnlySchema,
+  listTasksQuerySchema,
   reorderTasksSchema,
   updateTaskSchema,
 } from "@/lib/validation/tasks";
@@ -949,5 +951,106 @@ describe("in_progress tasks", () => {
     } finally {
       close();
     }
+  });
+});
+
+describe("includeClosed", () => {
+  it("surfaces a done task in its bucket on request but never moves the counts", async () => {
+    const seeded = await makeSeededDb();
+    const { db, close, ctxA } = seeded;
+    const { shared } = makeLists(seeded);
+    try {
+      const active = createTask(db, ctxA, {
+        title: "Still to do",
+        collectionId: shared.id,
+        scheduledOn: TODAY,
+      });
+      const done = createTask(db, ctxA, {
+        title: "Already done",
+        collectionId: shared.id,
+        scheduledOn: TODAY,
+      });
+      updateTask(db, ctxA, done.id, { status: "done" });
+
+      const defaultToday = listTasks(db, ctxA, filterInput({ view: "today" }));
+      expect(ids(defaultToday.tasks)).toEqual([active.id]);
+      expect(defaultToday.counts.today).toBe(1);
+
+      const withClosed = listTasks(db, ctxA, filterInput({ view: "today", includeClosed: true }));
+      expect(ids(withClosed.tasks)).toEqual([active.id, done.id]);
+      expect(withClosed.counts).toEqual(defaultToday.counts);
+
+      // `all` is the other read the calendar uses, and it opts in the same way.
+      const defaultAll = listTasks(db, ctxA, filterInput({ view: "all" }));
+      expect(ids(defaultAll.tasks)).not.toContain(done.id);
+      const allWithClosed = listTasks(db, ctxA, filterInput({ view: "all", includeClosed: true }));
+      expect(ids(allWithClosed.tasks)).toEqual([active.id, done.id]);
+      expect(allWithClosed.counts).toEqual(defaultAll.counts);
+
+      // `includeClosed: false` is exactly today's behaviour.
+      expect(ids(listTasks(db, ctxA, filterInput({ view: "today", includeClosed: false })).tasks)).toEqual([
+        active.id,
+      ]);
+    } finally {
+      close();
+    }
+  });
+});
+
+describe("getTaskCountSummary", () => {
+  it("counts active tasks per bucket and per readable collection, hiding a partner's private list", async () => {
+    const seeded = await makeSeededDb();
+    const { db, close, ctxA, ctxB } = seeded;
+    const { shared, privateList, viewOnly } = makeLists(seeded);
+    try {
+      const inboxTask = createTask(db, ctxA, { title: "Inbox item" });
+      const done = createTask(db, ctxA, { title: "Finished", collectionId: shared.id });
+      createTask(db, ctxA, {
+        title: "Scheduled today",
+        collectionId: shared.id,
+        scheduledOn: TODAY,
+      });
+      createTask(db, ctxA, { title: "Undated shared", collectionId: shared.id });
+      createTask(db, ctxA, {
+        title: "Past due",
+        collectionId: shared.id,
+        dueOn: "2026-10-20",
+      });
+      createTask(db, ctxA, { title: "Secret", collectionId: privateList.id });
+      updateTask(db, ctxA, done.id, { status: "done" });
+
+      const summary = getTaskCountSummary(db, ctxA, { timezone: TIMEZONE, weekStartsOn: 0 });
+      // The inbox row is undated in the Inbox; the past-due row also buckets to
+      // today; the owner's own private task is undated outside the Inbox, so it
+      // adds a second Someday; the finished row contributes nothing.
+      expect(summary.counts).toEqual({ inbox: 1, today: 2, week: 0, someday: 2, overdue: 1 });
+      expect(summary.byCollection).toEqual({
+        [inboxTask.collectionId]: 1,
+        [shared.id]: 3,
+        [privateList.id]: 1,
+      });
+      // Empty lists produce no zero entry.
+      expect(summary.byCollection[viewOnly.id]).toBeUndefined();
+      expect(Object.values(summary.byCollection).every((count) => count > 0)).toBe(true);
+
+      const partner = getTaskCountSummary(db, ctxB, { timezone: TIMEZONE, weekStartsOn: 0 });
+      expect(partner.counts).toEqual({ inbox: 0, today: 2, week: 0, someday: 1, overdue: 1 });
+      expect(partner.byCollection).toEqual({ [shared.id]: 3 });
+      expect(partner.byCollection[privateList.id]).toBeUndefined();
+      expect(partner.byCollection[inboxTask.collectionId]).toBeUndefined();
+    } finally {
+      close();
+    }
+  });
+});
+
+describe("listTasksQuerySchema includeClosed", () => {
+  it("maps only the strict query-string true/false to a boolean", () => {
+    expect(listTasksQuerySchema.parse({ includeClosed: "true" }).includeClosed).toBe(true);
+    expect(listTasksQuerySchema.parse({ includeClosed: "false" }).includeClosed).toBe(false);
+    expect(listTasksQuerySchema.parse({}).includeClosed).toBeUndefined();
+    expect(listTasksQuerySchema.safeParse({ includeClosed: "maybe" }).success).toBe(false);
+    expect(listTasksQuerySchema.safeParse({ includeClosed: "0" }).success).toBe(false);
+    expect(listTasksQuerySchema.safeParse({ includeClosed: true }).success).toBe(false);
   });
 });

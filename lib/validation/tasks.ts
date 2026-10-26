@@ -54,13 +54,20 @@ export const reorderTasksSchema = z.object({
 export const taskViewSchema = z.enum([...TASK_BUCKETS, "all"]);
 
 /**
- * GET /api/tasks query. Both filters are optional: no `view` means every open
+ * GET /api/tasks query. Every filter is optional: no `view` means every active
  * visible task, and an unknown `collectionId` deliberately returns an empty
  * list rather than a 404 (existence is never leaked by a filter).
+ * `includeClosed` arrives as the literal query-string `"true"`/`"false"` and is
+ * mapped to a boolean here. It must stay an `enum` transform: `z.coerce.boolean()`
+ * would make `Boolean("false")` true.
  */
 export const listTasksQuerySchema = z.object({
   view: taskViewSchema.optional(),
   collectionId: z.string().min(1).optional(),
+  includeClosed: z
+    .enum(["true", "false"])
+    .transform((value) => value === "true")
+    .optional(),
 });
 
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;

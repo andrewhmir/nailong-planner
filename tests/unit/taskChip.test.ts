@@ -80,6 +80,12 @@ describe("taskChip", () => {
     });
   });
 
+  it("keeps an in_progress task active and flags only closed ones as completed", () => {
+    expect(taskChip(task({ status: "in_progress" }))!.extendedProps.completed).toBe(false);
+    expect(taskChip(task({ status: "done" }))!.extendedProps.completed).toBe(true);
+    expect(taskChip(task({ status: "dropped" }))!.extendedProps.completed).toBe(true);
+  });
+
   it("takes the accent from the owning collection's shade", () => {
     const chip = taskChip(task())!;
     expect(chip.extendedProps.accent).toBe(TEAL.mainHex);

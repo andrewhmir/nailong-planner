@@ -6,11 +6,14 @@ import {
   taskChecklistItem,
   type CollectionRow,
   type TaskRow,
+  type TaskStatus,
 } from "@/lib/db/schema";
 import {
   TASK_ACTIVE_STATUSES,
   bucketOf,
+  bucketOfIncludingClosed,
   endOfWeek,
+  isActiveStatus,
   isOverdue,
   localToday,
   type BucketContext,
@@ -60,10 +63,22 @@ export interface TaskCounts {
   overdue: number;
 }
 
+/** The rail counts plus the active-task total of every collection that has one. */
+export interface TaskCountSummary {
+  counts: TaskCounts;
+  byCollection: Record<string, number>;
+}
+
 export interface ListTasksInput {
   /** A triage bucket, or `"all"` (the calendar grid) — omitted means all too. */
   view?: TaskBucket | "all";
   collectionId?: string;
+  /**
+   * Opt in to `done`/`dropped` rows as well as the active pair. Closed rows are
+   * then bucketed by their dates with `bucketOfIncludingClosed`; `counts` stay
+   * active-only either way.
+   */
+  includeClosed?: boolean;
   timezone: string;
   weekStartsOn: 0 | 1;
 }
@@ -145,46 +160,45 @@ function writableTask(db: Database, ctx: ViewerContext, id: string) {
   return row;
 }
 
+/** The statuses a readable task set covers; closed rows are opt-in. */
+function readStatuses(includeClosed: boolean): readonly TaskStatus[] {
+  return includeClosed ? [...TASK_ACTIVE_STATUSES, "done", "dropped"] : TASK_ACTIVE_STATUSES;
+}
+
 /**
- * Every active task in a visible collection, bucketed with `bucketOf`. The
- * `collectionId` and `view` filters only narrow `tasks`: `counts` always covers
- * all visible active tasks, because the rail badges must not change when the
- * user narrows a list. Done and dropped tasks are deliberately absent from every
- * list view; a task dated beyond this week has no bucket, so only `"all"` shows
- * it. `ensureInbox` may create the caller's Inbox on the first call.
+ * Every task in one of `statuses` across `visibleIds`. Callers only pass ids the
+ * viewer already resolved through `resolveVisibleCollections`, so this is the
+ * one read both `listTasks` and `getTaskCountSummary` build on.
  */
-export function listTasks(
+function readTasks(
   db: Database,
   ctx: ViewerContext,
-  input: ListTasksInput,
-): { tasks: TaskView[]; counts: TaskCounts } {
-  const inbox = ensureInbox(db, ctx);
-  const visibleIds = resolveVisibleCollections(db, ctx).map((row) => row.id);
-  const counts: TaskCounts = { inbox: 0, today: 0, week: 0, someday: 0, overdue: 0 };
-  if (visibleIds.length === 0) {
-    return { tasks: [], counts };
-  }
-
-  const today = localToday(input.timezone);
-  const bucketContext: BucketContext = {
-    today,
-    endOfWeek: endOfWeek(today, input.weekStartsOn),
-    inboxId: inbox.id,
-  };
-
-  const active = db
+  statuses: readonly TaskStatus[],
+  visibleIds: string[],
+): TaskRow[] {
+  return db
     .select()
     .from(task)
     .where(
       and(
         eq(task.householdId, ctx.householdId),
-        inArray(task.status, TASK_ACTIVE_STATUSES),
+        inArray(task.status, statuses),
         inArray(task.collectionId, visibleIds),
       ),
     )
     .all();
+}
 
-  for (const row of active) {
+/**
+ * The rail badges over active rows only. Closed rows are skipped, so widening a
+ * read with `includeClosed` can never move a count.
+ */
+function countActive(rows: TaskRow[], bucketContext: BucketContext, today: string): TaskCounts {
+  const counts: TaskCounts = { inbox: 0, today: 0, week: 0, someday: 0, overdue: 0 };
+  for (const row of rows) {
+    if (!isActiveStatus(row.status)) {
+      continue;
+    }
     const bucket = bucketOf(row, bucketContext);
     if (bucket) {
       counts[bucket] += 1;
@@ -193,11 +207,43 @@ export function listTasks(
       counts.overdue += 1;
     }
   }
+  return counts;
+}
+
+/**
+ * Every task in a visible collection, bucketed with `bucketOf`. The
+ * `collectionId` and `view` filters only narrow `tasks`: `counts` always covers
+ * all visible active tasks, because the rail badges must not change when the
+ * user narrows a list. Done and dropped rows are absent by default; with
+ * `includeClosed` they join the read set and the `view` filter buckets them with
+ * `bucketOfIncludingClosed`, so a finished task dated today still lands in
+ * Today. A task dated beyond this week has no bucket, so only `"all"` shows it.
+ * `ensureInbox` may create the caller's Inbox on the first call.
+ */
+export function listTasks(
+  db: Database,
+  ctx: ViewerContext,
+  input: ListTasksInput,
+): { tasks: TaskView[]; counts: TaskCounts } {
+  const inbox = ensureInbox(db, ctx);
+  const visibleIds = resolveVisibleCollections(db, ctx).map((row) => row.id);
+  const today = localToday(input.timezone);
+  const bucketContext: BucketContext = {
+    today,
+    endOfWeek: endOfWeek(today, input.weekStartsOn),
+    inboxId: inbox.id,
+  };
+
+  const includeClosed = input.includeClosed === true;
+  const candidates =
+    visibleIds.length === 0 ? [] : readTasks(db, ctx, readStatuses(includeClosed), visibleIds);
+  const counts = countActive(candidates, bucketContext, today);
 
   const view = input.view ?? "all";
-  const rows = active
+  const bucketOfRow = includeClosed ? bucketOfIncludingClosed : bucketOf;
+  const rows = candidates
     .filter((row) => input.collectionId === undefined || row.collectionId === input.collectionId)
-    .filter((row) => view === "all" || bucketOf(row, bucketContext) === view)
+    .filter((row) => view === "all" || bucketOfRow(row, bucketContext) === view)
     .sort(
       (left, right) =>
         left.sortOrder - right.sortOrder ||
@@ -206,6 +252,35 @@ export function listTasks(
     );
 
   return { tasks: rows.map((row) => toTaskView(db, row)), counts };
+}
+
+/**
+ * The counts payload behind the per-list badges: active tasks in
+ * `resolveVisibleCollections` only, with `counts` carrying the same meaning as
+ * `listTasks`'s counts. `byCollection` is keyed by collection id and contains
+ * only collections that hold at least one active task, so neither an empty list
+ * nor a private list the viewer cannot read can produce a key.
+ */
+export function getTaskCountSummary(
+  db: Database,
+  ctx: ViewerContext,
+  input: { timezone: string; weekStartsOn: 0 | 1 },
+): TaskCountSummary {
+  const inbox = ensureInbox(db, ctx);
+  const visibleIds = resolveVisibleCollections(db, ctx).map((row) => row.id);
+  const today = localToday(input.timezone);
+  const bucketContext: BucketContext = {
+    today,
+    endOfWeek: endOfWeek(today, input.weekStartsOn),
+    inboxId: inbox.id,
+  };
+
+  const active = visibleIds.length === 0 ? [] : readTasks(db, ctx, TASK_ACTIVE_STATUSES, visibleIds);
+  const byCollection: Record<string, number> = {};
+  for (const row of active) {
+    byCollection[row.collectionId] = (byCollection[row.collectionId] ?? 0) + 1;
+  }
+  return { counts: countActive(active, bucketContext, today), byCollection };
 }
 
 function nextSortOrder(db: Database, collectionId: string): number {

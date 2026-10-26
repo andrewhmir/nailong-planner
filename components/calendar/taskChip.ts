@@ -6,6 +6,7 @@ import {
   shadeTokens,
   type ShadeTokens,
 } from "@/lib/color/palette";
+import { isActiveStatus } from "@/lib/domain/tasks";
 import type { TaskView } from "@/lib/services/tasks";
 import { addDaysToDate } from "@/lib/time/zone";
 
@@ -25,7 +26,7 @@ export interface TaskChip extends EventInput {
     collectionId: string;
     /** The owning list's name, for the chip's aria-label and debugging. */
     collectionName: string;
-    /** Always false: `CalendarShell.visibleTasks` keeps only `status === "open"`. */
+    /** False while the task is active: `CalendarShell.visibleTasks` keeps only `isActiveStatus` rows. */
     completed: boolean;
     /** Saturated collection accent: FullCalendar paints it as the left bar. */
     accent: string;
@@ -78,7 +79,7 @@ export function taskChip(task: TaskView): TaskChip | null {
       taskId: task.id,
       collectionId: task.collectionId,
       collectionName: task.collection.name,
-      completed: task.status !== "open",
+      completed: !isActiveStatus(task.status),
       accent: tokens.mainHex,
       ariaLabel: `Task: ${task.title}`,
     },
