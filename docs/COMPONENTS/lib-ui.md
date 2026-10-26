@@ -24,6 +24,7 @@ calendar still draws, or an undo action does nothing.
 | lib/ui/undoToast.ts | Success toast whose Undo action reverts exactly the change the toast names |
 | lib/ui/taskDrag.ts | The `text/x-nailong-task` drag payload contract (id + previous `scheduledOn`) shared by task rows and their drop targets |
 | lib/ui/taskDeepLink.ts | Pure decision table for the one-shot `/tasks?task=` deep link (settle-before-handled rule) |
+| lib/ui/taskViewParams.ts | The `/tasks` toolbar's URL state: defaults, parse and merge (replace, never push) |
 | lib/ui/useTaskPlanDrop.ts | Drop→PATCH `scheduledOn` handler with a targeted undo and the `Task planned` toast |
 
 ## View and persistence
@@ -446,6 +447,33 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 - A toast has no Undo button -> the call site used plain `toast.success`/`toast(...)` -> this file's contract.
 
 **Tests** — No direct unit test (a thin Sonner wrapper); `tests/e2e/undo.spec.ts` and `tests/e2e/tasks.spec.ts` scenario 2 exercise it end to end.
+
+## Task views
+
+### lib/ui/taskViewParams.ts
+
+**Purpose** — The pure URL codec for the `/tasks` toolbar: read `layout`, `group`, `sort`, `closed`, `status`, `priority` and `list` into a `TaskViewState`, fall back to the defaults for missing or unknown values, and merge the state back while leaving the page-owned `view` and `task` params (and any other unknown params) untouched. It is the module of record for spec §6's "all non-`view` params are client state mirrored with `router.replace`".
+
+**Public API**
+- `interface TaskViewState { layout: TaskLayout; group: GroupBy; sort: TaskSort; closed: boolean; status: TaskStatus[]; priority: TaskPriority[]; collectionId: string | null }`.
+- `DEFAULT_TASK_VIEW_STATE` — `{ layout: "list", group: "status", sort: "manual", closed: false, status: [], priority: [], collectionId: null }`.
+- `parseTaskViewState(params: URLSearchParams): TaskViewState` — `layout`/`group`/`sort` only accept their enum members, otherwise they default; `closed` is true only for the literal `closed=1`; `status`/`priority` are comma-separated, trimmed, filtered to `TASK_STATUS_ORDER`/`TASK_PRIORITY_ORDER`, and de-duplicated in first-seen order; `list` is the `collectionId` and an empty value is `null`. `view`/`task` are ignored by design.
+- `mergeTaskViewParams(base: URLSearchParams, state: TaskViewState): URLSearchParams` — returns a new `URLSearchParams` (never mutates `base`): it deletes every managed key (`layout`, `group`, `sort`, `closed`, `status`, `priority`, `list`) and writes back only non-defaults — `layout`/`group`/`sort` when they differ from the default, `closed=1` when closed rows are shown, comma-joined `status`/`priority` when non-empty, and `list=<id>` when a collection is selected.
+
+**State & side effects** — None: pure over its arguments; a fresh params object and fresh arrays on every call, no storage, no React, no router. The caller owns the URL write.
+
+**Replace, never push** — Toolbar changes must call `router.replace` with `mergeTaskViewParams(searchParams, state)`, not `router.push`: spec §6 makes the non-`view` params view state, so Back must leave `/tasks` instead of stepping through every filter change, while a reload or a shared URL restores the same layout/group/sort/filters. `view` and `task` survive the merge precisely so switching scope or closing the panel does not drop the other params.
+
+**Depends on / Used by** — `TaskLayout`, `GroupBy`, `TaskSort`, `TASK_STATUS_ORDER` and `TASK_PRIORITY_ORDER` from `lib/domain/taskViews`; `TaskStatus`/`TaskPriority` types from `lib/db/schema`. No caller in the branch yet: `components/tasks/TasksShell.tsx` (the shell rewrite) is the intended consumer.
+
+**Debugging**
+- A toolbar choice does not survive a reload -> the shell wrote local state only, or `mergeTaskViewParams` was not given the full state -> check the `/tasks` URL and the merge argument.
+- Back steps through every filter change -> the caller used `router.push` -> replace it with `router.replace`; this module only builds the params.
+- A stale `layout=board`/`closed=1` comes back after selecting the defaults -> the merge's delete pass was skipped and it set values on top of `base` -> check `mergeTaskViewParams`.
+- A filter is on but the rows ignore it -> the value is not one of the enum members and `parseTaskViewState` dropped it -> log the parsed state; statuses are `open`/`in_progress`/`done`/`dropped`, priorities `none`/`low`/`normal`/`high`/`urgent`.
+- A list filter selects the wrong list -> `list` is the collection id, never the list name -> check the value.
+
+**Tests** — `tests/unit/task-view-params.test.ts` (defaults, valid parse with unknown values dropped, duplicate collapse, unknown enum fallbacks, merge preserving `view`/`task`, stale managed params cleared, non-default round-trip).
 
 ### lib/ui/taskDrag.ts
 
