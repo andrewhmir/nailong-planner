@@ -60,8 +60,10 @@ export function useTasks(
 
 /**
  * The rail counts plus the active-task total of every list that has one. The
- * sidebar enables it only on `/tasks`, so the calendar does not pay for a second
- * request. The key shares the `["tasks"]` prefix, which is what makes every task
+ * sidebar enables it only on `/tasks` (and passes the counts into the rows only
+ * while the pathname is still `/tasks`), so the calendar does not pay for a
+ * second request and a cached payload cannot paint a badge on a calendar row.
+ * The key shares the `["tasks"]` prefix, which is what makes every task
  * mutation's invalidation refresh the badges too.
  */
 export function useTaskCounts(options?: { enabled?: boolean }) {

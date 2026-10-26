@@ -116,6 +116,21 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 
 **Tests / verified by** — `tests/integration/db.test.ts` ("backfills sub-calendar owners from their root (0004)"); the visibility fold is covered by `tests/unit/visibility.test.ts` and `tests/unit/visibleCollections.test.ts`.
 
+### drizzle/0005_sloppy_praxagora.sql
+
+**Purpose** — Adds the per-instance exception link to `event`: `recurrence_parent_id` (nullable self-FK → `event.id`, `ON DELETE CASCADE`), `recurrence_id` (the occurrence key the exception replaced), and the `event_recurrence_parent_idx` index.
+
+**Invocation / wiring** — Generated with `npm run db:generate` from the new `lib/db/schema.ts` columns and applied by the lazy migrator on the first `getDb()` like every other file. The generated SQL omitted `ON DELETE CASCADE` for the self-reference (drizzle-kit does not emit the clause for `ALTER TABLE … ADD COLUMN` self-FKs even though the snapshot records it), so the clause was added to the `.sql` by hand; the snapshot already matches, so a future `db:generate` will not repeat the statement.
+
+**Behaviour & side effects** — Two `ALTER TABLE event ADD COLUMN` statements (nullable, so existing rows get NULL) and one `CREATE INDEX`. From this migration on, deleting a series row cascades to its linked exceptions at the SQL level; a moved instance (`scope: "This event"`) is exactly such a row.
+
+**Gotchas** —
+- SQLite only accepts a `REFERENCES` clause on `ADD COLUMN` while the new column's default is NULL — keep it nullable.
+- The importer's Google overrides remain standalone rows with `external_*` provenance and are **not** linked by this migration; only native “This event” writes set the new columns.
+- A database migrated before this file must run it (or `npm run db:migrate`) before a series delete can cascade.
+
+**Tests / verified by** — `tests/integration/db.test.ts` migrates through it; `tests/integration/events.test.ts` "deletes a series with its linked exceptions and returns them" depends on the cascade.
+
 ### drizzle/0006_collections_and_tasks.sql
 
 **Purpose** — The v0.2.0 schema groundwork: the `calendar` tree becomes the `collection` tree (calendars and task lists), the old view-only flag becomes `visibility`, and the `task`/`task_checklist_item` tables are added. It runs after `0005_sloppy_praxagora.sql` (PR #10's recurring-scope columns), which it leaves untouched.
@@ -147,21 +162,6 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 - The filename is drizzle-kit's auto-generated name (`0007_sharp_leper_queen`); keep the tag and the filename identical.
 
 **Tests / verified by** — `tests/integration/db.test.ts` (`describe("migration 0007")`): builds the 0000–0006 schema with `makeTestDb({ upTo: "0006_collections_and_tasks" })`, inserts a legacy task through raw SQL, runs the migrator through `0007`, and asserts the backfilled `priority`, the `NOT NULL DEFAULT 'none'` column shape and the default on a fresh insert.
-
-### drizzle/0005_sloppy_praxagora.sql
-
-**Purpose** — Adds the per-instance exception link to `event`: `recurrence_parent_id` (nullable self-FK → `event.id`, `ON DELETE CASCADE`), `recurrence_id` (the occurrence key the exception replaced), and the `event_recurrence_parent_idx` index.
-
-**Invocation / wiring** — Generated with `npm run db:generate` from the new `lib/db/schema.ts` columns and applied by the lazy migrator on the first `getDb()` like every other file. The generated SQL omitted `ON DELETE CASCADE` for the self-reference (drizzle-kit does not emit the clause for `ALTER TABLE … ADD COLUMN` self-FKs even though the snapshot records it), so the clause was added to the `.sql` by hand; the snapshot already matches, so a future `db:generate` will not repeat the statement.
-
-**Behaviour & side effects** — Two `ALTER TABLE event ADD COLUMN` statements (nullable, so existing rows get NULL) and one `CREATE INDEX`. From this migration on, deleting a series row cascades to its linked exceptions at the SQL level; a moved instance (`scope: "This event"`) is exactly such a row.
-
-**Gotchas** —
-- SQLite only accepts a `REFERENCES` clause on `ADD COLUMN` while the new column's default is NULL — keep it nullable.
-- The importer's Google overrides remain standalone rows with `external_*` provenance and are **not** linked by this migration; only native “This event” writes set the new columns.
-- A database migrated before this file must run it (or `npm run db:migrate`) before a series delete can cascade.
-
-**Tests / verified by** — `tests/integration/db.test.ts` migrates through it; `tests/integration/events.test.ts` "deletes a series with its linked exceptions and returns them" depends on the cascade.
 
 ### drizzle/meta/_journal.json
 

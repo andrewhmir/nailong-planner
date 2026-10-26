@@ -293,7 +293,7 @@ shifts by a day, or an API error carries the wrong code or status.
 
 **State & side effects** — None. Pure functions over readonly input and module-level constant tables; no I/O, no storage, no hooks, no clock reads.
 
-**Depends on / Used by** — `TaskStatus`/`TaskPriority` from `lib/db/schema`; `priorityRank` from `lib/domain/tasks`. No callers yet in this commit: the task UI added later in v0.2.1 (`components/tasks/TaskList.tsx`, `TaskBoard.tsx`, `TaskToolbar.tsx`, `TasksShell.tsx`) consumes the sorts/groups/labels, and `lib/ui/taskViewParams.ts` imports `TaskLayout`/`GroupBy`/`TaskSort`. `tests/unit/task-views.test.ts` pins it.
+**Depends on / Used by** — `TaskStatus`/`TaskPriority` from `lib/db/schema`; `priorityRank` from `lib/domain/tasks`. Consumers: `components/tasks/TasksShell.tsx` (the `sortTasks(filterTasks(...))` projection and `groupTasks` for both layouts), `TaskList.tsx` (`TaskGroup<TaskView>` and the list grouping), `TaskBoard.tsx` (the status column order/labels and the per-column split), `TaskToolbar.tsx` (the group/sort/status/priority labels and order tables), and `lib/ui/taskViewParams.ts` (`TaskLayout`/`GroupBy`/`TaskSort` and the status/priority orders used to validate URL values). `tests/unit/task-views.test.ts` pins it.
 
 **Debugging**
 - Rows jump between renders -> a comparator did not end on `createdAt`/`id` -> check `SORT_COMPARATORS`.
