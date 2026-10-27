@@ -108,9 +108,14 @@ export function LoginForm() {
     }
   }
 
+  // `method="post"` is the pre-hydration safety net: React has not attached
+  // `onSubmit` yet on a slow cold load, so a native submit would otherwise
+  // default to GET and put the email/password straight into the URL (and the
+  // history/logs). A native POST fails harmlessly instead; the real sign-in
+  // still requires hydration and the JSON POST below.
   if (step !== "credentials") {
     return (
-      <form className="space-y-4" onSubmit={onSubmitCode}>
+      <form className="space-y-4" method="post" onSubmit={onSubmitCode}>
         <p className="text-sm text-ink-soft">
           {step === "backup"
             ? "Enter one of your saved backup codes."
@@ -158,7 +163,7 @@ export function LoginForm() {
   }
 
   return (
-    <form className="space-y-4" onSubmit={onSubmitCredentials} noValidate>
+    <form className="space-y-4" method="post" onSubmit={onSubmitCredentials} noValidate>
       <div>
         <label className={LABEL} htmlFor="email">
           Email
