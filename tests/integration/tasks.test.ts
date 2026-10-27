@@ -316,7 +316,8 @@ describe("listTasks", () => {
       expect(ids(listTasks(db, ctxA, buckets.today).tasks)).toEqual([today.id, overdue.id]);
       expect(ids(listTasks(db, ctxA, buckets.week).tasks)).toEqual([week.id, sunday.id]);
       // The undated Inbox capture and the undated project task share Someday;
-      // both carry sortOrder 0, so the tie is by id - compare as a set.
+      // both carry sortOrder 0, so the order falls through to createdAt/id -
+      // compare as a set.
       expect(new Set(ids(listTasks(db, ctxA, buckets.someday).tasks))).toEqual(
         new Set([someday.id, inboxTask.id]),
       );

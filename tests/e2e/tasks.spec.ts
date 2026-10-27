@@ -213,6 +213,13 @@ test("the default view is the grouped list and the board shows the status column
 
   await page.getByRole("group", { name: "Task layout" }).getByRole("button", { name: "List" }).click();
   await expect(page.getByTestId("task-list")).toBeVisible();
+
+  // A retired scope value renders All and is normalised out of the URL, so an
+  // old shared link cannot keep claiming a scope the page is not showing.
+  await page.goto("/tasks?view=inbox");
+  await expect(page.getByTestId("tasks-shell")).toBeVisible();
+  await expect(scopeTab(page, "All")).toHaveAttribute("aria-pressed", "true");
+  await expect(page).not.toHaveURL(/view=/);
 });
 
 // Inline status: To do → In progress is a real transition between two painted
@@ -408,6 +415,9 @@ test("keyboard triage works and typing in the capture row does not fire it", asy
   await page.goto("/tasks?view=someday");
   await expect(page.getByTestId("tasks-shell")).toBeVisible();
   await expect(page.getByTestId("task-list")).toBeVisible();
+  await expect(scopeTab(page, "Someday")).toHaveAttribute("aria-pressed", "true");
+  // The scope really filters: a Today-only seeded row is not painted here.
+  await expect(page.getByRole("checkbox", { name: "Take out the recycling" })).toHaveCount(0);
 
   // `j` with no selection lands on the first painted row; retry the press so a
   // cold hydration on the dev server cannot swallow the key.
@@ -451,6 +461,11 @@ test("keyboard triage works and typing in the capture row does not fire it", asy
   await expect(page.getByTestId("tasks-shell")).toBeVisible();
   await expect(scopeTab(page, "Today")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("checkbox", { name: "Take out the recycling" })).toBeVisible();
+
+  // The All tab is canonical as the bare URL: switching back deletes `view`.
+  await scopeTab(page, "All").click();
+  await expect(page).not.toHaveURL(/view=/);
+  await expect(scopeTab(page, "All")).toHaveAttribute("aria-pressed", "true");
 });
 
 // The global capture is the other way into the Inbox: `Shift+K` from the

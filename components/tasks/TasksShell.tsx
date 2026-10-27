@@ -206,6 +206,22 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     }
   }
 
+  // `All` is canonical as a bare `/tasks`; a retired/unknown `?view=` (or an
+  // explicit `view=all`) parses to All but must not stay in the URL, or an old
+  // shared link would keep claiming a scope the page is not showing. The read has
+  // already used the parsed All, so this is URL hygiene only; it runs once per
+  // incoming query string and StrictMode's double invoke is idempotent.
+  useEffect(() => {
+    const params = new URLSearchParams(searchKey);
+    const raw = params.get("view");
+    if (raw === null || raw === "today" || raw === "week" || raw === "someday") {
+      return;
+    }
+    params.delete("view");
+    const query = params.toString();
+    router.replace(query.length > 0 ? `/tasks?${query}` : "/tasks");
+  }, [router, searchKey]);
+
   // The visible rows: filter → sort → group. Traversal (`j`/`k`), the selection
   // coherence effect and the list all read this projection, so a filtered-out
   // row can never keep an invisible selection alive.

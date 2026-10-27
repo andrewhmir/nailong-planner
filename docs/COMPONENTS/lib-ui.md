@@ -542,7 +542,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 **State & side effects** — None; a pure function over plain values (no React, no fetch, no storage). `TasksShell` owns the refs it is fed (`deepLinkHandledRef`, `deepLinkRequestRef`) and the `GET`/`setEditorTask`/`router.replace` side effects.
 
-**Depends on / Used by** — No imports. Used by `components/tasks/TasksShell.tsx` (the deep-link effect). The effect's `GET /api/tasks/{id}` is the normal path, not a fallback: a chip is only drawn for a scheduled task, and the Inbox view never holds one.
+**Depends on / Used by** — No imports. Used by `components/tasks/TasksShell.tsx` (the deep-link effect). The effect's `GET /api/tasks/{id}` is the normal path, not a fallback: a chip is only drawn for a scheduled task, so it can sit outside the loaded scope (for example dated beyond this week while Someday is open).
 
 **Debugging**
 - A chip click lands on `/tasks?task=<id>` with no editor, and only in dev -> the handled marker was set before the request settled (or the in-flight promise cache was dropped), so StrictMode's second setup skipped while the first closure was cancelled -> this file's table plus `TasksShell`'s effect.

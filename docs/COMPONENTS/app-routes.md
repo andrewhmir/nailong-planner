@@ -299,7 +299,7 @@ Four thin routes over `lib/api/handlers/tasks.ts`; bucketing (`lib/domain/tasks.
 
 ### app/api/tasks/route.ts
 
-**Purpose** — Lists the tasks of one view (or one list) and creates a task, defaulting to the caller's Inbox.
+**Purpose** — Lists the tasks of one scope (or one list) and creates a task, defaulting to the caller's Inbox.
 
 **API** — `GET` query `view` in `all | today | week | someday` (optional; absent means `all`; the retired `inbox` is a `400 VALIDATION`), optional `collectionId`, and optional `includeClosed` (`"true"`/`"false"` only; any other value is `400 VALIDATION` with `fields.includeClosed`) → `200 { tasks: TaskView[], counts: TaskCounts }`. `TaskView` is the row plus `checklist: ChecklistItemView[]` and `collection: { id, name, kind, hueFamily, shadeIndex }`; `TaskCounts` is `{ all, today, week, someday, overdue }`. An invalid `view` or an empty `collectionId` is `400 VALIDATION` with `fields.view` / `fields.collectionId`; an unknown or invisible `collectionId` is `200` with `tasks: []` while `counts` stays global. `POST` body `createTaskSchema` (`title` required, trimmed, 1-200; optional `notes`, `collectionId`, `scheduledOn`, `dueOn` as `YYYY-MM-DD`, `priority` in `none|low|normal|high|urgent` (default `none`), and `status` in `open|in_progress` only (default `open`; a `done`/`dropped` create is `400 VALIDATION` by design — closing a task is a PATCH transition) → `201 { task }`. Without `collectionId` the task lands in the caller's private Inbox; a calendar target is `400 VALIDATION` "Tasks live in lists.", a view-only target `403`, and the partner's private list `404` "Calendar not found." (the collection resolver, not the task lookup).
 
@@ -307,7 +307,7 @@ Four thin routes over `lib/api/handlers/tasks.ts`; bucketing (`lib/domain/tasks.
 
 **Depends on / Used by** — `withViewer`; `listTasksHandler`, `createTaskHandler`; `getHousehold`; `listTasksQuerySchema`, `createTaskSchema`. Clients: `useTasks(view?, collectionId?, includeClosed?)` (query key `["tasks", view, collectionId, "open"|"closed"]`) and `useCreateTask()` in `lib/query/tasks.ts`.
 
-**Debugging** — Badge counts do not move when a collection filter is applied -> expected: `counts` always covers every visible active task -> compare `useTasks()` with `useTasks(view, id)`. A task created without `collectionId` appears under Inbox -> intended (`ensureInbox`). `400 fields.view` -> the caller sent a bucket name `lib/domain/tasks.ts` does not define -> `taskViewSchema`. A new task is missing from `view=today` -> it has no `scheduledOn`/`dueOn` yet, so it sits in Someday -> check the body. A `400 fields.view` for `inbox` -> expected: the Inbox is a list, not a scope.
+**Debugging** — Badge counts do not move when a collection filter is applied -> expected: `counts` always covers every visible active task -> compare `useTasks()` with `useTasks(view, id)`. A task created without `collectionId` lands in the caller's Inbox list, so it appears in All (and Someday among the time views) -> intended (`ensureInbox`). `400 fields.view` -> the caller sent a bucket name `lib/domain/tasks.ts` does not define -> `taskViewSchema`. A new task is missing from `view=today` -> it has no `scheduledOn`/`dueOn` yet, so it sits in Someday -> check the body. A `400 fields.view` for `inbox` -> expected: the Inbox is a list, not a scope.
 
 **Tests** — `tests/integration/tasks-api.test.ts`; the workspace that calls it is covered by `tests/e2e/tasks.spec.ts` and documented in `docs/COMPONENTS/components-tasks.md`.
 
@@ -341,7 +341,7 @@ Four thin routes over `lib/api/handlers/tasks.ts`; bucketing (`lib/domain/tasks.
 
 ### app/api/tasks/counts/route.ts
 
-**Purpose** — Serves the per-list badge payload the sidebar reads: bucket counts plus an active-task count per visible collection.
+**Purpose** — Serves the per-list badge payload the sidebar reads: scope counts plus an active-task count per visible collection.
 
 **API** — `GET` (no query) → `200 { counts: TaskCounts, byCollection: Record<string, number> }`. `counts` carries the same meaning as `GET /api/tasks`'s (active tasks only, `overdue` included); `byCollection` has one key per collection id that holds at least one active task, so neither an empty list nor a private list the caller cannot read can appear. 401/403 come from `withViewer`; no other error path exists.
 
