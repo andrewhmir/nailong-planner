@@ -218,6 +218,8 @@ test("the default view is the grouped list and the board shows the status column
   // old shared link cannot keep claiming a scope the page is not showing.
   await page.goto("/tasks?view=inbox");
   await expect(page.getByTestId("tasks-shell")).toBeVisible();
+  await expect(page.getByTestId("task-list")).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Call the plumber" })).toBeVisible();
   await expect(scopeTab(page, "All")).toHaveAttribute("aria-pressed", "true");
   await expect(page).not.toHaveURL(/view=/);
 });

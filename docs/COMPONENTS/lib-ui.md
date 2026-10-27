@@ -476,7 +476,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 - A filter is on but the rows ignore it -> the value is not one of the enum members and `parseTaskViewState` dropped it -> log the parsed state; statuses are `open`/`in_progress`/`done`/`dropped`, priorities `none`/`low`/`normal`/`high`/`urgent`.
 - A list filter selects the wrong list -> `list` is the collection id, never the list name -> check the value.
 
-**Tests** — `tests/unit/task-view-params.test.ts` (defaults, valid parse with unknown values dropped, duplicate collapse, unknown enum fallbacks, merge preserving `view`/`task`, stale managed params cleared, non-default round-trip; plus `parseTaskScope`'s All default/unknown/retired fallbacks and `mergeTaskScopeParams` deleting `view` for All, writing the three real scopes and never mutating the base).
+**Tests** — `tests/unit/task-view-params.test.ts` (defaults, valid parse with unknown values dropped, duplicate collapse, unknown enum fallbacks, merge preserving `view`/`task`, stale managed params cleared, non-default round-trip; plus `parseTaskScope`'s All default/unknown/retired fallbacks and `mergeTaskScopeParams` deleting `view` for All, writing the three time scopes and never mutating the base).
 
 ### lib/ui/taskUndo.ts
 

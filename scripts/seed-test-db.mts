@@ -162,10 +162,11 @@ async function main(): Promise<void> {
     endAt: localWallTimeToUtc(`${dayMid}T20:00`, household.timezone),
   });
 
-  // Tasks. Every time view is populated: two undated Inbox captures (Someday),
-  // a task for today, one for the end of the household week, a Someday project
-  // task, an overdue deadline, a finished task, a shared-list task and two tasks
-  // in Andrew's private Journal. On the last day of the household week
+  // Tasks. The three time views are seeded from the household's own dates (the
+  // Week view can be empty on the household week's last day): two undated Inbox
+  // captures (Someday), a task for today, one for the end of the household week,
+  // a Someday project task, an overdue deadline, a finished task, a shared-list
+  // task and two tasks in Andrew's private Journal. On the last day of the week
   // `weekEnd === today`, so the "week" task lands in Today (plan ruling R1);
   // that is still the honest week-end date.
   const inboxOne = createTask(db, andrew, {

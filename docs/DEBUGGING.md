@@ -246,7 +246,7 @@ The request pipeline in one line:
 
 - Query keys: `["collections"]`, `["events", from, to]`,
   `["events", "search", normalized]`, `["preferences"]`,
-  `["tasks", view ?? "all", collectionId ?? null]`.
+  `["tasks", view ?? "all", collectionId ?? null, "open" | "closed"]`.
 - Event mutations work on the `["events"]` **prefix**, so optimistic
   `temp-<uuid>` rows also appear in search results and search refetches after
   every event mutation. Rollback is wholesale (`snapshotEvents` /

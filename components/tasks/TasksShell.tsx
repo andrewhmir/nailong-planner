@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { TaskPriority, TaskStatus } from "@/lib/db/schema";
-import { endOfWeek, localToday, type TaskScope } from "@/lib/domain/tasks";
+import { TASK_SCOPES, endOfWeek, localToday, type TaskScope } from "@/lib/domain/tasks";
 import { filterTasks, groupTasks, sortTasks } from "@/lib/domain/taskViews";
 import { useCollections } from "@/lib/query/collections";
 import { useCreateTask, useDeleteTask, useTasks, useUpdateTask } from "@/lib/query/tasks";
@@ -14,6 +14,7 @@ import type { TaskView } from "@/lib/services/tasks";
 import { taskDeepLinkAction } from "@/lib/ui/taskDeepLink";
 import { deletedTaskCreateInput, deletedTaskRestorePatch } from "@/lib/ui/taskUndo";
 import {
+  DEFAULT_TASK_SCOPE,
   mergeTaskScopeParams,
   mergeTaskViewParams,
   parseTaskScope,
@@ -214,7 +215,9 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   useEffect(() => {
     const params = new URLSearchParams(searchKey);
     const raw = params.get("view");
-    if (raw === null || raw === "today" || raw === "week" || raw === "someday") {
+    // Keep a real time scope; strip All (canonical as absent) and any value the
+    // domain does not define, so a retired `inbox` or a typo cannot linger.
+    if (raw === null || (raw !== DEFAULT_TASK_SCOPE && TASK_SCOPES.includes(raw as TaskScope))) {
       return;
     }
     params.delete("view");
