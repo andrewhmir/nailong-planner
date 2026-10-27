@@ -235,7 +235,7 @@ shifts by a day, or an API error carries the wrong code or status.
 
 ### lib/domain/tasks.ts
 
-**Purpose** — Derives a task's Today/Week/Someday time bucket and its overdue badge from date-only columns every time they are read, so no bucket is stored and none can go stale at midnight; the scope tabs add an `all` horizon (every visible active task) that is not a bucket. It also owns the "unfinished" status rule (`open` + `in_progress`) and the priority sort rank the task views group and order by. Pure string date math: no clock read except `localToday`'s default, no SQL, no React.
+**Purpose** — Derives a task's Today/Week/Someday time bucket and its overdue badge from the task's single due date (`dueOn`, plus its optional `dueTime`) every time they are read, so no bucket is stored and none can go stale at midnight; the scope tabs add an `all` horizon (every visible active task) that is not a bucket. It also owns the "unfinished" status rule (`open` + `in_progress`), the priority sort rank the task views group and order by, and the household wall-clock helpers (`localToday`, `localTimeOfDay`). Pure string date math: no clock read except the two `local*` helpers' default `now`.
 
 **Public API**
 - `type TaskBucket = "today" | "week" | "someday"`; `TASK_BUCKETS: readonly TaskBucket[]` — the three time buckets in rail order. `type TaskScope = "all" | TaskBucket`; `TASK_SCOPES: readonly TaskScope[] = ["all", "today", "week", "someday"]` — the scope tabs, All first and the default.
@@ -243,29 +243,31 @@ shifts by a day, or an API error carries the wrong code or status.
 - `endOfWeek(date: string, weekStartsOn: 0 | 1): string` — last day (inclusive) of the seven-day week containing `date`; 0 = Sunday start, 1 = Monday start.
 - `TASK_ACTIVE_STATUSES: readonly TaskStatus[]` — `["open", "in_progress"]`: the only statuses that count as unfinished.
 - `isActiveStatus(status: TaskStatus): boolean` — true for `open` and `in_progress`; callers must use it for "still to do" checks instead of comparing to `"open"` (any remaining literal `"open"` comparison is a bug).
-- `bucketOf(task: Pick<TaskRow, "status" | "scheduledOn" | "dueOn">, ctx: BucketContext): TaskBucket | null` — `null` for a task whose status is not active (`isActiveStatus`), or whose anchor is dated after `ctx.endOfWeek`.
-- `bucketOfIncludingClosed(task: Pick<TaskRow, "status" | "scheduledOn" | "dueOn">, ctx: BucketContext): TaskBucket | null` — the same date rule with the status gate removed, so a done/dropped task still lands in its time bucket and is `null` only when it is dated beyond this week.
-- `isOverdue(task: Pick<TaskRow, "status" | "dueOn">, today: string): boolean` — `isActiveStatus(status) && dueOn !== null && dueOn < today`; a deadline of today is not overdue.
+- `bucketOf(task: Pick<TaskRow, "status" | "dueOn">, ctx: BucketContext): TaskBucket | null` — `null` for a task whose status is not active (`isActiveStatus`), or whose `dueOn` is after `ctx.endOfWeek`.
+- `bucketOfIncludingClosed(task: Pick<TaskRow, "status" | "dueOn">, ctx: BucketContext): TaskBucket | null` — the same due-date rule with the status gate removed, so a done/dropped task still lands in its time bucket and is `null` only when its due date is beyond this week.
+- `isOverdue(task: Pick<TaskRow, "status" | "dueOn" | "dueTime">, today: string, nowTime: string): boolean` — `false` for a closed or undated task; true when `dueOn < today`, and for a **timed** deadline on `today` once `dueTime < nowTime` (equality is not overdue — the deadline minute has not passed). A date-only deadline of today covers the whole day, so it is not overdue until tomorrow.
 - `priorityRank(priority: TaskPriority): number` — `none` 0, `low` 1, `normal` 2, `high` 3, `urgent` 4; sort by this number, never by the priority string.
 - `localToday(timeZone: string, now = Date.now()): string` — the household-local calendar date of an instant; `now` (epoch ms) is injectable for tests.
+- `localTimeOfDay(timeZone: string, now = Date.now()): string` — the household-local wall clock as `HH:MM` (`utcToLocalWallTime(...)` sliced to the clock part), so the service's `TaskDueContext.nowTime` and the overdue rule share one household clock.
 
-**The bucket rule** — The anchor is the earliest commitment: the earlier of `scheduledOn` and `dueOn`, with `null` meaning absent. A task scheduled for next week but already past due is therefore in Today (the overdue badge comes from `isOverdue`, independent of the bucket), and a due-only task reaches Today/Week instead of being stranded in Someday. With both dates absent the task is **Someday whichever list holds it** — an undated Inbox capture included, because the Inbox is a list, not a time horizon. An anchor `<= ctx.today` is Today, `<= ctx.endOfWeek` is Week, and anything later is **no bucket at all**: only the `all` scope lists it, and it stays on the calendar month grid until its week arrives. Done and dropped tasks are in no bucket through `bucketOf`; `bucketOfIncludingClosed` gives them the bucket their dates imply, which is how a finished row stays under the view it was completed in. `null` from `bucketOfIncludingClosed` always means the anchor is dated beyond this week; `bucketOf` additionally returns `null` for every done/dropped row, whatever its dates.
+**The bucket rule** — `dueOn` is the task's only date: there is no separate schedule. No due date is **Someday whichever list holds it** — an undated Inbox capture included, because the Inbox is a list, not a time horizon. A due date `<= ctx.today` is Today, `<= ctx.endOfWeek` is Week, and anything later is **no bucket at all**: only the `all` scope lists it, and it stays on the calendar month grid until its week arrives. `dueTime` never moves a bucket; it only sharpens overdue (a timed deadline earlier today is still Today). Done and dropped tasks are in no bucket through `bucketOf`; `bucketOfIncludingClosed` gives them the bucket their due date implies, which is how a finished row stays under the view it was completed in. `null` from `bucketOfIncludingClosed` always means the due date is beyond this week; `bucketOf` additionally returns `null` for every done/dropped row, whatever its date.
 
-**State & side effects** — None. String comparisons plus `addDaysToDate`/`weekdayOfDate` arithmetic; `localToday` reads the clock only when `now` is omitted.
+**State & side effects** — None. String comparisons plus `addDaysToDate`/`weekdayOfDate` arithmetic; `localToday`/`localTimeOfDay` read the clock only when `now` is omitted.
 
-**Depends on / Used by** — `TaskRow`/`TaskStatus`/`TaskPriority` from `lib/db/schema`; `weekdayOfDate` from `lib/recurrence/rule`; `addDaysToDate`/`utcToLocalDate` from `lib/time/zone`. Consumers: `lib/services/tasks.ts` (`bucketOf`, `endOfWeek`, `isOverdue`, `localToday`, the bucket/scope types), `lib/validation/tasks.ts` (`TASK_BUCKETS`), `lib/query/tasks.ts` and `lib/ui/taskViewParams.ts` (`TaskScope`), and the UI — `TasksShell` (`endOfWeek`, `localToday`, `TaskScope`), `TaskCaptureRow` (`localToday`), `TaskViewTabs` (`TASK_SCOPES`, `TaskScope`) and the calendar's task chips (`isActiveStatus`, through `lib/services/tasks.ts`); `isOverdue` is consumed by `lib/services/tasks.ts`'s counts, not by the row (the row's due chip compares dates visually). `tests/unit/tasks-buckets.test.ts` pins the maths.
+**Depends on / Used by** — `TaskRow`/`TaskStatus`/`TaskPriority` from `lib/db/schema`; `weekdayOfDate` from `lib/recurrence/rule`; `addDaysToDate`/`utcToLocalDate`/`utcToLocalWallTime` from `lib/time/zone`. Consumers: `lib/services/tasks.ts` (`bucketOf`, `endOfWeek`, `isOverdue`, `localToday`, `localTimeOfDay`, the bucket/scope types), `lib/validation/tasks.ts` (`TASK_BUCKETS`), `lib/query/tasks.ts` and `lib/ui/taskViewParams.ts` (`TaskScope`), and the UI — `TasksShell` (`endOfWeek`, `localToday`, `TaskScope`), `TaskCaptureRow` (`localToday`), `TaskViewTabs` (`TASK_SCOPES`, `TaskScope`) and the calendar's task chips (`isActiveStatus`, through `lib/services/tasks.ts`). `isOverdue` is consumed by `lib/services/tasks.ts`'s counts and `TaskView.overdue`; the row chip renders that server flag instead of comparing dates itself. `tests/unit/tasks-buckets.test.ts` pins the maths.
 
 **Debugging**
-- A past-due task is missing from Today -> the anchor was read as `scheduledOn ?? dueOn` instead of the earliest date -> `bucketFromDates`'s `effective` computation.
+- A due task is missing from Today -> the bucket read a different anchor; `dueOn` is the only date (`<= today` is Today) -> `bucketFromDue`.
 - An `in_progress` task vanishes from Today/Week -> a caller compared `status === "open"` instead of calling `isActiveStatus` -> search the caller for the literal `"open"`.
 - A finished task disappears from the view it was completed in -> the view calls `bucketOf` where it shows closed rows -> use `bucketOfIncludingClosed` for done/dropped rows.
-- A task is in none of Today/Week/Someday -> it is dated after `ctx.endOfWeek`; that is intended, and the `all` scope (the bare `/tasks`) plus the calendar month grid are where to find it -> check the dates and `ctx.endOfWeek`.
-- Buckets change a day late or early -> `ctx.today` came from the device clock, UTC, or a stored bucket instead of `localToday(household.timezone)` -> check the caller.
+- A task is in none of Today/Week/Someday -> its due date is after `ctx.endOfWeek`; that is intended, and the `all` scope (the bare `/tasks`) plus the calendar month grid are where to find it -> check `dueOn` and `ctx.endOfWeek`.
+- A task is overdue as soon as its day starts, or never overdue on its timed deadline -> `isOverdue` got only the date, or compared `dueTime` the wrong way: a date-only deadline is overdue from the next day and a timed one only after its minute (`dueTime < nowTime`) -> `isOverdue` plus the caller's `nowTime`.
+- Buckets change a day late or early, or the overdue colour flips at the wrong hour -> `ctx.today`/`nowTime` came from the device clock or UTC instead of `localToday`/`localTimeOfDay(household.timezone)` -> check the service's `TaskDueContext`.
 - A Sunday task shows a week late with a Monday-start household -> `weekStartsOn` was inverted, or the week was assumed to end on Saturday -> `endOfWeek` and `household.weekStartsOn`.
 - Priority order comes out wrong (`high` before `low`, or `none` first) -> something sorted the priority string instead of its number -> use `priorityRank`.
 - A task created just before midnight changes bucket with no edit -> expected: buckets are derived, not stored -> nothing to fix.
 
-**Tests** — `tests/unit/tasks-buckets.test.ts` pins both week-start conventions to real 2026 dates, the earliest-date anchor, the list-independent undated→Someday rule, the `TASK_BUCKETS`/`TASK_SCOPES` rail order, done/dropped and the closed-inclusive rule, `in_progress` as active, the overdue boundary, the priority ranks and the Taipei-vs-UTC `localToday` regression.
+**Tests** — `tests/unit/tasks-buckets.test.ts` pins both week-start conventions to real 2026 dates, the due-date-only bucket rule (no date → Someday, `<= today` → Today, `<= endOfWeek` → Week, later → no bucket), done/dropped and the closed-inclusive rule, `in_progress` as active, the `isOverdue` boundaries (an earlier date, a date-only deadline today, a timed deadline today before/at/after its minute, and undated/closed/future rows), the priority ranks, `localToday` Taipei vs UTC and `localTimeOfDay`'s `HH:MM`.
 
 ### lib/domain/taskViews.ts
 
@@ -278,15 +280,16 @@ shifts by a day, or an API error carries the wrong code or status.
 - `TASK_PRIORITY_ORDER: readonly TaskPriority[]` — `["urgent", "high", "normal", "low", "none"]`, most urgent first.
 - `TASK_PRIORITY_LABELS: Readonly<Record<TaskPriority, string>>` — "Urgent" through "None".
 - `TASK_PRIORITY_RANK: Readonly<Record<TaskPriority, number>>` — `urgent` 4 through `none` 0, built from `priorityRank` so the two cannot drift.
-- `interface SortableTask { status; priority; scheduledOn; dueOn; sortOrder; createdAt; title; id }`; `interface GroupableTask extends SortableTask { collection: { id: string; name: string } }` — structural constraints, so a `TaskView` satisfies them with no import from `lib/services/tasks.ts`.
+- `interface SortableTask { status; priority; dueOn; dueTime; sortOrder; createdAt; title; id }`; `interface GroupableTask extends SortableTask { collection: { id: string; name: string } }` — structural constraints, so a `TaskView` satisfies them with no import from `lib/services/tasks.ts`.
 - `interface TaskGroup<T> { key: string; label: string; tasks: T[] }`; `interface TaskFilters { status: TaskStatus[]; priority: TaskPriority[]; collectionId: string | null }`.
 - `sortTasks<T extends SortableTask>(tasks: readonly T[], sort: TaskSort): T[]` — a sorted **copy**; the input array is never mutated.
 - `groupTasks<T extends GroupableTask>(tasks: readonly T[], by: GroupBy): TaskGroup<T>[]` — ordered groups with empty groups omitted.
 - `filterTasks<T extends SortableTask & { collectionId: string }>(tasks: readonly T[], filters: TaskFilters): T[]` — the intersection of the three constraints.
 
 **Sort and group rules**
-- The **effective date** is the earliest of `scheduledOn` and `dueOn` (nulls absent), matching the bucket anchor in `lib/domain/tasks.ts`, so a past deadline beats a later schedule and an undated task sorts after every dated one.
-- `manual` = `sortOrder` → `createdAt` → `id`; `priority` = rank desc → effective date → `createdAt` → `id`; `due` = effective date → rank desc → `createdAt` → `id`; `created` = `createdAt` **desc** (newest first) → `id`; `title` = `localeCompare` → `createdAt` → `id`. Every sort ends on `createdAt`/`id`, so the rendered order is deterministic.
+- A task's only date is `dueOn` and its optional `dueTime` orders rows within one day; there is no "effective date" computed from two fields any more.
+- The **due ordering** (shared by the `due` sort and the due tie-break of `priority`): `dueOn` ascending with undated rows **last**; within one date, timed rows order by `dueTime`, and an **untimed** row sorts *after* every timed one because "any time that day" comes after a specific time.
+- `manual` = `sortOrder` → `createdAt` → `id`; `priority` = rank desc → due order → `createdAt` → `id`; `due` = due order → rank desc → `createdAt` → `id`; `created` = `createdAt` **desc** (newest first) → `id`; `title` = `localeCompare` → `createdAt` → `id`. Every sort ends on `createdAt`/`id`, so the rendered order is deterministic.
 - Status groups walk `TASK_STATUS_ORDER`, priority groups walk `TASK_PRIORITY_ORDER`. List groups are one per `collection.id` (`key` is the id, `label` the name) sorted by `collection.name` with `localeCompare`. Groups with zero tasks are omitted, so an empty Done column or an unused priority renders no header.
 - Nothing inside a group is re-sorted: the order is the input order, so callers pass `sortTasks` output to `groupTasks`.
 - `filterTasks` applies the status set, the priority set and `collectionId` together. An **empty** array and a **`null`** collection id mean "no constraint", not "match nothing", so the default toolbar state (all arrays empty) passes every row through.
@@ -297,14 +300,15 @@ shifts by a day, or an API error carries the wrong code or status.
 
 **Debugging**
 - Rows jump between renders -> a comparator did not end on `createdAt`/`id` -> check `SORT_COMPARATORS`.
-- An undated task sorts above a dated one -> `null` was compared as an empty string -> use `compareEffectiveDate`, which puts nulls last.
+- An undated task sorts above a dated one -> `null` was compared as an empty string -> use `compareDue`, which puts every undated row last.
+- An untimed task sorts above a timed one on the same day -> the comparison treated a `null` `dueTime` as the smallest time; "no time" means any time that day, so it must come after timed rows -> `compareDue`.
 - Priority sort puts `none` first -> priority strings or `TASK_PRIORITY_ORDER` were sorted ascending -> sort by `priorityRank` descending.
 - An empty group header shows -> the UI iterated an order table itself instead of rendering `groupTasks` output -> `groupTasks` omits empty groups.
 - Two same-named lists merge into one section -> groups were keyed by `collection.name` instead of `collection.id` -> `groupByList`.
 - Choosing no filters hides every row -> an empty `status`/`priority` array was treated as "match none" -> empty means no constraint in `filterTasks`.
 - A manual reorder has no effect -> the caller did not pass `sort="manual"`, or `sortOrder` was not persisted before re-reading -> check the view state and the service reorder.
 
-**Tests** — `tests/unit/task-views.test.ts` pins the label and order tables, all five sorts (priority/effective-date with undated last, manual `sortOrder`/`createdAt`/`id`, due, created, title), the copy/no-mutation contract, status/priority/list grouping with empty groups omitted and list names sorted, the filter intersection and the empty-input case.
+**Tests** — `tests/unit/task-views.test.ts` pins the label and order tables, all five sorts (priority with undated last, manual `sortOrder`/`createdAt`/`id`, due = date then time with untimed after timed and undated last, created newest-first, title), the copy/no-mutation contract, status/priority/list grouping with empty groups omitted and list names sorted, the filter intersection and the empty-input case.
 
 ## Time and timezone
 
@@ -347,19 +351,21 @@ shifts by a day, or an API error carries the wrong code or status.
 - `occurrenceDate(event, occurrenceStart, timezone): string` — local `YYYY-MM-DD` a search result or breadcrumb should point at.
 - `formatOccurrenceHeading(event, occurrenceStart, timezone): string` — `formatWallDate(occurrenceDate(...))`, i.e. `Wed, 21 Oct 2026` for the clicked occurrence (F28), not the series start.
 - `formatWallDate(date: string): string` — `2026-10-28` -> `Wed, 28 Oct 2026`; unparseable input is returned unchanged.
+- `formatShortWallDate(date: string, referenceDate: string): string` — the compact chip label: `Tue 27 Oct`, with the year appended only when it differs from `referenceDate`'s year (the household's `today`); unparseable input is returned unchanged. Used by the task due chip, never by the calendar's date fields.
 
 **State & side effects** — None. Module-level `Intl.DateTimeFormat` instances (`en-US` for the clock, `en-GB` for month/weekday abbreviations, all pinned to `timeZone: "UTC"`) and two regexes.
 
 **Derived rules** — All day/month/weekday parsing goes through `parseDate` on the string, never `new Date(string)`, so no host-zone drift. A timed occurrence's end is computed as `occurrenceStart + (event.endAt - event.startAt)`; a fixed millisecond duration, so an occurrence crossing a DST boundary shows an end wall time shifted by the offset change relative to the stored end.
 
-**Depends on / Used by** — `EventView` from `lib/services/events`, `TimeFormat` from `lib/services/preferences`, `addDaysToDate`/`utcToLocalDate`/`utcToLocalWallTime` from `./zone`. Used by `components/calendar/EventDetails.tsx`, `CalendarShell.tsx`, `CalendarView.tsx`, `QuickCreatePopover.tsx`, `SearchResultsOverlay.tsx`, `lib/query/search.ts`.
+**Depends on / Used by** — `EventView` from `lib/services/events`, `TimeFormat` from `lib/services/preferences`, `addDaysToDate`/`utcToLocalDate`/`utcToLocalWallTime` from `./zone`. Used by `components/calendar/EventDetails.tsx`, `CalendarShell.tsx`, `CalendarView.tsx`, `QuickCreatePopover.tsx`, `SearchResultsOverlay.tsx`, `lib/query/search.ts`, and `components/tasks/TaskDueChip.tsx` (`formatShortWallDate`, `formatWallTime`).
 
 **Debugging**
 - 12-hour mode prints `19:00` unchanged -> the caller passed a string whose last five characters are not `HH:MM` (e.g. an ISO instant), so `formatWallTime` bailed out -> check the caller and add `formatInstant` instead.
 - A time renders in UTC for a Taipei household -> raw epoch ms reached `formatWallTime` without `utcToLocalWallTime` -> check the caller's use of `formatInstant`.
 - A multi-day all-day event shows the wrong length -> the span is recomputed from `event.startDate`/`endDate` and re-anchored to `occurrenceStart` -> check `daysBetween` and whether `occurrenceStart` is the occurrence's own date.
+- A task due chip shows a four-digit year on a date in the current year -> the chip used `formatWallDate`; `formatShortWallDate(date, today)` takes the household reference date and appends the year only across a year boundary -> check the chip's formatter.
 
-**Tests** — `tests/unit/format.test.ts`.
+**Tests** — `tests/unit/format.test.ts` (`formatWallTime`/`formatInstant`/`formatOccurrenceWhen`/`formatWallDate`); `formatShortWallDate` has no direct unit test, it is exercised through `components/tasks/TaskDueChip.tsx`.
 
 ## Environment, errors and utilities
 

@@ -61,7 +61,7 @@ interface Props {
   onEventMove: (info: EventDropInfo | EventResizeDoneInfo) => void;
   /**
    * A task row was dropped on a day cell. The payload carries the row's id and
-   * its previous `scheduledOn` (for Undo); `date` is the household-local
+   * its previous `dueOn` (for Undo); `date` is the household-local
    * `YYYY-MM-DD`. Only month-view day cells are drop zones.
    */
   onTaskDrop?: (drag: TaskDragPayload, date: string) => void;

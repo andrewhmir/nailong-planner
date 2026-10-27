@@ -19,6 +19,7 @@ import {
   dateOnlySchema,
   listTasksQuerySchema,
   reorderTasksSchema,
+  timeOnlySchema,
   updateTaskSchema,
 } from "@/lib/validation/tasks";
 import { makeSeededDb, type SeededDb } from "../helpers/fixtures";
@@ -118,8 +119,9 @@ describe("createTask", () => {
         title: "Buy milk",
         notes: null,
         status: "open",
-        scheduledOn: null,
         dueOn: null,
+        dueTime: null,
+        overdue: false,
         completedAt: null,
         droppedAt: null,
         sortOrder: 0,
@@ -143,7 +145,7 @@ describe("createTask", () => {
     }
   });
 
-  it("stores explicit dates, notes and the target list summary", async () => {
+  it("stores an explicit due date, its optional time, notes and the target list summary", async () => {
     const seeded = await makeSeededDb();
     const { db, close, ctxA } = seeded;
     const { shared } = makeLists(seeded);
@@ -152,14 +154,14 @@ describe("createTask", () => {
         title: "File taxes",
         notes: "W-2 is in the drawer.",
         collectionId: shared.id,
-        scheduledOn: TODAY,
         dueOn: "2026-10-30",
+        dueTime: "17:30",
       });
 
       expect(created).toMatchObject({
         collectionId: shared.id,
-        scheduledOn: TODAY,
         dueOn: "2026-10-30",
+        dueTime: "17:30",
         notes: "W-2 is in the drawer.",
         sortOrder: 0,
       });
@@ -262,6 +264,50 @@ describe("createTask", () => {
       close();
     }
   });
+
+  it("stores a due time only alongside a due date", async () => {
+    const seeded = await makeSeededDb();
+    const { db, close, ctxA } = seeded;
+    const { shared } = makeLists(seeded);
+    const message = "Give the task a due date before a due time.";
+    try {
+      const timed = createTask(db, ctxA, {
+        title: "Dentist",
+        collectionId: shared.id,
+        dueOn: "2026-10-24",
+        dueTime: "09:15",
+      });
+      expect(timed).toMatchObject({ dueOn: "2026-10-24", dueTime: "09:15" });
+      expect(timed.overdue).toBe(false);
+      expect(createTask(db, ctxA, { title: "Untimed", collectionId: shared.id, dueOn: "2026-10-24" }).dueTime).toBeNull();
+
+      // A time without a date has nothing to be a time of.
+      expectAppError(
+        () => createTask(db, ctxA, { title: "Timeless", collectionId: shared.id, dueTime: "09:15" }),
+        "VALIDATION",
+        400,
+        message,
+      );
+      // An explicit `null` date is the same contract as an omitted one.
+      expectAppError(
+        () =>
+          createTask(db, ctxA, {
+            title: "Null date",
+            collectionId: shared.id,
+            dueOn: null,
+            dueTime: "09:15",
+          }),
+        "VALIDATION",
+        400,
+        message,
+      );
+
+      // Neither rejected create left a row behind.
+      expect(db.select().from(task).all()).toHaveLength(2);
+    } finally {
+      close();
+    }
+  });
 });
 
 describe("listTasks", () => {
@@ -272,9 +318,9 @@ describe("listTasks", () => {
     try {
       const someday = createTask(db, ctxA, { title: "Undated shared", collectionId: shared.id });
       const today = createTask(db, ctxA, {
-        title: "Scheduled today",
+        title: "Due today",
         collectionId: shared.id,
-        scheduledOn: TODAY,
+        dueOn: TODAY,
       });
       const week = createTask(db, ctxA, {
         title: "Due Thursday",
@@ -294,7 +340,7 @@ describe("listTasks", () => {
       const nextWeek = createTask(db, ctxA, {
         title: "Next Monday",
         collectionId: shared.id,
-        scheduledOn: "2026-10-26",
+        dueOn: "2026-10-26",
       });
       const inboxTask = createTask(db, ctxA, { title: "Undated inbox" });
 
@@ -356,7 +402,7 @@ describe("listTasks", () => {
     }
   });
 
-  it("counts overdue open tasks on every view, never done or due-today ones", async () => {
+  it("counts overdue active tasks on every view, timed or not", async () => {
     const seeded = await makeSeededDb();
     const { db, close, ctxA } = seeded;
     const { shared } = makeLists(seeded);
@@ -366,10 +412,25 @@ describe("listTasks", () => {
         collectionId: shared.id,
         dueOn: "2026-10-20",
       });
-      createTask(db, ctxA, {
+      // A timed deadline on a past date is overdue whatever its time was.
+      const timedPastDue = createTask(db, ctxA, {
+        title: "Timed past due",
+        collectionId: shared.id,
+        dueOn: "2026-10-20",
+        dueTime: "09:00",
+      });
+      const dueToday = createTask(db, ctxA, {
         title: "Due today",
         collectionId: shared.id,
         dueOn: TODAY,
+      });
+      // The fixture clock is noon in Taipei: a later deadline today is not
+      // overdue yet, and a date-only deadline covers the whole day.
+      const timedLaterToday = createTask(db, ctxA, {
+        title: "Later today",
+        collectionId: shared.id,
+        dueOn: TODAY,
+        dueTime: "13:00",
       });
       const done = createTask(db, ctxA, {
         title: "Done already",
@@ -378,12 +439,19 @@ describe("listTasks", () => {
       });
       updateTask(db, ctxA, done.id, { status: "done" });
 
+      // The row's `overdue` flag is the same rule the counts use.
+      expect(getTask(db, ctxA, pastDue.id).overdue).toBe(true);
+      expect(getTask(db, ctxA, timedPastDue.id).overdue).toBe(true);
+      expect(getTask(db, ctxA, dueToday.id).overdue).toBe(false);
+      expect(getTask(db, ctxA, timedLaterToday.id).overdue).toBe(false);
+
       for (const view of ["today", "week", "someday", "all"] as const) {
         const result = listTasks(db, ctxA, filterInput({ view, weekStartsOn: 1 }));
-        expect(result.counts.overdue).toBe(1);
+        expect(result.counts.overdue).toBe(2);
         expect(ids(result.tasks)).not.toContain(done.id);
         if (view === "today") {
           expect(ids(result.tasks)).toContain(pastDue.id);
+          expect(ids(result.tasks)).toContain(timedPastDue.id);
         }
       }
     } finally {
@@ -516,16 +584,16 @@ describe("updateTask", () => {
       const updated = updateTask(db, ctxA, created.id, {
         title: "  Final  ",
         notes: "Bring the keys.",
-        scheduledOn: TODAY,
         dueOn: SUNDAY_WEEK_END,
+        dueTime: "19:45",
         sortOrder: 7,
       });
 
       expect(updated).toMatchObject({
         title: "Final",
         notes: "Bring the keys.",
-        scheduledOn: TODAY,
         dueOn: SUNDAY_WEEK_END,
+        dueTime: "19:45",
         sortOrder: 7,
         status: "open",
       });
@@ -620,6 +688,66 @@ describe("updateTask", () => {
       // The source list keeps its remaining order.
       const sourceTasks = listTasks(db, ctxA, filterInput({ view: "all", collectionId: shared.id }));
       expect(ids(sourceTasks.tasks)).toEqual([second.id]);
+    } finally {
+      close();
+    }
+  });
+
+  it("requires a due date for a due time, keeps the time when the date moves, and clears it with the date", async () => {
+    const seeded = await makeSeededDb();
+    const { db, close, ctxA } = seeded;
+    const { shared } = makeLists(seeded);
+    const message = "Give the task a due date before a due time.";
+    try {
+      const created = createTask(db, ctxA, {
+        title: "Pay the bill",
+        collectionId: shared.id,
+        dueOn: "2026-10-25",
+        dueTime: "18:00",
+      });
+      const undated = createTask(db, ctxA, { title: "Undated", collectionId: shared.id });
+
+      // A time without a date is rejected on its own...
+      expectAppError(
+        () => updateTask(db, ctxA, undated.id, { dueTime: "09:00" }),
+        "VALIDATION",
+        400,
+        message,
+      );
+      // ...and cannot be smuggled in on the PATCH that clears the date.
+      expectAppError(
+        () => updateTask(db, ctxA, created.id, { dueOn: null, dueTime: "09:00" }),
+        "VALIDATION",
+        400,
+        message,
+      );
+      expect(getTask(db, ctxA, created.id)).toMatchObject({
+        dueOn: "2026-10-25",
+        dueTime: "18:00",
+      });
+
+      // Moving the date keeps the time it belonged to.
+      expect(updateTask(db, ctxA, created.id, { dueOn: "2026-10-26" })).toMatchObject({
+        dueOn: "2026-10-26",
+        dueTime: "18:00",
+      });
+
+      // Clearing the date clears the stored time in the same PATCH.
+      const cleared = updateTask(db, ctxA, created.id, { dueOn: null });
+      expect(cleared.dueOn).toBeNull();
+      expect(cleared.dueTime).toBeNull();
+      expect(getTask(db, ctxA, created.id)).toMatchObject({ dueOn: null, dueTime: null });
+      expect(getTask(db, ctxA, created.id).overdue).toBe(false);
+
+      // A time may still be cleared on its own, leaving the date in place.
+      const retimed = updateTask(db, ctxA, created.id, {
+        dueOn: "2026-10-27",
+        dueTime: "08:00",
+      });
+      expect(updateTask(db, ctxA, retimed.id, { dueTime: null })).toMatchObject({
+        dueOn: "2026-10-27",
+        dueTime: null,
+      });
     } finally {
       close();
     }
@@ -879,23 +1007,32 @@ describe("reorderTasks", () => {
 });
 
 describe("task validation schemas", () => {
-  it("accepts only date-only shapes for scheduled and due dates", () => {
+  it("accepts only date-only dates and 24-hour HH:MM times", () => {
     expect(dateOnlySchema.parse("2026-10-21")).toBe("2026-10-21");
     expect(dateOnlySchema.safeParse("2026-1-1").success).toBe(false);
     expect(dateOnlySchema.safeParse("2026-10-21T00:00").success).toBe(false);
+    expect(timeOnlySchema.parse("00:00")).toBe("00:00");
+    expect(timeOnlySchema.parse("18:30")).toBe("18:30");
+    expect(timeOnlySchema.parse("23:59")).toBe("23:59");
+    for (const bad of ["9:00", "24:00", "23:60", "18:30:00", "6pm", ""]) {
+      expect(timeOnlySchema.safeParse(bad).success).toBe(false);
+    }
   });
 
-  it("parses create input with trimmed titles, optional fields and bounded notes", () => {
+  it("parses create input with trimmed titles, a due date and time, and bounded notes", () => {
     const parsed = createTaskSchema.parse({
       title: "  Buy milk  ",
       notes: "  2 litres  ",
-      scheduledOn: TODAY,
-      dueOn: null,
+      dueOn: TODAY,
+      dueTime: "18:30",
     });
-    expect(parsed).toMatchObject({ title: "Buy milk", scheduledOn: TODAY, dueOn: null });
+    expect(parsed).toMatchObject({ title: "Buy milk", dueOn: TODAY, dueTime: "18:30" });
+    expect(createTaskSchema.parse({ title: "x", dueOn: null }).dueOn).toBeNull();
+    expect(createTaskSchema.parse({ title: "x" }).dueTime).toBeUndefined();
     expect(createTaskSchema.safeParse({ title: "   " }).success).toBe(false);
     expect(createTaskSchema.safeParse({ title: "x", notes: "a".repeat(2001) }).success).toBe(false);
     expect(createTaskSchema.safeParse({ title: "x", dueOn: "10/21/2026" }).success).toBe(false);
+    expect(createTaskSchema.safeParse({ title: "x", dueTime: "6pm" }).success).toBe(false);
   });
 
   it("parses a partial update with status, checklist and sortOrder", () => {
@@ -904,7 +1041,12 @@ describe("task validation schemas", () => {
     expect(updateTaskSchema.parse({ status: "in_progress" }).status).toBe("in_progress");
     expect(updateTaskSchema.parse({ priority: "high" }).priority).toBe("high");
     expect(updateTaskSchema.safeParse({ status: "archived" }).success).toBe(false);
-    expect(updateTaskSchema.parse({ scheduledOn: null })).toEqual({ scheduledOn: null });
+    expect(updateTaskSchema.parse({ dueOn: null })).toEqual({ dueOn: null });
+    expect(updateTaskSchema.parse({ dueTime: "07:45" })).toEqual({ dueTime: "07:45" });
+    expect(updateTaskSchema.safeParse({ dueTime: "7:45" }).success).toBe(false);
+    // The schema only validates shapes; the service is what rejects a time
+    // without a date (pinned by the updateTask contract test above).
+    expect(updateTaskSchema.safeParse({ dueTime: "09:00" }).success).toBe(true);
     expect(updateTaskSchema.parse({ sortOrder: 3 }).sortOrder).toBe(3);
     expect(updateTaskSchema.safeParse({ sortOrder: -1 }).success).toBe(false);
     expect(
@@ -1008,12 +1150,12 @@ describe("includeClosed", () => {
       const active = createTask(db, ctxA, {
         title: "Still to do",
         collectionId: shared.id,
-        scheduledOn: TODAY,
+        dueOn: TODAY,
       });
       const done = createTask(db, ctxA, {
         title: "Already done",
         collectionId: shared.id,
-        scheduledOn: TODAY,
+        dueOn: TODAY,
       });
       updateTask(db, ctxA, done.id, { status: "done" });
 
@@ -1050,7 +1192,7 @@ describe("includeClosed", () => {
         title: "Already done next month",
         collectionId: shared.id,
         // Fixture clock: Wednesday 2026-10-21, so November is beyond the week.
-        scheduledOn: "2026-11-30",
+        dueOn: "2026-11-30",
       });
       updateTask(db, ctxA, doneNextMonth.id, { status: "done" });
 
@@ -1075,9 +1217,9 @@ describe("getTaskCountSummary", () => {
       const inboxTask = createTask(db, ctxA, { title: "Inbox item" });
       const done = createTask(db, ctxA, { title: "Finished", collectionId: shared.id });
       createTask(db, ctxA, {
-        title: "Scheduled today",
+        title: "Dated today",
         collectionId: shared.id,
-        scheduledOn: TODAY,
+        dueOn: TODAY,
       });
       createTask(db, ctxA, { title: "Undated shared", collectionId: shared.id });
       createTask(db, ctxA, {
@@ -1090,7 +1232,7 @@ describe("getTaskCountSummary", () => {
 
       const summary = getTaskCountSummary(db, ctxA, { timezone: TIMEZONE, weekStartsOn: 0 });
       // Five active rows. The undated Inbox capture, the undated shared row and
-      // the owner's undated private row are all Someday; the scheduled and the
+      // the owner's undated private row are all Someday; the dated and the
       // past-due rows are Today; the finished row contributes nothing.
       expect(summary.counts).toEqual({ all: 5, today: 2, week: 0, someday: 3, overdue: 1 });
       expect(summary.byCollection).toEqual({

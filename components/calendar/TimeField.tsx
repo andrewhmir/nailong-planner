@@ -19,14 +19,20 @@ import {
 
 interface Props {
   id: string;
-  /** Wall clock `HH:MM` in the household zone. */
-  value: string;
+  /** Wall clock `HH:MM` in the household zone; `null` = no time chosen yet. */
+  value: string | null;
   onChange: (time: string) => void;
   timeFormat: TimeFormat;
   /** Household zone, used only to mark the row that contains "now". */
   timezone: string;
   /** Accessible name of the list, e.g. "Start time". */
   label: string;
+  /** Shown instead of a formatted time while `value` is null (e.g. "No time"). */
+  placeholder?: string;
+  /** Disables the trigger; used when a time needs a date first. */
+  disabled?: boolean;
+  /** Renders a "Clear time" action inside the picker when a value is set. */
+  onClear?: () => void;
 }
 
 // The same Canvas field recipe EventDialog's CONTROL uses: 38px box, field
@@ -67,9 +73,19 @@ const BANDS_WITH_SLOTS = BANDS.map((band) => ({
  * `<input type="time">`, whose browser spinner ignores the household's 12/24-hour
  * preference and cannot be reached from a keyboard in a useful order.
  */
-export function TimeField({ id, value, onChange, timeFormat, timezone, label }: Props) {
+export function TimeField({
+  id,
+  value,
+  onChange,
+  timeFormat,
+  timezone,
+  label,
+  placeholder = "No time",
+  disabled = false,
+  onClear,
+}: Props) {
   const [open, setOpen] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(() => nearestSlotIndex(value));
+  const [activeIndex, setActiveIndex] = useState(() => nearestSlotIndex(value ?? "12:00"));
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
@@ -113,7 +129,7 @@ export function TimeField({ id, value, onChange, timeFormat, timezone, label }: 
     if (!next) {
       return;
     }
-    const index = nearestSlotIndex(value);
+    const index = nearestSlotIndex(value ?? "12:00");
     setActiveIndex(index);
     // Centre the current value instead of opening the list at midnight.
     requestAnimationFrame(() => {
@@ -132,7 +148,7 @@ export function TimeField({ id, value, onChange, timeFormat, timezone, label }: 
   }
 
   function commitTyped(): void {
-    const parsed = parseTypedTime(typed, timeFormat, meridiemOf(value) ?? "am");
+    const parsed = parseTypedTime(typed, timeFormat, meridiemOf(value ?? "") ?? "am");
     if (parsed === null) {
       setError(
         timeFormat === "24h"
@@ -182,15 +198,23 @@ export function TimeField({ id, value, onChange, timeFormat, timezone, label }: 
           type="button"
           size="md"
           variant="outline"
+          disabled={disabled}
           aria-haspopup="dialog"
           aria-expanded={open}
-          aria-label={`${label}: ${formatWallTime(value, timeFormat)}`}
+          aria-label={
+            value === null ? label : `${label}: ${formatWallTime(value, timeFormat)}`
+          }
           data-testid="time-field-trigger"
           data-flash={flash ? "true" : undefined}
           className={TRIGGER}
         >
-          <span className="min-w-0 flex-1 truncate text-left">
-            {formatWallTime(value, timeFormat)}
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-left",
+              value === null && "text-placeholder",
+            )}
+          >
+            {value === null ? placeholder : formatWallTime(value, timeFormat)}
           </span>
           <ClockIcon size={16} className="shrink-0 text-ink-soft" />
         </Button>
@@ -270,6 +294,21 @@ export function TimeField({ id, value, onChange, timeFormat, timezone, label }: 
           </div>
 
           <div className="border-t border-line bg-well px-2 pb-2 pt-2">
+            {onClear !== undefined && value !== null ? (
+              <div className="mb-2 flex justify-end">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  data-testid="time-field-clear"
+                  onClick={() => {
+                    onClear();
+                    setOpen(false);
+                  }}
+                >
+                  Clear time
+                </Button>
+              </div>
+            ) : null}
             <label
               htmlFor={`${id}-typed`}
               className="block text-[10px] font-semibold uppercase tracking-[0.09em] text-ink-soft"
@@ -296,7 +335,7 @@ export function TimeField({ id, value, onChange, timeFormat, timezone, label }: 
               }}
               onBlur={() => {
                 if (typed.trim() && error === null) {
-                  const parsed = parseTypedTime(typed, timeFormat, meridiemOf(value) ?? "am");
+                  const parsed = parseTypedTime(typed, timeFormat, meridiemOf(value ?? "") ?? "am");
                   if (parsed !== null) {
                     pick(parsed);
                   }

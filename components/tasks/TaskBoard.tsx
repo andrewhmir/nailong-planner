@@ -6,6 +6,7 @@ import type { TaskStatus } from "@/lib/db/schema";
 import { isActiveStatus } from "@/lib/domain/tasks";
 import { TASK_STATUS_LABELS, TASK_STATUS_ORDER } from "@/lib/domain/taskViews";
 import type { TaskView } from "@/lib/services/tasks";
+import type { TimeFormat } from "@/lib/services/preferences";
 import { BOARD_DRAG_TYPE, readBoardDragPayload } from "@/lib/ui/taskBoardDrag";
 import { cn } from "@/lib/utils";
 import { TaskBoardCard } from "./TaskBoardCard";
@@ -15,8 +16,10 @@ import type { TaskActions, WritableList } from "./types";
 interface Props {
   /** The shell's `sortTasks(filterTasks(...))` projection: column order is this order. */
   tasks: TaskView[];
-  /** Household-local today, for the date chips and the capture rows' Shift+Enter. */
+  /** Household-local today, for the due chips and the capture rows' Shift+Enter. */
   today: string;
+  /** The household 12/24-hour preference, forwarded to every card's due chip. */
+  timeFormat: TimeFormat;
   /** Household zone, for the per-column capture rows' Shift+Enter. */
   timezone: string;
   /** The triage layer's current selection id, so a card can paint `data-selected`. */
@@ -64,6 +67,7 @@ interface Props {
 export function TaskBoard({
   tasks,
   today,
+  timeFormat,
   timezone,
   selectedId,
   closed,
@@ -175,6 +179,8 @@ export function TaskBoard({
                     key={task.id}
                     task={task}
                     today={today}
+                    timeFormat={timeFormat}
+                    timezone={timezone}
                     selected={task.id === selectedId}
                     onFocus={() => onFocus(task.id)}
                     actions={actionsFor(task)}

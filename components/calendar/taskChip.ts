@@ -11,10 +11,11 @@ import type { TaskView } from "@/lib/services/tasks";
 import { addDaysToDate } from "@/lib/time/zone";
 
 /**
- * Scheduled tasks render as read-only all-day chips on the month grid. They are
- * ordinary FullCalendar events — the grid gives them the same stacking and the
- * built-in "+N more" as event occurrences — but their ids are prefixed and
- * `extendedProps.kind` is `"task"`, so a click routes to the task editor instead
+ * Due tasks render as read-only all-day chips on the month grid, on their due
+ * date (the time of day is not shown on the grid). They are ordinary
+ * FullCalendar events — the grid gives them the same stacking and the built-in
+ * "+N more" as event occurrences — but their ids are prefixed and
+ * `extendedProps.kind` is `"task"`, so a click routes to the task panel instead
  * of the event details popover and the event drag/resize paths never see them.
  */
 export const TASK_FC_ID_PREFIX = "task:";
@@ -54,12 +55,12 @@ function collectionTokens(task: TaskView): ShadeTokens {
 }
 
 /**
- * One task → one FullCalendar event, or `null` when it has no `scheduledOn`.
- * `end` is the exclusive next day (FullCalendar's all-day contract), so a
- * one-day task fills exactly its own day and no `toISOString()` is involved.
+ * One task → one FullCalendar event, or `null` when it has no due date. `end` is
+ * the exclusive next day (FullCalendar's all-day contract), so a one-day task
+ * fills exactly its own day and no `toISOString()` is involved.
  */
 export function taskChip(task: TaskView): TaskChip | null {
-  if (task.scheduledOn === null) {
+  if (task.dueOn === null) {
     return null;
   }
   const tokens = collectionTokens(task);
@@ -67,8 +68,8 @@ export function taskChip(task: TaskView): TaskChip | null {
     id: `${TASK_FC_ID_PREFIX}${task.id}`,
     title: task.title,
     allDay: true,
-    start: task.scheduledOn,
-    end: addDaysToDate(task.scheduledOn, 1),
+    start: task.dueOn,
+    end: addDaysToDate(task.dueOn, 1),
     // Read-only calendar citizens: the chip opens the task, it never drags,
     // resizes or opens the event editor.
     editable: false,

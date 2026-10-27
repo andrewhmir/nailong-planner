@@ -14,8 +14,9 @@ import { ChevronDownIcon, XIcon } from "@/components/ui/icons";
 import { isHueFamily, shadeTokens } from "@/lib/color/palette";
 import { useUpdateTask } from "@/lib/query/tasks";
 import type { TaskView } from "@/lib/services/tasks";
+import type { TimeFormat } from "@/lib/services/preferences";
 import { cn } from "@/lib/utils";
-import { TaskDateChips } from "./TaskDateChips";
+import { TaskDueChip } from "./TaskDueChip";
 import { TaskPriorityFlag } from "./TaskPriorityFlag";
 import { TaskStatusPill } from "./TaskStatusPill";
 import type { TaskActions, WritableList } from "./types";
@@ -23,8 +24,12 @@ import type { TaskActions, WritableList } from "./types";
 interface Props {
   /** The task to show; `null` renders nothing (the panel is unmounted, so the page keys work). */
   task: TaskView | null;
-  /** Household-local today, for the date chips' pickers and the overdue cue. */
+  /** Household-local today, for the due chip's picker and compact date. */
   today: string;
+  /** The household 12/24-hour preference for the due chip's time label. */
+  timeFormat: TimeFormat;
+  /** Household zone, for the due chip's shared time picker. */
+  timezone: string;
   /** Close (Esc, the header button, Delete). The shell returns focus to the row. */
   onClose(): void;
   /** Task-bound callbacks built by the shell (title, status, priority, dates, move, delete). */
@@ -99,7 +104,16 @@ export function TaskPanel(props: Props) {
   return <TaskPanelBody key={task.id} {...props} task={task} />;
 }
 
-function TaskPanelBody({ task, today, onClose, actions, moveTargets, onChecklist }: Props & {
+function TaskPanelBody({
+  task,
+  today,
+  timeFormat,
+  timezone,
+  onClose,
+  actions,
+  moveTargets,
+  onChecklist,
+}: Props & {
   task: TaskView;
 }) {
   const [title, setTitle] = useState(task.title);
@@ -268,12 +282,15 @@ function TaskPanelBody({ task, today, onClose, actions, moveTargets, onChecklist
         <div className="flex flex-wrap items-center gap-1.5">
           <TaskStatusPill status={task.status} onChange={actions.onStatus} />
           <TaskPriorityFlag priority={task.priority} onChange={actions.onPriority} />
-          <TaskDateChips
-            scheduledOn={task.scheduledOn}
+          <TaskDueChip
             dueOn={task.dueOn}
+            dueTime={task.dueTime}
+            overdue={task.overdue}
             today={today}
             title={task.title}
-            onChange={actions.onDates}
+            timeFormat={timeFormat}
+            timezone={timezone}
+            onChange={actions.onDue}
           />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

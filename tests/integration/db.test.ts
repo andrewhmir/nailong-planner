@@ -304,3 +304,46 @@ describe("migration 0007", () => {
     }
   });
 });
+
+describe("migration 0008", () => {
+  it("replaces scheduled_on with due_time and backfills due dates", async () => {
+    const { db, sqlite, close } = await makeTestDb({ upTo: "0007_sharp_leper_queen" });
+    try {
+      db.insert(household).values({ id: "h" }).run();
+      sqlite.exec(`
+        INSERT INTO collection
+          (id, household_id, name, kind, visibility, shade_index, sort_order, created_at, updated_at)
+        VALUES ('l', 'h', 'House', 'list', 'shared', 3, 0, 1, 1);
+        INSERT INTO task
+          (id, household_id, collection_id, title, created_by, created_at, updated_at, scheduled_on, due_on)
+        VALUES
+          ('t1', 'h', 'l', 'Scheduled only', 'u1', 1, 1, '2026-10-30', NULL),
+          ('t2', 'h', 'l', 'Both dates', 'u1', 1, 1, '2026-10-30', '2026-11-02'),
+          ('t3', 'h', 'l', 'Undated', 'u1', 1, 1, NULL, NULL);
+      `);
+
+      migrate(db);
+
+      expect(
+        query<{ id: string; due_on: string | null; due_time: string | null }>(
+          sqlite,
+          "SELECT id, due_on, due_time FROM task ORDER BY id",
+        ),
+      ).toEqual([
+        { id: "t1", due_on: "2026-10-30", due_time: null },
+        { id: "t2", due_on: "2026-11-02", due_time: null },
+        { id: "t3", due_on: null, due_time: null },
+      ]);
+      const columns = query<{ name: string }>(sqlite, "SELECT name FROM pragma_table_info('task')").map(
+        (column) => column.name,
+      );
+      expect(columns).toContain("due_time");
+      expect(columns).not.toContain("scheduled_on");
+      expect(
+        query(sqlite, "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'task_scheduled_idx'"),
+      ).toEqual([]);
+    } finally {
+      close();
+    }
+  });
+});

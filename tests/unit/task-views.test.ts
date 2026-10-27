@@ -18,9 +18,9 @@ import {
  * Task-view ordering rules (spec: List/Board grouping, filtering and the five
  * sort orders). The fixtures are local `make()` rows rather than `TaskView`
  * objects: the module's constraints are structural, so a row only has to carry
- * the fields the function reads. Every date is a household-local `YYYY-MM-DD`,
- * and the "effective date" is the earliest of `scheduledOn`/`dueOn`, absent
- * dates sorting last.
+ * the fields the function reads. Every date is a household-local `YYYY-MM-DD`
+ * and every time a household-local `HH:MM`; a task has one deadline (`dueOn`),
+ * and within one day a timed deadline sorts before an untimed one.
  */
 
 interface FixtureTask extends GroupableTask {
@@ -36,8 +36,8 @@ function make(overrides: Partial<FixtureTask> = {}): FixtureTask {
     title: "A task",
     status: "open",
     priority: "none",
-    scheduledOn: null,
     dueOn: null,
+    dueTime: null,
     sortOrder: 0,
     createdAt: 1,
     collectionId: WORK.id,
@@ -81,15 +81,14 @@ describe("label and order tables", () => {
 });
 
 describe("sortTasks", () => {
-  it("sorts by priority then effective date, with undated rows last", () => {
+  it("sorts by priority then due date, with undated rows last", () => {
     const rows = [
       make({ id: "normal", priority: "normal", dueOn: "2026-10-24" }),
       make({ id: "none-undated", priority: "none" }),
       make({ id: "urgent-undated", priority: "urgent" }),
       make({ id: "high-late", priority: "high", dueOn: "2026-10-30" }),
-      // Earliest commitment wins: the past deadline beats the later schedule.
-      make({ id: "high-early", priority: "high", scheduledOn: "2026-10-26", dueOn: "2026-10-20" }),
-      make({ id: "urgent-dated", priority: "urgent", scheduledOn: "2026-10-22" }),
+      make({ id: "high-early", priority: "high", dueOn: "2026-10-20" }),
+      make({ id: "urgent-dated", priority: "urgent", dueOn: "2026-10-22" }),
       make({ id: "high-undated-old", priority: "high", createdAt: 2 }),
       make({ id: "high-undated-new", priority: "high", createdAt: 9 }),
       make({ id: "low-undated", priority: "low" }),
@@ -124,20 +123,22 @@ describe("sortTasks", () => {
     ]);
   });
 
-  it("sorts by due date, undated last, then priority", () => {
+  it("sorts by due date, then due time, undated last, then priority", () => {
     const rows = [
       make({ id: "later", dueOn: "2026-11-02" }),
       // Urgent but undated: the missing date still puts it behind every dated row.
       make({ id: "undated", priority: "urgent" }),
-      make({ id: "earliest", scheduledOn: "2026-10-30", dueOn: "2026-10-21" }),
-      make({ id: "soon-low", scheduledOn: "2026-10-23", priority: "low" }),
-      make({ id: "soon-urgent", scheduledOn: "2026-10-23", priority: "urgent" }),
+      make({ id: "earliest", dueOn: "2026-10-21" }),
+      make({ id: "same-day-timed", dueOn: "2026-10-23", dueTime: "09:00", priority: "low" }),
+      // Untimed is "any time that day", so it sorts after a timed deadline even
+      // when it outranks it on priority.
+      make({ id: "same-day-untimed", dueOn: "2026-10-23", priority: "urgent" }),
     ];
 
     expect(ids(sortTasks(rows, "due"))).toEqual([
       "earliest",
-      "soon-urgent",
-      "soon-low",
+      "same-day-timed",
+      "same-day-untimed",
       "later",
       "undated",
     ]);

@@ -23,23 +23,23 @@ function transfer(entries: Record<string, string> = {}): DragTransfer {
 }
 
 describe("task drag payload", () => {
-  it("stamps the row's id and current date under the custom type", () => {
+  it("stamps the row's id and current due date under the custom type", () => {
     const data = transfer();
-    setTaskDragPayload(data, { id: "t1", scheduledOn: "2026-10-20" });
-    expect(data.getData(TASK_DRAG_TYPE)).toBe('{"id":"t1","scheduledOn":"2026-10-20"}');
+    setTaskDragPayload(data, { id: "t1", dueOn: "2026-10-20" });
+    expect(data.getData(TASK_DRAG_TYPE)).toBe('{"id":"t1","dueOn":"2026-10-20"}');
     expect(data.effectAllowed).toBe("move");
   });
 
-  it("keeps an unscheduled row's null date through the round trip", () => {
+  it("keeps an undated row's null due date through the round trip", () => {
     const data = transfer();
-    setTaskDragPayload(data, { id: "t1", scheduledOn: null });
-    expect(readTaskDrag(data)).toEqual({ id: "t1", scheduledOn: null });
+    setTaskDragPayload(data, { id: "t1", dueOn: null });
+    expect(readTaskDrag(data)).toEqual({ id: "t1", dueOn: null });
   });
 
-  it("reads back the date the dragged row was showing (the undo source)", () => {
+  it("reads back the due date the dragged row was showing (the undo source)", () => {
     const data = transfer();
-    setTaskDragPayload(data, { id: "t1", scheduledOn: "2026-10-20" });
-    expect(readTaskDrag(data)).toEqual({ id: "t1", scheduledOn: "2026-10-20" });
+    setTaskDragPayload(data, { id: "t1", dueOn: "2026-10-20" });
+    expect(readTaskDrag(data)).toEqual({ id: "t1", dueOn: "2026-10-20" });
   });
 
   it("recognizes only the task type", () => {
@@ -57,12 +57,17 @@ describe("task drag payload", () => {
     expect(readTaskDrag(transfer({ [TASK_DRAG_TYPE]: "t1" }))).toBeNull();
     expect(readTaskDrag(transfer({ [TASK_DRAG_TYPE]: "{" }))).toBeNull();
     expect(readTaskDrag(transfer({ [TASK_DRAG_TYPE]: "null" }))).toBeNull();
-    expect(readTaskDrag(transfer({ [TASK_DRAG_TYPE]: '{"scheduledOn":null}' }))).toBeNull();
+    expect(readTaskDrag(transfer({ [TASK_DRAG_TYPE]: '{"dueOn":null}' }))).toBeNull();
     expect(readTaskDrag(transfer({ [TASK_DRAG_TYPE]: '{"id":""}' }))).toBeNull();
+    // A payload without a date is an undated drop: the target re-dates it.
+    expect(readTaskDrag(transfer({ [TASK_DRAG_TYPE]: '{"id":"t1"}' }))).toEqual({
+      id: "t1",
+      dueOn: null,
+    });
     // The previous date becomes a PATCH value, so its shape is validated too.
-    expect(readTaskDrag(transfer({ [TASK_DRAG_TYPE]: '{"id":"t1","scheduledOn":"20 Oct"}' }))).toBeNull();
+    expect(readTaskDrag(transfer({ [TASK_DRAG_TYPE]: '{"id":"t1","dueOn":"20 Oct"}' }))).toBeNull();
     expect(
-      readTaskDrag(transfer({ [TASK_DRAG_TYPE]: '{"id":"t1","scheduledOn":"2026-10-20T00:00"}' })),
+      readTaskDrag(transfer({ [TASK_DRAG_TYPE]: '{"id":"t1","dueOn":"2026-10-20T00:00"}' })),
     ).toBeNull();
   });
 });

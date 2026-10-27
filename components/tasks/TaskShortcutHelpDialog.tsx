@@ -21,9 +21,9 @@ const GROUPS: Array<{ title: string; rows: Array<{ keys: string[]; description: 
     rows: [
       { keys: ["j"], description: "Next task or card" },
       { keys: ["k"], description: "Previous task or card" },
-      { keys: ["1"], description: "Schedule for today" },
-      { keys: ["2"], description: "Schedule for the end of this week" },
-      { keys: ["3"], description: "Someday: clear the task's dates" },
+      { keys: ["1"], description: "Set the due date to today" },
+      { keys: ["2"], description: "Set the due date to the end of this week" },
+      { keys: ["3"], description: "Someday: clear the due date and time" },
       { keys: ["4"], description: "Move to the next writable list" },
       { keys: ["x"], description: "Complete the selected task or card" },
       { keys: ["Enter"], description: "Open the selected task in the panel" },

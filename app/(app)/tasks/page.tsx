@@ -33,6 +33,9 @@ export default async function TasksPage() {
     .where(eq(householdTable.id, membership.householdId))
     .get();
 
+  // One preference read feeds both the shortcut layer and the due chips' time format.
+  const preferences = getPreferences(db, session.user.id);
+
   return (
     <div className="mx-auto w-full max-w-6xl">
       <h1>Tasks</h1>
@@ -41,7 +44,8 @@ export default async function TasksPage() {
         // The column is a plain integer; normalise it so the shell (and Task 9's
         // week maths) only ever sees the two supported conventions.
         weekStartsOn={household?.weekStartsOn === 1 ? 1 : 0}
-        shortcutsEnabled={getPreferences(db, session.user.id).shortcutsEnabled}
+        shortcutsEnabled={preferences.shortcutsEnabled}
+        timeFormat={preferences.timeFormat}
         currentUserId={session.user.id}
       />
     </div>

@@ -22,11 +22,11 @@ calendar still draws, or an undo action does nothing.
 | lib/ui/searchBus.ts | Custom-event bus for "focus the search field" |
 | lib/ui/undo.ts | In-memory undo stack: targeted handles for toasts, LIFO for the hotkeys |
 | lib/ui/undoToast.ts | Success toast whose Undo action reverts exactly the change the toast names |
-| lib/ui/taskDrag.ts | The `text/x-nailong-task` drag payload contract (id + previous `scheduledOn`) shared by task rows and their drop targets |
+| lib/ui/taskDrag.ts | The `text/x-nailong-task` drag payload contract (id + previous `dueOn`) shared by task rows and their drop targets |
 | lib/ui/taskDeepLink.ts | Pure decision table for the one-shot `/tasks?task=` deep link (settle-before-handled rule) |
 | lib/ui/taskViewParams.ts | The `/tasks` toolbar's URL state: defaults, parse and merge (replace, never push) |
 | lib/ui/taskUndo.ts | The delete-undo payloads: the re-create input and the restore PATCH (priority/status survive an undo) |
-| lib/ui/useTaskPlanDrop.ts | Drop→PATCH `scheduledOn` handler with a targeted undo and the `Task planned` toast |
+| lib/ui/useTaskPlanDrop.ts | Drop→PATCH `dueOn` handler with a targeted undo and the `Due date set` toast |
 
 ## View and persistence
 
@@ -257,7 +257,7 @@ calendar still draws, or an undo action does nothing.
 
 **Public API**
 - `isTextEntryTarget(target: EventTarget | null): boolean` — true when the target is an `HTMLElement` whose `tagName` is `INPUT`, `TEXTAREA` or `SELECT`, or whose `isContentEditable` is true. Non-element targets (`window`, `document`, `null`) are false.
-- `hasOpenOverlay(): boolean` — `document.querySelector('[role="dialog"], [role="menu"], [data-radix-popper-content-wrapper]') !== null`. Radix Dialog and DropdownMenu provide those roles; a Radix Popover's content carries no role, so its positioned wrapper is matched by the data attribute instead — the task date-chip and due-date popovers block page keys while they are open.
+- `hasOpenOverlay(): boolean` — `document.querySelector('[role="dialog"], [role="menu"], [data-radix-popper-content-wrapper]') !== null`. Radix Dialog and DropdownMenu provide those roles; a Radix Popover's content carries no role, so its positioned wrapper is matched by the data attribute instead — the task due-date popover blocks page keys while it is open.
 
 **State & side effects** — Neither function stores state; both read browser globals at call time (`HTMLElement`, `document`). They must not be called during SSR; importing the module is safe because nothing runs until a function is invoked.
 
@@ -303,12 +303,12 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 ### lib/ui/useTaskShortcuts.ts
 
-**Purpose** — The `/tasks` page's keyboard triage layer: `j`/`k` move the row selection, `1`/`2`/`3` triage into Today / the end of this week / Someday, `4` moves to the next writable list, `x` completes, `Enter` opens, `?` lists the keys and `Escape` clears the selection. `3` clears both dates, so a dated row drops back to Someday; an already-undated row is told `Already in Someday` instead of issuing a no-op PATCH. It is page-scoped like the calendar hook: the calendar's `j`/`k` still mean period navigation on `/`, and the task keys do nothing there because the hook is mounted by `TasksShell` only.
+**Purpose** — The `/tasks` page's keyboard triage layer: `j`/`k` move the row selection, `1`/`2`/`3` triage into Today / the end of this week / Someday, `4` moves to the next writable list, `x` completes, `Enter` opens, `?` lists the keys and `Escape` clears the selection. `1`/`2` set the single due date; `3` clears the due date and its time, so a dated row drops back to Someday; an already-undated row is told `Already in Someday` instead of issuing a no-op PATCH. It is page-scoped like the calendar hook: the calendar's `j`/`k` still mean period navigation on `/`, and the task keys do nothing there because the hook is mounted by `TasksShell` only.
 
 **Public API**
 - `type TaskShortcutAction = { kind: "move"; delta: 1 | -1 } | { kind: "bucket"; bucket: 1 | 2 | 3 } | { kind: "next-list" } | { kind: "complete" } | { kind: "open" } | { kind: "help" } | { kind: "escape" }`.
 - `interface TaskShortcutHandlers { onMoveSelection(delta: 1 | -1); onBucket(bucket: 1 | 2 | 3); onNextList(); onComplete(); onOpen(); onHelp(); onEscape(); }`.
-- `type SomedayTriageAction = { kind: "clear-dates" } | { kind: "already-someday" }` and `resolveSomedayTriage({ scheduledOn, dueOn }): SomedayTriageAction` — the **pure** decision table behind `3` (no view or list id: an undated task is Someday in every list); the shell owns the PATCH/toast.
+- `type SomedayTriageAction = { kind: "clear-due" } | { kind: "already-someday" }` and `resolveSomedayTriage({ dueOn, dueTime }): SomedayTriageAction` — the **pure** decision table behind `3` (no view or list id: an undated task is Someday in every list); either a `dueOn` or a `dueTime` means the task is still "dated", so the shell clears the due pair, while a row with neither already says `Already in Someday`; the shell owns the PATCH/toast.
 - `resolveTaskShortcut(event: KeyboardEvent): TaskShortcutAction | null` — the **pure** key map; no DOM reads and no side effects.
 - `useTaskShortcuts(enabled: boolean, handlers: TaskShortcutHandlers): void`.
 
@@ -317,9 +317,9 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 | Key | Action | Notes |
 |---|---|---|
 | `j` / `k` | `move` +1 / -1 | Clamped by the shell; from no selection `j` starts at the first row and `k` at the last. |
-| `1` | `bucket` 1 | `scheduledOn = localToday(timezone)`. |
-| `2` | `bucket` 2 | `scheduledOn = endOfWeek(today, weekStartsOn)`; on the household week's last day this equals today, so the task appears in Today (D6). |
-| `3` | `bucket` 3 | Dated task: clears both `scheduledOn` and `dueOn`, so it drops back to Someday. Already-undated task: toasts `Already in Someday` (no PATCH). |
+| `1` | `bucket` 1 | `dueOn = localToday(timezone)`; the stored `dueTime` is left alone. |
+| `2` | `bucket` 2 | `dueOn = endOfWeek(today, weekStartsOn)`; on the household week's last day this equals today, so the task appears in Today (D6). |
+| `3` | `bucket` 3 | Dated task: clears `dueOn` **and** `dueTime` in one PATCH, so it drops back to Someday. Already-undated task: toasts `Already in Someday` (no PATCH). |
 | `4` | `next-list` | Cycles through the viewer's writable `kind="list"` collections; the shell toasts when there is no other list. |
 | `x` | `complete` | PATCHes `status: "done"`. |
 | `Enter` | `open` | Calls the shell's `openTask`, which opens `TaskPanel` for the selection. |
@@ -328,7 +328,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 `resolveTaskShortcut` ignores `event.repeat`, Ctrl/Cmd/Alt, and shifted keys other than `?` (so the calendar's `Shift+C` never reaches triage); Caps Lock uppercase letters still map because letter comparison is lower-cased.
 
-**Guards** — `useTaskShortcuts` applies the shared `isTextEntryTarget(event.target)` and `hasOpenOverlay()` from `./shortcutGuards` before resolving: typing `j` in the capture field or a task title never moves the selection, and no task key leaks through an open dialog/menu/popover. `Enter` is also left to native activation when focus is on a button, link, menu item or checkbox inside the row (the status/priority/date chips, Options and the completion checkbox are all buttons), so the focused control opens/toggles instead of the panel hand-off. When `enabled` is false (the `shortcutsEnabled` preference) the listener is never attached.
+**Guards** — `useTaskShortcuts` applies the shared `isTextEntryTarget(event.target)` and `hasOpenOverlay()` from `./shortcutGuards` before resolving: typing `j` in the capture field or a task title never moves the selection, and no task key leaks through an open dialog/menu/popover. `Enter` is also left to native activation when focus is on a button, link, menu item or checkbox inside the row (the status/priority/due chip, Options and the completion checkbox are all buttons), so the focused control opens/toggles instead of the panel hand-off. When `enabled` is false (the `shortcutsEnabled` preference) the listener is never attached.
 
 **State & side effects** — One `window` `keydown` listener plus a handlers ref (the listener closes over the latest handlers while re-subscribing only when `enabled` flips). No storage, no queries.
 
@@ -340,7 +340,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 - Task keys fire on the calendar -> `useTaskShortcuts` moved out of `TasksShell` into `AppShell`/a server layout -> the hook must stay page-scoped.
 - Pressing `Enter` does nothing -> the focused element is a button/menu item (native activation wins) or no row is selected -> `TasksShell`'s `openSelection`, or this file's native-activation guard.
 
-**Tests** — `tests/unit/use-task-shortcuts.test.ts` (every mapping, modifiers, repeats, shifted keys, Caps Lock, unknown keys, and the `resolveSomedayTriage` table: clear-dates for either/both dates, already-someday for an undated row); the guard side is in `tests/unit/shortcut-guards.test.ts`; the end-to-end triage flow is scenario 2 of `tests/e2e/tasks.spec.ts`.
+**Tests** — `tests/unit/use-task-shortcuts.test.ts` (every mapping, modifiers, repeats, shifted keys, Caps Lock, unknown keys, and the `resolveSomedayTriage` table: `clear-due` for a `dueOn`, a `dueTime` or both, and `already-someday` for a row with neither); the guard side is in `tests/unit/shortcut-guards.test.ts`; the end-to-end triage flow (`2` → `Due this week`, then `x`) is scenario 2 of `tests/e2e/tasks.spec.ts`.
 
 ### lib/ui/useMediaQuery.ts
 
@@ -440,7 +440,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 **State & side effects** — Calls `toast.success(message, { action: { label: "Undo", onClick: () => void undoAction(handle) }, duration: 10_000 })`; the handler is fire-and-forget (Sonner dismisses the toast on click) and `undoAction` reports failures through its own `toast.error`. No storage, no query work, no state.
 
-**Depends on / Used by** — `sonner` (`toast`) and `./undo` (`undoAction`, `UndoHandle`). Call sites: `components/calendar/CalendarShell.tsx` ("Event moved to …", "Event deleted", "Series deleted", "Occurrence skipped"), `components/calendar/EventDialog.tsx` and `QuickCreatePopover.tsx` ("Event created"), `components/shell/GlobalCapture.tsx` ("Task captured") and `components/tasks/TasksShell.tsx` (task complete/drop/delete/schedule/move), plus `lib/ui/useTaskPlanDrop.ts` ("Task planned").
+**Depends on / Used by** — `sonner` (`toast`) and `./undo` (`undoAction`, `UndoHandle`). Call sites: `components/calendar/CalendarShell.tsx` ("Event moved to …", "Event deleted", "Series deleted", "Occurrence skipped"), `components/calendar/EventDialog.tsx` and `QuickCreatePopover.tsx` ("Event created"), `components/shell/GlobalCapture.tsx` ("Task captured") and `components/tasks/TasksShell.tsx` (task complete/drop/delete/due/move), plus `lib/ui/useTaskPlanDrop.ts` ("Due date set").
 
 **Debugging**
 - The toast's Undo reverts the wrong change -> the call site showed the toast without the handle from its own `pushUndo`, or reused another action's handle -> check the `undoToast(message, handle)` argument.
@@ -483,7 +483,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 **Purpose** — The two payloads behind "delete + undo". There is no trash table, so undoing a delete re-creates the row: `POST /api/tasks` restores everything a create accepts (title, notes, dates, list, **priority**, and `in_progress`), and one PATCH restores what a create cannot — the checklist, the original list position and a closed `done`/`dropped` status, whose `completedAt`/`droppedAt` the service stamps on that transition. Extracted from `TasksShell.deleteTaskWithUndo` so the payloads are unit-tested without a renderer.
 
 **Public API**
-- `deletedTaskCreateInput(task: TaskView): CreateTaskInput` — `{ title, notes, collectionId, scheduledOn, dueOn, priority }`, plus `status: "in_progress"` when the deleted row was in progress. `open` is the server default so no status key is sent for it, and a closed status is never a create value (`POST /api/tasks` accepts only the active pair).
+- `deletedTaskCreateInput(task: TaskView): CreateTaskInput` — `{ title, notes, collectionId, dueOn, dueTime, priority }`, plus `status: "in_progress"` when the deleted row was in progress. `open` is the server default so no status key is sent for it, and a closed status is never a create value (`POST /api/tasks` accepts only the active pair). The due time is sent only alongside a due date (the service rejects a time alone).
 - `deletedTaskRestorePatch(task: TaskView): UpdateTaskInput` — `checklist` mapped to `{ title, done }` when the task has items, `sortOrder` when it was not `0`, and `status` when it is `done`/`dropped`; `{}` when the create body already said everything.
 
 **State & side effects** — None: pure over the `TaskView`, no fetch, no storage. The shell owns the requests (`createTask.mutateAsync` then, only when the patch is non-empty, `updateTask.mutateAsync`).
@@ -500,9 +500,9 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 ### lib/ui/taskDrag.ts
 
-**Purpose** — One place for the HTML5 drag contract that lets a task row be dragged onto a day: the custom MIME type, the source-side payload (the task id **and** the row's `scheduledOn` at `dragstart`) and the target-side read/guard. Sharing it keeps the row, the month grid and the sidebar mini month from drifting apart on a string literal or a payload shape. The previous date travels with the drag instead of being looked up in a cache at drop time, because cached `["tasks", …]` payloads can disagree and Undo must restore the date the dragged row actually showed.
+**Purpose** — One place for the HTML5 drag contract that lets a task row be dragged onto a day: the custom MIME type, the source-side payload (the task id **and** the row's `dueOn` at `dragstart`) and the target-side read/guard. Sharing it keeps the row, the month grid and the sidebar mini month from drifting apart on a string literal or a payload shape. The previous due date travels with the drag instead of being looked up in a cache at drop time, because cached `["tasks", …]` payloads can disagree and Undo must restore the date the dragged row actually showed.
 
-**Public API** — `export const TASK_DRAG_TYPE = "text/x-nailong-task"`; `export interface DragTransfer` (the structural subset of `DataTransfer` the helpers need: `types`, `getData`, `setData`, `effectAllowed`, `dropEffect`); `export interface TaskDragPayload { id: string; scheduledOn: string | null }`; `export interface TaskDragSource` (the same two fields, what a row hands to the source helper); `isTaskDrag(transfer: Pick<DragTransfer, "types"> | null | undefined): boolean`; `setTaskDragPayload(transfer: DragTransfer, task: TaskDragSource): void` (writes JSON `{ id, scheduledOn }` and sets `effectAllowed = "move"`); `readTaskDrag(transfer: DragTransfer | null | undefined): TaskDragPayload | null` (null for a non-task drag, an empty payload, a legacy raw-id payload, corrupt JSON, a missing/empty `id`, or a `scheduledOn` that is neither `null` nor `YYYY-MM-DD`).
+**Public API** — `export const TASK_DRAG_TYPE = "text/x-nailong-task"`; `export interface DragTransfer` (the structural subset of `DataTransfer` the helpers need: `types`, `getData`, `setData`, `effectAllowed`, `dropEffect`); `export interface TaskDragPayload { id: string; dueOn: string | null }`; `export interface TaskDragSource` (the same two fields, what a row hands to the source helper); `isTaskDrag(transfer: Pick<DragTransfer, "types"> | null | undefined): boolean`; `setTaskDragPayload(transfer: DragTransfer, task: TaskDragSource): void` (writes JSON `{ id, dueOn }` and sets `effectAllowed = "move"`); `readTaskDrag(transfer: DragTransfer | null | undefined): TaskDragPayload | null` (null for a non-task drag, an empty payload, a legacy raw-id payload, corrupt JSON, a missing/empty `id`, or a `dueOn` that is neither `null`/absent nor `YYYY-MM-DD`; an absent field reads back as `null`).
 
 **State & side effects** — None; pure and DOM-free. The caller owns the actual `DataTransfer`; only `dragover`/`drop` listeners call `preventDefault`, and only after `isTaskDrag` is true. JSON is used so a `null` date survives `setData` and so a malformed drag is rejectable rather than PATCHed into the column.
 
@@ -512,7 +512,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 - A drag of an event, file or text is accepted by a day cell -> the `preventDefault` moved outside the `isTaskDrag` guard -> this file's callers.
 - A task row drops nothing -> the source and target disagree on the MIME type (one hardcoded it) -> this file's `TASK_DRAG_TYPE`.
 - `readTaskDrag` returns null on a real drop -> the browser does not expose the custom type on `dragover`; check the payload is set in `dragstart` via `setTaskDragPayload` -> this file.
-- A drop works but Undo restores the wrong day -> the source stamped `scheduledOn` from something other than the rendered row, or the drop target passed its own date as the previous value -> `TaskRow.onDragStart` and `useTaskPlanDrop`.
+- A drop works but Undo restores the wrong day -> the source stamped `dueOn` from something other than the rendered row, or the drop target passed its own date as the previous value -> `TaskRow.onDragStart` and `useTaskPlanDrop`.
 
 **Tests** — `tests/unit/task-drag.test.ts` (source stamp incl. a null date, move effect, type recognition, read-back of the undo date, and rejection of other drags / empty / raw-id / corrupt / bad-date payloads).
 
@@ -542,7 +542,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 **State & side effects** — None; a pure function over plain values (no React, no fetch, no storage). `TasksShell` owns the refs it is fed (`deepLinkHandledRef`, `deepLinkRequestRef`) and the `GET`/`setEditorTask`/`router.replace` side effects.
 
-**Depends on / Used by** — No imports. Used by `components/tasks/TasksShell.tsx` (the deep-link effect). The effect's `GET /api/tasks/{id}` is the normal path, not a fallback: a chip is only drawn for a scheduled task, so it can sit outside the loaded scope (for example dated beyond this week while Someday is open).
+**Depends on / Used by** — No imports. Used by `components/tasks/TasksShell.tsx` (the deep-link effect). The effect's `GET /api/tasks/{id}` is the normal path, not a fallback: a chip is only drawn for a task with a due date, so it can sit outside the loaded scope (for example dated beyond this week while Someday is open).
 
 **Debugging**
 - A chip click lands on `/tasks?task=<id>` with no editor, and only in dev -> the handled marker was set before the request settled (or the in-flight promise cache was dropped), so StrictMode's second setup skipped while the first closure was cancelled -> this file's table plus `TasksShell`'s effect.
@@ -553,18 +553,18 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 ### lib/ui/useTaskPlanDrop.ts
 
-**Purpose** — The shared "a task was dropped on a day" handler. Both month-grid drop surfaces use it: the sidebar mini month (the practical target on `/tasks`, where the rows are) and the full month grid's day cells. It PATCHes `scheduledOn`, toasts `Task planned` with a targeted Undo that restores the exact previous date, and toasts `Could not schedule the task.` on failure.
+**Purpose** — The shared "a task was dropped on a day" handler. Both month-grid drop surfaces use it: the sidebar mini month (the practical target on `/tasks`, where the rows are) and the full month grid's day cells. It PATCHes `dueOn` (the stored `dueTime`, if any, is left untouched), toasts `Due date set` with a targeted Undo that restores the exact previous date, and toasts `Could not set the due date.` on failure.
 
 **Public API** — `useTaskPlanDrop(): (drag: TaskDragPayload, date: string) => void`. No other exports.
 
-**State & side effects** — `useUpdateTask()` (the optimistic PATCH hook); it starts no query and reads no cache. The previous `scheduledOn` comes from the drag payload, stamped by the dragged row at `dragstart` (`lib/ui/taskDrag.ts`), so Undo restores the date the user saw even when cached views disagree. A drop onto the row's own day is a silent no-op (the server echo guard also skips the toast when the row is unchanged). Otherwise it pushes `{ label: "Schedule task", undo: PATCH scheduledOn back }` and calls `undoToast("Task planned", handle)`; failures toast `Could not schedule the task.`.
+**State & side effects** — `useUpdateTask()` (the optimistic PATCH hook); it starts no query and reads no cache. The previous `dueOn` comes from the drag payload, stamped by the dragged row at `dragstart` (`lib/ui/taskDrag.ts`), so Undo restores the date the user saw even when cached views disagree. A drop onto the row's own due day is a silent no-op (the server echo guard also skips the toast when the row is unchanged). Otherwise it pushes `{ label: "Set due date", undo: PATCH dueOn back }` and calls `undoToast("Due date set", handle)`; failures toast `Could not set the due date.`.
 
 **Depends on / Used by** — `react` (`useCallback`), `sonner`, `lib/query/tasks` (`useUpdateTask`), `./undo` (`pushUndo`), `./undoToast`, `./taskDrag` (`TaskDragPayload`). Used by `components/calendar/CalendarShell.tsx` (`onTaskDrop` for the full grid) and `components/shell/AppShell.tsx` (passed to both `SidebarMiniMonth` instances).
 
 **Debugging**
 - The Undo clears the date instead of restoring the previous day -> the payload stamped `null` because the source read the wrong field, or the drop target rebuilt the payload from a cache instead of passing `readTaskDrag`'s result -> `components/tasks/TaskRow.tsx`, `lib/ui/taskDrag.ts`.
 - A drop toasts but the row does not move -> the PATCH failed (view-only list, 404) -> read the network response; the optimistic patch rolls back.
-- A drop on the same day shows a toast -> the `scheduledOn === date` no-op guard was dropped -> this file.
+- A drop on the same day shows a toast -> the `dueOn === date` no-op guard was dropped -> this file.
 - Two drops in one toast window undo the wrong plan -> the toast was shown without `pushUndo`'s handle -> this file plus `lib/ui/undoToast.ts`.
 
 **Tests** — No direct unit test (a TanStack mutation hook; the repo has no hook-test harness). The payload it consumes is unit-tested in `tests/unit/task-drag.test.ts`. The row→mini-month drop has **no e2e after the v0.2.1 rewrite** (the old `tasks.spec` scenario 3 was deleted with the Plan popover); the hook's PATCH/undo path is shared with the calendar's own drop handling.

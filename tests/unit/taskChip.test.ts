@@ -13,8 +13,9 @@ function task(overrides: Partial<TaskView> = {}): TaskView {
     title: "Buy milk",
     notes: null,
     status: "open",
-    scheduledOn: "2026-10-20",
-    dueOn: null,
+    dueOn: "2026-10-20",
+    dueTime: null,
+    overdue: false,
     completedAt: null,
     droppedAt: null,
     sortOrder: 0,
@@ -34,7 +35,7 @@ function task(overrides: Partial<TaskView> = {}): TaskView {
 }
 
 describe("taskChip", () => {
-  it("maps a scheduled task to an all-day FullCalendar chip", () => {
+  it("maps a dated task to an all-day FullCalendar chip on its due date", () => {
     const chip = taskChip(task());
     expect(chip).not.toBeNull();
     expect(chip!.id).toBe(`${TASK_FC_ID_PREFIX}t1`);
@@ -46,16 +47,23 @@ describe("taskChip", () => {
     expect(chip!.classNames).toContain("fc-task-chip");
   });
 
-  it("crosses the month boundary for the exclusive end", () => {
-    expect(taskChip(task({ scheduledOn: "2026-10-31" }))!.end).toBe("2026-11-01");
-    expect(taskChip(task({ scheduledOn: "2026-12-31" }))!.end).toBe("2027-01-01");
+  it("puts a timed deadline on its whole due day, because the grid shows no time", () => {
+    const chip = taskChip(task({ dueTime: "18:30" }))!;
+    expect(chip.allDay).toBe(true);
+    expect(chip.start).toBe("2026-10-20");
+    expect(chip.end).toBe("2026-10-21");
   });
 
-  it("produces only scheduled tasks", () => {
+  it("crosses the month boundary for the exclusive end", () => {
+    expect(taskChip(task({ dueOn: "2026-10-31" }))!.end).toBe("2026-11-01");
+    expect(taskChip(task({ dueOn: "2026-12-31" }))!.end).toBe("2027-01-01");
+  });
+
+  it("produces only dated tasks", () => {
     const chips = [
-      task({ id: "t1", scheduledOn: "2026-10-20" }),
-      task({ id: "t2", scheduledOn: null }),
-      task({ id: "t3", scheduledOn: "2026-10-21" }),
+      task({ id: "t1", dueOn: "2026-10-20" }),
+      task({ id: "t2", dueOn: null }),
+      task({ id: "t3", dueOn: "2026-10-21" }),
     ]
       .map(taskChip)
       .filter((chip) => chip !== null);

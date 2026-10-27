@@ -100,11 +100,15 @@ export function patchTask(input: UpdateTaskInput): Partial<TaskView> {
   if (input.notes !== undefined) {
     patch.notes = input.notes ?? null;
   }
-  if (input.scheduledOn !== undefined) {
-    patch.scheduledOn = input.scheduledOn ?? null;
-  }
   if (input.dueOn !== undefined) {
     patch.dueOn = input.dueOn ?? null;
+    if (patch.dueOn === null) {
+      // Mirrors the service: clearing the date clears the time it belonged to.
+      patch.dueTime = null;
+    }
+  }
+  if (input.dueTime !== undefined) {
+    patch.dueTime = input.dueTime ?? null;
   }
   if (input.sortOrder !== undefined) {
     patch.sortOrder = input.sortOrder;

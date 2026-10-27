@@ -166,6 +166,66 @@ describe("task API", () => {
     }
   });
 
+  it("rejects a due time without a due date and clears the time when the date is cleared", async () => {
+    // Pin the household clock so `overdue` is a deterministic wire field: Sunday
+    // 2026-10-25 20:00 in Taipei, i.e. before the 26th's deadline.
+    vi.useFakeTimers({ now: new Date("2026-10-25T12:00:00Z"), toFake: ["Date"] });
+    const { db, close, ctxA } = await setup();
+    const message = "Give the task a due date before a due time.";
+    try {
+      const undated = await createTaskHandler(
+        db,
+        ctxA,
+        jsonRequest("/api/tasks", "POST", { title: "Timeless", dueTime: "09:00" }),
+      );
+      expect(undated.status).toBe(400);
+      const rejected = await body<{ error: { code: string; message: string } }>(undated);
+      expect(rejected.error.code).toBe("VALIDATION");
+      expect(rejected.error.message).toBe(message);
+
+      const created = await createTaskHandler(
+        db,
+        ctxA,
+        jsonRequest("/api/tasks", "POST", {
+          title: "Pay the bill",
+          dueOn: "2026-10-26",
+          dueTime: "18:00",
+        }),
+      );
+      expect(created.status).toBe(201);
+      const timed = (await body<{ task: TaskView }>(created)).task;
+      expect(timed).toMatchObject({ dueOn: "2026-10-26", dueTime: "18:00", overdue: false });
+
+      // A time cannot ride on the PATCH that clears the date either.
+      const sneaky = await updateTaskHandler(
+        db,
+        ctxA,
+        timed.id,
+        jsonRequest(`/api/tasks/${timed.id}`, "PATCH", { dueOn: null, dueTime: "10:00" }),
+      );
+      expect(sneaky.status).toBe(400);
+      expect((await body<{ error: { message: string } }>(sneaky)).error.message).toBe(message);
+
+      // Clearing the date alone clears the stored time in the same PATCH.
+      const cleared = await updateTaskHandler(
+        db,
+        ctxA,
+        timed.id,
+        jsonRequest(`/api/tasks/${timed.id}`, "PATCH", { dueOn: null }),
+      );
+      expect(cleared.status).toBe(200);
+      const clearedTask = (await body<{ task: TaskView }>(cleared)).task;
+      expect(clearedTask).toMatchObject({ dueOn: null, dueTime: null, overdue: false });
+      const read = await getTaskHandler(db, ctxA, timed.id);
+      expect((await body<{ task: TaskView }>(read)).task).toMatchObject({
+        dueOn: null,
+        dueTime: null,
+      });
+    } finally {
+      close();
+    }
+  });
+
   it("deletes a task with 204 and hides it afterwards", async () => {
     const { db, close, ctxA } = await setup();
     try {
@@ -256,8 +316,8 @@ describe("task API", () => {
         .run();
       // Household today is Monday the 26th; its Monday-started week ends on
       // Sunday 2026-11-01, so the 1st is the last day of *this* week.
-      const todayTask = createTask(db, ctxA, { title: "Today", scheduledOn: "2026-10-26" });
-      const weekTask = createTask(db, ctxA, { title: "Week end", scheduledOn: "2026-11-01" });
+      const todayTask = createTask(db, ctxA, { title: "Today", dueOn: "2026-10-26" });
+      const weekTask = createTask(db, ctxA, { title: "Week end", dueOn: "2026-11-01" });
 
       const today = await body<{ tasks: TaskView[]; counts: TaskCounts }>(
         await listTasksHandler(db, ctxA, jsonRequest("/api/tasks?view=today", "GET")),
@@ -321,7 +381,7 @@ describe("task API", () => {
   it("returns closed tasks only when includeClosed=true, without moving counts", async () => {
     const { db, close, ctxA } = await setup();
     try {
-      const doneTask = createTask(db, ctxA, { title: "Done today", scheduledOn: "2026-10-21" });
+      const doneTask = createTask(db, ctxA, { title: "Done today", dueOn: "2026-10-21" });
       updateTask(db, ctxA, doneTask.id, { status: "done" });
       vi.useFakeTimers({ now: new Date("2026-10-21T04:00:00Z"), toFake: ["Date"] });
 

@@ -13,8 +13,9 @@ function makeTask(overrides: Partial<TaskView> = {}): TaskView {
     notes: null,
     status: "open",
     priority: "none",
-    scheduledOn: null,
     dueOn: null,
+    dueTime: null,
+    overdue: false,
     completedAt: null,
     droppedAt: null,
     sortOrder: 0,
@@ -67,6 +68,42 @@ describe("updateTaskInData", () => {
 
     expect(after.counts).toBe(COUNTS);
     expect(after.counts).toEqual({ all: 2, today: 0, week: 0, someday: 2, overdue: 0 });
+  });
+});
+
+describe("patchTask", () => {
+  it("maps the due date and its optional time onto the cached row", () => {
+    expect(patchTask({ dueOn: "2026-10-27", dueTime: "18:30" })).toMatchObject({
+      dueOn: "2026-10-27",
+      dueTime: "18:30",
+    });
+    expect(patchTask({ dueOn: "2026-10-27" })).toMatchObject({
+      dueOn: "2026-10-27",
+    });
+  });
+
+  it("clears the time whenever the same patch clears the date", () => {
+    // The service does exactly this in one PATCH; an optimistic undated row must
+    // not keep a time it can no longer be judged against.
+    const patch = patchTask({ dueOn: null });
+    expect(patch.dueOn).toBeNull();
+    expect(patch.dueTime).toBeNull();
+  });
+
+  it("keeps the date when only the time changes, including clearing the time", () => {
+    const timed = patchTask({ dueTime: "09:15" });
+    expect(timed.dueTime).toBe("09:15");
+    expect(timed.dueOn).toBeUndefined();
+
+    const cleared = patchTask({ dueTime: null });
+    expect(cleared.dueTime).toBeNull();
+    expect(cleared.dueOn).toBeUndefined();
+  });
+
+  it("leaves the due fields alone for an unrelated patch", () => {
+    const patch = patchTask({ title: "Renamed" });
+    expect(patch).not.toHaveProperty("dueOn");
+    expect(patch).not.toHaveProperty("dueTime");
   });
 });
 

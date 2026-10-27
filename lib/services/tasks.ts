@@ -2,6 +2,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import {
   collection,
+  household,
   task,
   taskChecklistItem,
   type CollectionRow,
@@ -15,6 +16,7 @@ import {
   endOfWeek,
   isActiveStatus,
   isOverdue,
+  localTimeOfDay,
   localToday,
   type BucketContext,
   type TaskScope,
@@ -53,6 +55,17 @@ export interface TaskView extends TaskRow {
   checklist: ChecklistItemView[];
   /** Just enough of the owning list to render the task's colour dot. */
   collection: Pick<CollectionRow, "id" | "name" | "kind" | "hueFamily" | "shadeIndex">;
+  /**
+   * Server-computed deadline state (`isOverdue`) against the household clock, so
+   * the red chip never depends on the device clock or a stale client "today".
+   */
+  overdue: boolean;
+}
+
+/** The household-local date and wall-clock time a task view's deadline is judged against. */
+export interface TaskDueContext {
+  today: string;
+  nowTime: string;
 }
 
 export interface TaskCounts {
@@ -84,12 +97,24 @@ export interface ListTasksInput {
   weekStartsOn: 0 | 1;
 }
 
+/** The household's local date and wall-clock time now, for server-computed overdue. */
+function dueContext(db: Database, ctx: ViewerContext): TaskDueContext {
+  const row = db
+    .select({ timezone: household.timezone })
+    .from(household)
+    .where(eq(household.id, ctx.householdId))
+    .get();
+  const timezone = row?.timezone ?? "UTC";
+  const now = Date.now();
+  return { today: localToday(timezone, now), nowTime: localTimeOfDay(timezone, now) };
+}
+
 /**
  * Builds the client-facing task row. This attaches storage data only: it does
  * not check visibility, so callers must pass a row whose collection the viewer
  * may read — every exported reader and writer below does.
  */
-export function toTaskView(db: Database, row: TaskRow): TaskView {
+export function toTaskView(db: Database, row: TaskRow, due: TaskDueContext): TaskView {
   const owner = db.select().from(collection).where(eq(collection.id, row.collectionId)).get();
   if (!owner) {
     // The FK cascades with its collection, so this is a corrupt row rather than
@@ -105,6 +130,7 @@ export function toTaskView(db: Database, row: TaskRow): TaskView {
 
   return {
     ...row,
+    overdue: isOverdue(row, due.today, due.nowTime),
     checklist: items.map((item) => ({
       id: item.id,
       title: item.title,
@@ -151,7 +177,7 @@ function taskAccess(db: Database, ctx: ViewerContext, row: TaskRow) {
 export function getTask(db: Database, ctx: ViewerContext, id: string): TaskView {
   const row = loadTask(db, ctx, id);
   taskAccess(db, ctx, row);
-  return toTaskView(db, row);
+  return toTaskView(db, row, dueContext(db, ctx));
 }
 
 function writableTask(db: Database, ctx: ViewerContext, id: string) {
@@ -196,7 +222,7 @@ function readTasks(
  * rows are skipped, so widening a read with `includeClosed` can never move a
  * count.
  */
-function countActive(rows: TaskRow[], bucketContext: BucketContext, today: string): TaskCounts {
+function countActive(rows: TaskRow[], bucketContext: BucketContext, due: TaskDueContext): TaskCounts {
   const counts: TaskCounts = { all: 0, today: 0, week: 0, someday: 0, overdue: 0 };
   for (const row of rows) {
     if (!isActiveStatus(row.status)) {
@@ -207,7 +233,7 @@ function countActive(rows: TaskRow[], bucketContext: BucketContext, today: strin
     if (bucket) {
       counts[bucket] += 1;
     }
-    if (isOverdue(row, today)) {
+    if (isOverdue(row, due.today, due.nowTime)) {
       counts.overdue += 1;
     }
   }
@@ -231,7 +257,9 @@ export function listTasks(
   input: ListTasksInput,
 ): { tasks: TaskView[]; counts: TaskCounts } {
   const visibleIds = resolveVisibleCollections(db, ctx).map((row) => row.id);
-  const today = localToday(input.timezone);
+  const now = Date.now();
+  const today = localToday(input.timezone, now);
+  const due: TaskDueContext = { today, nowTime: localTimeOfDay(input.timezone, now) };
   const bucketContext: BucketContext = {
     today,
     endOfWeek: endOfWeek(today, input.weekStartsOn),
@@ -240,7 +268,7 @@ export function listTasks(
   const includeClosed = input.includeClosed === true;
   const candidates =
     visibleIds.length === 0 ? [] : readTasks(db, ctx, readStatuses(includeClosed), visibleIds);
-  const counts = countActive(candidates, bucketContext, today);
+  const counts = countActive(candidates, bucketContext, due);
 
   const view = input.view ?? "all";
   const bucketOfRow = includeClosed ? bucketOfIncludingClosed : bucketOf;
@@ -254,7 +282,7 @@ export function listTasks(
         left.id.localeCompare(right.id),
     );
 
-  return { tasks: rows.map((row) => toTaskView(db, row)), counts };
+  return { tasks: rows.map((row) => toTaskView(db, row, due)), counts };
 }
 
 /**
@@ -270,7 +298,9 @@ export function getTaskCountSummary(
   input: { timezone: string; weekStartsOn: 0 | 1 },
 ): TaskCountSummary {
   const visibleIds = resolveVisibleCollections(db, ctx).map((row) => row.id);
-  const today = localToday(input.timezone);
+  const now = Date.now();
+  const today = localToday(input.timezone, now);
+  const due: TaskDueContext = { today, nowTime: localTimeOfDay(input.timezone, now) };
   const bucketContext: BucketContext = {
     today,
     endOfWeek: endOfWeek(today, input.weekStartsOn),
@@ -281,7 +311,7 @@ export function getTaskCountSummary(
   for (const row of active) {
     byCollection[row.collectionId] = (byCollection[row.collectionId] ?? 0) + 1;
   }
-  return { counts: countActive(active, bucketContext, today), byCollection };
+  return { counts: countActive(active, bucketContext, due), byCollection };
 }
 
 function nextSortOrder(db: Database, collectionId: string): number {
@@ -318,6 +348,12 @@ export function createTask(
   assertCollectionWritable(ctx, access);
   assertTaskList(access);
 
+  const dueOn = input.dueOn ?? null;
+  const dueTime = input.dueTime ?? null;
+  if (dueTime !== null && dueOn === null) {
+    throw new AppError("VALIDATION", "Give the task a due date before a due time.", 400);
+  }
+
   const now = Date.now();
   const row: TaskRow = {
     id: crypto.randomUUID(),
@@ -327,8 +363,8 @@ export function createTask(
     notes: input.notes ?? null,
     status: input.status ?? "open",
     priority: input.priority ?? "none",
-    scheduledOn: input.scheduledOn ?? null,
-    dueOn: input.dueOn ?? null,
+    dueOn,
+    dueTime,
     completedAt: null,
     droppedAt: null,
     sortOrder: nextSortOrder(db, collectionId),
@@ -338,7 +374,7 @@ export function createTask(
   };
 
   db.insert(task).values(row).run();
-  return toTaskView(db, row);
+  return toTaskView(db, row, dueContext(db, ctx));
 }
 
 function replaceChecklist(
@@ -397,11 +433,19 @@ export function updateTask(
   if (input.priority !== undefined) {
     patch.priority = input.priority;
   }
-  if (input.scheduledOn !== undefined) {
-    patch.scheduledOn = input.scheduledOn ?? null;
+  const dueOn = input.dueOn !== undefined ? input.dueOn : row.dueOn;
+  if (input.dueTime !== undefined && input.dueTime !== null && dueOn === null) {
+    throw new AppError("VALIDATION", "Give the task a due date before a due time.", 400);
   }
   if (input.dueOn !== undefined) {
     patch.dueOn = input.dueOn ?? null;
+    if (patch.dueOn === null) {
+      // Clearing the date clears the time that belonged to it, in one PATCH.
+      patch.dueTime = null;
+    }
+  }
+  if (input.dueTime !== undefined) {
+    patch.dueTime = input.dueTime ?? null;
   }
   if (input.sortOrder !== undefined) {
     patch.sortOrder = input.sortOrder;
@@ -428,7 +472,7 @@ export function updateTask(
 
   const hasChecklist = input.checklist !== undefined;
   if (Object.keys(patch).length === 0 && !hasChecklist) {
-    return toTaskView(db, row);
+    return toTaskView(db, row, dueContext(db, ctx));
   }
   patch.updatedAt = now;
 
@@ -512,5 +556,6 @@ export function reorderTasks(
       .all()
       .map((row) => [row.id, row]),
   );
-  return input.orderedIds.map((taskId) => toTaskView(db, fresh.get(taskId)!));
+  const due = dueContext(db, ctx);
+  return input.orderedIds.map((taskId) => toTaskView(db, fresh.get(taskId)!, due));
 }

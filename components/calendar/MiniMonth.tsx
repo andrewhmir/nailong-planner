@@ -19,9 +19,9 @@ export interface MiniMonthProps {
   /**
    * Optional task-row drop target. Supplying it turns each in-month day button
    * into an HTML5 drop zone for the `text/x-nailong-task` payload; the callback
-   * owns the PATCH. The payload carries the row's id and its previous
-   * `scheduledOn`, so Undo restores what the user saw. Without it the grid is
-   * navigation-only, exactly as before.
+   * owns the PATCH. The payload carries the row's id and its previous `dueOn`,
+   * so Undo restores what the user saw. Without it the grid is navigation-only,
+   * exactly as before.
    */
   onTaskDrop?: (drag: TaskDragPayload, date: string) => void;
   labelledBy?: string;

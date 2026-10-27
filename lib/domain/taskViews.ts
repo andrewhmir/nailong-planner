@@ -61,8 +61,8 @@ export const TASK_PRIORITY_RANK: Readonly<Record<TaskPriority, number>> = {
 export interface SortableTask {
   status: TaskStatus;
   priority: TaskPriority;
-  scheduledOn: string | null;
   dueOn: string | null;
+  dueTime: string | null;
   sortOrder: number;
   createdAt: number;
   title: string;
@@ -89,25 +89,25 @@ export interface TaskFilters {
 }
 
 /**
- * The date a sort anchors a task on: the earlier of `scheduledOn` and `dueOn`,
- * `null` when it has neither. A past deadline therefore outranks a later
- * schedule, matching the bucket rule in `lib/domain/tasks.ts`.
+ * Ascending deadlines: `dueOn` first, then `dueTime` within one day. A date-only
+ * deadline means "any time that day", so it sorts after a timed deadline on the
+ * same date; an undated task sorts after every dated one.
  */
-function effectiveDate(task: Pick<SortableTask, "scheduledOn" | "dueOn">): string | null {
-  const { scheduledOn, dueOn } = task;
-  if (scheduledOn === null) return dueOn;
-  if (dueOn === null) return scheduledOn;
-  return scheduledOn < dueOn ? scheduledOn : dueOn;
-}
-
-/** Ascending dates; an undated task sorts after every dated one. */
-function compareEffectiveDate(a: SortableTask, b: SortableTask): number {
-  const left = effectiveDate(a);
-  const right = effectiveDate(b);
-  if (left === right) return 0;
-  if (left === null) return 1;
-  if (right === null) return -1;
-  return left < right ? -1 : 1;
+function compareDue(a: SortableTask, b: SortableTask): number {
+  if (a.dueOn !== b.dueOn) {
+    if (a.dueOn === null) return 1;
+    if (b.dueOn === null) return -1;
+    return a.dueOn < b.dueOn ? -1 : 1;
+  }
+  if (a.dueOn === null) {
+    return 0;
+  }
+  if (a.dueTime === b.dueTime) {
+    return 0;
+  }
+  if (a.dueTime === null) return 1;
+  if (b.dueTime === null) return -1;
+  return a.dueTime < b.dueTime ? -1 : 1;
 }
 
 function compareIds(a: SortableTask, b: SortableTask): number {
@@ -124,20 +124,20 @@ function byManual(a: SortableTask, b: SortableTask): number {
   return a.sortOrder - b.sortOrder || a.createdAt - b.createdAt || compareIds(a, b);
 }
 
-/** Urgent first; within one priority the earliest commitment first, undated last. */
+/** Urgent first; within one priority the earliest deadline first, undated last. */
 function byPriority(a: SortableTask, b: SortableTask): number {
   return (
     comparePriority(a, b) ||
-    compareEffectiveDate(a, b) ||
+    compareDue(a, b) ||
     a.createdAt - b.createdAt ||
     compareIds(a, b)
   );
 }
 
-/** Earliest commitment first, undated last; same-date ties break by priority. */
+/** Earliest deadline first (date, then time; undated last); ties break by priority. */
 function byDue(a: SortableTask, b: SortableTask): number {
   return (
-    compareEffectiveDate(a, b) ||
+    compareDue(a, b) ||
     comparePriority(a, b) ||
     a.createdAt - b.createdAt ||
     compareIds(a, b)

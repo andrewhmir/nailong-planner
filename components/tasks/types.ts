@@ -18,8 +18,11 @@ export interface TaskActions {
   onTitle(title: string): void;
   onStatus(status: TaskStatus): void;
   onPriority(priority: TaskPriority): void;
-  /** One or both date fields; `null` clears the field that is present. */
-  onDates(patch: { scheduledOn?: string | null; dueOn?: string | null }): void;
+  /**
+   * The single due field: a date and/or its optional time. `null` clears that
+   * field; clearing the date also clears the time (the chip sends both).
+   */
+  onDue(patch: { dueOn?: string | null; dueTime?: string | null }): void;
   onMove(collectionId: string): void;
   onDrop(): void;
   onDelete(): void;

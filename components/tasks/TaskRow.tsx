@@ -14,17 +14,22 @@ import {
 import { MoreVerticalIcon } from "@/components/ui/icons";
 import { isHueFamily, shadeTokens } from "@/lib/color/palette";
 import type { TaskView } from "@/lib/services/tasks";
+import type { TimeFormat } from "@/lib/services/preferences";
 import { setTaskDragPayload } from "@/lib/ui/taskDrag";
 import { cn } from "@/lib/utils";
-import { TaskDateChips } from "./TaskDateChips";
+import { TaskDueChip } from "./TaskDueChip";
 import { TaskPriorityFlag } from "./TaskPriorityFlag";
 import { TaskStatusPill } from "./TaskStatusPill";
 import type { TaskActions, WritableList } from "./types";
 
 interface Props {
   task: TaskView;
-  /** Household-local today, for the date chips' pickers and overdue cue. */
+  /** Household-local today, for the due chip's picker and compact date. */
   today: string;
+  /** The household 12/24-hour preference for the due chip's time label. */
+  timeFormat: TimeFormat;
+  /** Household zone, for the due chip's shared time picker. */
+  timezone: string;
   /** True when this row is the triage layer's current selection. */
   selected: boolean;
   /** Fired by any focus inside the row, so clicking or tabbing selects it. */
@@ -49,7 +54,16 @@ interface Props {
  * control — opens the task; the pickers and menu are plain buttons with violet
  * focus rings and 44px coarse-pointer targets.
  */
-export function TaskRow({ task, today, selected, onFocus, actions, moveTargets }: Props) {
+export function TaskRow({
+  task,
+  today,
+  timeFormat,
+  timezone,
+  selected,
+  onFocus,
+  actions,
+  moveTargets,
+}: Props) {
   const done = task.status === "done";
   const hue = task.collection.hueFamily;
   const dot =
@@ -106,12 +120,15 @@ export function TaskRow({ task, today, selected, onFocus, actions, moveTargets }
 
       <TaskStatusPill status={task.status} onChange={actions.onStatus} />
       <TaskPriorityFlag priority={task.priority} onChange={actions.onPriority} />
-      <TaskDateChips
-        scheduledOn={task.scheduledOn}
+      <TaskDueChip
         dueOn={task.dueOn}
+        dueTime={task.dueTime}
+        overdue={task.overdue}
         today={today}
         title={task.title}
-        onChange={actions.onDates}
+        timeFormat={timeFormat}
+        timezone={timezone}
+        onChange={actions.onDue}
       />
 
       <DropdownMenu>

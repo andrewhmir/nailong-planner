@@ -154,9 +154,11 @@ export const event = sqliteTable(
 );
 
 /**
- * A task lives in a `collection` of kind `list`. `scheduledOn` and `dueOn` are
- * household-local date-only `YYYY-MM-DD` strings (a task is a day commitment,
- * not an instant); `completedAt`/`droppedAt` are epoch-ms audit timestamps.
+ * A task lives in a `collection` of kind `list`. `dueOn` is a household-local
+ * date-only `YYYY-MM-DD` string and `dueTime` is an optional household-local
+ * `HH:MM` wall-clock time on that day (`null` = "any time that day"); a task has
+ * exactly one deadline, not a schedule and a deadline. `completedAt`/`droppedAt`
+ * are epoch-ms audit timestamps.
  */
 export const task = sqliteTable(
   "task",
@@ -177,10 +179,10 @@ export const task = sqliteTable(
     priority: text("priority", { enum: ["none", "low", "normal", "high", "urgent"] })
       .notNull()
       .default("none"),
-    /** "I'll work on this day" — drives Today and the Week view. */
-    scheduledOn: text("scheduled_on"),
-    /** Deadline; drives the overdue badge. */
+    /** The deadline day; drives Today/Week/Someday and the overdue badge. */
     dueOn: text("due_on"),
+    /** Optional deadline time on `dueOn`; `null` means the whole day is the deadline. */
+    dueTime: text("due_time"),
     completedAt: integer("completed_at"),
     droppedAt: integer("dropped_at"),
     sortOrder: integer("sort_order").notNull().default(0),
@@ -196,7 +198,6 @@ export const task = sqliteTable(
   (table) => [
     index("task_household_status_idx").on(table.householdId, table.status),
     index("task_collection_idx").on(table.collectionId),
-    index("task_scheduled_idx").on(table.scheduledOn),
     index("task_due_idx").on(table.dueOn),
   ],
 );

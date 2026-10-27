@@ -1,12 +1,14 @@
 import type { TaskPriority, TaskRow, TaskStatus } from "@/lib/db/schema";
 import { weekdayOfDate } from "@/lib/recurrence/rule";
-import { addDaysToDate, utcToLocalDate } from "@/lib/time/zone";
+import { addDaysToDate, utcToLocalDate, utcToLocalWallTime } from "@/lib/time/zone";
 
 /**
  * Derived task buckets and the scope tabs' time horizons (spec D6, plus the
- * post-review scope rework in ruling 29). A bucket is never stored: it is
- * recomputed from the task's date-only `YYYY-MM-DD` columns plus the household's
- * `today` / `endOfWeek`, so it cannot go stale at midnight.
+ * post-review scope rework in ruling 29 and the due-date-only follow-up). A
+ * bucket is never stored: it is recomputed from the task's due date (`dueOn`,
+ * plus its optional `dueTime`) and the household's `today` / `endOfWeek`, so it
+ * cannot go stale at midnight. A task has one deadline, not a schedule and a
+ * deadline.
  *
  * `all` is a **scope**, not a bucket: it is every visible active task, including
  * the ones dated beyond this week that no bucket holds. `overdue` is a
@@ -62,65 +64,67 @@ export function endOfWeek(date: string, weekStartsOn: 0 | 1): string {
 }
 
 /**
- * The bucket a task's dates put it in, ignoring its status. The earliest
- * commitment anchors the task — the earlier of `scheduledOn` and `dueOn` (nulls
- * are absent) — so a task scheduled later but already past due still shows in
- * Today, and a due-only task reaches Today/Week instead of being stranded. An
- * undated task is Someday in every list: the Inbox is not a bucket. A task dated
- * beyond this week is in none of the three buckets; the `all` scope shows it, and
- * it stays on the calendar month grid until its week arrives.
+ * The bucket a task's deadline puts it in, ignoring its status. The due date is
+ * the task's only date, so it is the anchor: no date is Someday, today or
+ * earlier is Today, and a deadline up to the end of the week is Week. An undated
+ * task is Someday in every list: the Inbox is not a bucket. A task due beyond
+ * this week is in none of the three buckets; the `all` scope shows it, and it
+ * stays on the calendar month grid until its week arrives.
  */
-function bucketFromDates(
-  task: Pick<TaskRow, "scheduledOn" | "dueOn">,
-  ctx: BucketContext,
-): TaskBucket | null {
-  const { scheduledOn, dueOn } = task;
-  if (scheduledOn === null && dueOn === null) {
+function bucketFromDue(task: Pick<TaskRow, "dueOn">, ctx: BucketContext): TaskBucket | null {
+  const { dueOn } = task;
+  if (dueOn === null) {
     return "someday";
   }
-  // R2: the earliest commitment wins. A deadline with no schedule is still an
-  // anchor (D6 fallback), and a later schedule must never hide a past-due task.
-  const effective = [scheduledOn, dueOn]
-    .filter((date): date is string => date !== null)
-    .reduce((earliest, date) => (date < earliest ? date : earliest));
-  if (effective <= ctx.today) {
+  if (dueOn <= ctx.today) {
     return "today";
   }
-  if (effective <= ctx.endOfWeek) {
+  if (dueOn <= ctx.endOfWeek) {
     return "week";
   }
   return null;
 }
 
 /**
- * The bucket an active task belongs to, or `null` when it is done/dropped or
- * dated beyond this week. Uses the same date rule as `bucketOfIncludingClosed`.
+ * The bucket an active task belongs to, or `null` when it is done/dropped or due
+ * beyond this week. Uses the same date rule as `bucketOfIncludingClosed`.
  */
 export function bucketOf(
-  task: Pick<TaskRow, "status" | "scheduledOn" | "dueOn">,
+  task: Pick<TaskRow, "status" | "dueOn">,
   ctx: BucketContext,
 ): TaskBucket | null {
-  return isActiveStatus(task.status) ? bucketFromDates(task, ctx) : null;
+  return isActiveStatus(task.status) ? bucketFromDue(task, ctx) : null;
 }
 
 /**
  * The bucket a task belongs to regardless of status, for views that show
  * finished rows inside their time bucket. It applies exactly the same date rule
- * as `bucketOf`: `null` only when the anchor is dated beyond this week.
+ * as `bucketOf`: `null` only when the due date is beyond this week.
  */
 export function bucketOfIncludingClosed(
-  task: Pick<TaskRow, "status" | "scheduledOn" | "dueOn">,
+  task: Pick<TaskRow, "status" | "dueOn">,
   ctx: BucketContext,
 ): TaskBucket | null {
-  return bucketFromDates(task, ctx);
+  return bucketFromDue(task, ctx);
 }
 
-/** True when an active task's deadline has passed; `dueOn === today` is not overdue. */
+/**
+ * True when an active task's deadline has passed. A date-only deadline covers
+ * the whole day, so it is overdue from the next day; a timed deadline is overdue
+ * the moment the household wall clock passes its minute (equality is on time).
+ */
 export function isOverdue(
-  task: Pick<TaskRow, "status" | "dueOn">,
+  task: Pick<TaskRow, "status" | "dueOn" | "dueTime">,
   today: string,
+  nowTime: string,
 ): boolean {
-  return isActiveStatus(task.status) && task.dueOn !== null && task.dueOn < today;
+  if (!isActiveStatus(task.status) || task.dueOn === null) {
+    return false;
+  }
+  if (task.dueOn < today) {
+    return true;
+  }
+  return task.dueOn === today && task.dueTime !== null && task.dueTime < nowTime;
 }
 
 /** Priority sort ranks, least important first — `none` 0 through `urgent` 4. */
@@ -143,4 +147,9 @@ export function priorityRank(priority: TaskPriority): number {
 /** The household's calendar date (`YYYY-MM-DD`) at `now`; defaults to the clock. */
 export function localToday(timeZone: string, now: number = Date.now()): string {
   return utcToLocalDate(now, timeZone);
+}
+
+/** The household's wall-clock time (`HH:MM`) at `now`; defaults to the clock. */
+export function localTimeOfDay(timeZone: string, now: number = Date.now()): string {
+  return utcToLocalWallTime(now, timeZone).slice(11, 16);
 }

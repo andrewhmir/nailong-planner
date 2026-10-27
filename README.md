@@ -80,17 +80,22 @@ rather not have edited.
   `/tasks` opens on **All** and filters by Today · Week · Someday, then shows it
   as a dense grouped list or a status board: drag a card between To do and In progress
   (or into Done/Dropped with "show closed" on), or capture straight into a
-  column. Rows and cards edit their status (including the new **In progress**
-  state), priority, dates and list inline, and clicking one opens a right-hand
+  column. A task has **one date — its due date** — plus an optional
+  household-local time; there is no separate "scheduled" date. Rows and cards
+  edit their status (including the **In progress**
+  state), priority, due date (date plus optional time) and list inline, and
+  clicking one opens a right-hand
   slide-over for the title, notes and checklist. Lists in the sidebar show their
   active-task counts while you are on `/tasks` (Ruling 23 — the count query is
   route-gated so the calendar never pays for it) and carry a one-click quick add.
   The keyboard does the rest
-  (`j`/`k` to move, `1`–`3` to schedule, `4` to move to another list, `x` to
+  (`j`/`k` to move, `1`/`2` to set the due date to today / the end of this week,
+  `3` to clear the due date and time, `4` to move to another list, `x` to
   complete, `Enter` to open the panel, `z` to undo). Lists sit in the same nested
   tree as calendars and can be private, shared or view-only, with the same
-  two-person rules; a scheduled task shows on the calendar as a read-only chip,
-  and dragging a row onto the sidebar mini month plans it onto that day.
+  two-person rules; a task with a due date shows on the calendar as a read-only
+  chip, and dragging a row onto the sidebar mini month sets its due date to that
+  day.
 - **Google-Calendar-shaped daily loops** — a day/slot click, a range drag or
   `Shift+C` opens a quick-create bubble (Enter saves, "More options" escalates to
   the full editor); clicking an event opens anchored details with its repeat

@@ -3,11 +3,17 @@ import type { TaskStatus } from "@/lib/db/schema";
 import { TASK_ACTIVE_STATUSES, TASK_BUCKETS } from "@/lib/domain/tasks";
 
 /**
- * `scheduledOn` and `dueOn` are date-only household-local `YYYY-MM-DD` strings,
- * never epochs, so validation only has to enforce the shape. Mirrors the
- * `dateString` regex in `lib/validation/events.ts`.
+ * `dueOn` is a date-only household-local `YYYY-MM-DD` string and `dueTime` an
+ * optional household-local `HH:MM` wall-clock time on that day, never epochs, so
+ * validation only has to enforce the shape. Mirrors the `dateString` regex in
+ * `lib/validation/events.ts`.
  */
 export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD.");
+
+/** A household-local wall-clock time on the due day; always 24-hour `HH:MM` on the wire. */
+export const timeOnlySchema = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour HH:MM time.");
 
 /** A task's flat checklist, in display order. At most 50 items. */
 export const checklistInputSchema = z
@@ -32,8 +38,10 @@ export const createTaskSchema = z.object({
   title: z.string().trim().min(1, "Give the task a title.").max(200),
   notes: z.string().max(2000).nullish(),
   collectionId: z.string().min(1).optional(),
-  scheduledOn: dateOnlySchema.nullish(),
+  /** The task's only date; absent means Someday. */
   dueOn: dateOnlySchema.nullish(),
+  /** Optional time on `dueOn`; a time without a date is rejected by the service. */
+  dueTime: timeOnlySchema.nullish(),
   priority: prioritySchema.optional(),
   // Derived from the domain's active pair, so a future active status cannot be
   // forgotten here (a hand-copied enum would drift silently).

@@ -12,7 +12,7 @@ import type { CreateTaskInput } from "@/lib/validation/tasks";
 import { cn } from "@/lib/utils";
 
 interface Props {
-  /** Household zone, so Shift+Enter schedules the household's today. */
+  /** Household zone, so Shift+Enter sets the due date to the household's today. */
   timezone: string;
   /** Target list; omitted means the server files the task in the Inbox. */
   collectionId?: string;
@@ -39,7 +39,7 @@ interface Props {
 
 /**
  * The ClickUp-style add-task row: one input, `Enter` captures into the Inbox
- * (or the supplied list and status), `Shift+Enter` also schedules it for the
+ * (or the supplied list and status), `Shift+Enter` also sets its due date to the
  * household's today. The text is cleared only after the create succeeds, so a
  * failed capture never loses what was typed. The id and test id are both
  * `task-capture` by default: the id keeps the v0.2.0 e2e selector working while
@@ -64,7 +64,7 @@ export function TaskCaptureRow({
   const columnStatus = status === "open" || status === "in_progress" ? status : null;
   const hintId = `${inputId}-hint`;
 
-  function capture(scheduleToday: boolean): void {
+  function capture(dueToday: boolean): void {
     const value = title.trim();
     if (value.length === 0 || createTask.isPending) {
       return;
@@ -76,8 +76,8 @@ export function TaskCaptureRow({
     if (columnStatus !== null) {
       input.status = columnStatus;
     }
-    if (scheduleToday) {
-      input.scheduledOn = localToday(timezone);
+    if (dueToday) {
+      input.dueOn = localToday(timezone);
     }
     createTask.mutate(input, {
       onSuccess: ({ task }) => {
@@ -121,8 +121,8 @@ export function TaskCaptureRow({
       </div>
       <p id={hintId} className="sr-only">
         {columnStatus === null
-          ? "Enter adds the task to Inbox. Shift+Enter also schedules it for today."
-          : `Enter adds the task to ${TASK_STATUS_LABELS[columnStatus]}. Shift+Enter also schedules it for today.`}
+          ? "Enter adds the task to Inbox. Shift+Enter also sets its due date to today."
+          : `Enter adds the task to ${TASK_STATUS_LABELS[columnStatus]}. Shift+Enter also sets its due date to today.`}
       </p>
     </div>
   );

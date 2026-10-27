@@ -25,8 +25,8 @@ export function deletedTaskCreateInput(task: TaskView): CreateTaskInput {
     title: task.title,
     notes: task.notes,
     collectionId: task.collectionId,
-    scheduledOn: task.scheduledOn,
     dueOn: task.dueOn,
+    dueTime: task.dueTime,
     priority: task.priority,
   };
   if (task.status === "in_progress") {

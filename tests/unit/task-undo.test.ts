@@ -16,8 +16,9 @@ function makeTask(overrides: Partial<TaskView> = {}): TaskView {
     notes: null,
     status: "open",
     priority: "none",
-    scheduledOn: null,
     dueOn: null,
+    dueTime: null,
+    overdue: false,
     completedAt: null,
     droppedAt: null,
     sortOrder: 0,
@@ -36,13 +37,13 @@ const CHECKLIST = [
 ];
 
 describe("deletedTaskCreateInput", () => {
-  it("carries title, notes, dates, list and priority for an open task", () => {
+  it("carries title, notes, the due date and time, list and priority for an open task", () => {
     const task = makeTask({
       title: "Buy milk",
       notes: "Semi-skimmed",
       collectionId: "c9",
-      scheduledOn: "2026-10-27",
       dueOn: "2026-10-28",
+      dueTime: "18:30",
       priority: "normal",
     });
 
@@ -52,13 +53,15 @@ describe("deletedTaskCreateInput", () => {
       title: "Buy milk",
       notes: "Semi-skimmed",
       collectionId: "c9",
-      scheduledOn: "2026-10-27",
       dueOn: "2026-10-28",
+      dueTime: "18:30",
       priority: "normal",
     });
     // `open` is the server default: sending it would be a status the create
     // schema accepts but the round trip never needs.
     expect(input).not.toHaveProperty("status");
+    // The retired schedule is gone: a re-created task has exactly one deadline.
+    expect(input).not.toHaveProperty("scheduledOn");
   });
 
   it("always carries priority, including the default level", () => {
@@ -69,7 +72,11 @@ describe("deletedTaskCreateInput", () => {
   });
 
   it("sends in_progress in the create body, because POST accepts the active pair", () => {
-    const task = makeTask({ status: "in_progress", priority: "urgent" });
+    const task = makeTask({
+      status: "in_progress",
+      priority: "urgent",
+      dueOn: "2026-10-29",
+    });
 
     const input = deletedTaskCreateInput(task);
 
@@ -77,8 +84,8 @@ describe("deletedTaskCreateInput", () => {
       title: task.title,
       notes: task.notes,
       collectionId: task.collectionId,
-      scheduledOn: task.scheduledOn,
-      dueOn: task.dueOn,
+      dueOn: "2026-10-29",
+      dueTime: task.dueTime,
       priority: "urgent",
       status: "in_progress",
     });

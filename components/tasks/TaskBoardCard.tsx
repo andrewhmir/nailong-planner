@@ -13,17 +13,22 @@ import {
 import { MoreVerticalIcon } from "@/components/ui/icons";
 import { isHueFamily, shadeTokens } from "@/lib/color/palette";
 import type { TaskView } from "@/lib/services/tasks";
+import type { TimeFormat } from "@/lib/services/preferences";
 import { setBoardDragPayload } from "@/lib/ui/taskBoardDrag";
 import { cn } from "@/lib/utils";
-import { TaskDateChips } from "./TaskDateChips";
+import { TaskDueChip } from "./TaskDueChip";
 import { TaskPriorityFlag } from "./TaskPriorityFlag";
 import { TaskStatusPill } from "./TaskStatusPill";
 import type { TaskActions, WritableList } from "./types";
 
 interface Props {
   task: TaskView;
-  /** Household-local today, for the date chips' pickers and overdue cue. */
+  /** Household-local today, for the due chip's picker and compact date. */
   today: string;
+  /** The household 12/24-hour preference for the due chip's time label. */
+  timeFormat: TimeFormat;
+  /** Household zone, for the due chip's shared time picker. */
+  timezone: string;
   /** True when this card is the triage layer's current selection. */
   selected: boolean;
   /** Fired by any focus inside the card, so clicking or tabbing selects it. */
@@ -48,7 +53,16 @@ interface Props {
  * — deliberately not the row's `text/x-nailong-task` payload, which plans a task
  * on a day. A column drop calls the shell's `onStatus`; the card never PATCHes.
  */
-export function TaskBoardCard({ task, today, selected, onFocus, actions, moveTargets }: Props) {
+export function TaskBoardCard({
+  task,
+  today,
+  timeFormat,
+  timezone,
+  selected,
+  onFocus,
+  actions,
+  moveTargets,
+}: Props) {
   const hue = task.collection.hueFamily;
   const dot =
     hue !== null && isHueFamily(hue)
@@ -137,12 +151,15 @@ export function TaskBoardCard({ task, today, selected, onFocus, actions, moveTar
       </div>
 
       <div className="flex flex-wrap items-center gap-1">
-        <TaskDateChips
-          scheduledOn={task.scheduledOn}
+        <TaskDueChip
           dueOn={task.dueOn}
+          dueTime={task.dueTime}
+          overdue={task.overdue}
           today={today}
           title={task.title}
-          onChange={actions.onDates}
+          timeFormat={timeFormat}
+          timezone={timezone}
+          onChange={actions.onDue}
         />
       </div>
     </li>

@@ -10,6 +10,7 @@ import { filterTasks, groupTasks, sortTasks } from "@/lib/domain/taskViews";
 import { useCollections } from "@/lib/query/collections";
 import { useCreateTask, useDeleteTask, useTasks, useUpdateTask } from "@/lib/query/tasks";
 import { canWriteCollection, foldCollectionPermission } from "@/lib/services/permissions";
+import type { TimeFormat } from "@/lib/services/preferences";
 import type { TaskView } from "@/lib/services/tasks";
 import { taskDeepLinkAction } from "@/lib/ui/taskDeepLink";
 import { deletedTaskCreateInput, deletedTaskRestorePatch } from "@/lib/ui/taskUndo";
@@ -40,6 +41,8 @@ interface Props {
   weekStartsOn: 0 | 1;
   /** Every page-scoped task key is inert when the user turned shortcuts off. */
   shortcutsEnabled: boolean;
+  /** The household 12/24-hour preference, forwarded to every due chip. */
+  timeFormat: TimeFormat;
   currentUserId: string;
 }
 
@@ -129,7 +132,7 @@ function sameTaskViewState(a: TaskViewState, b: TaskViewState): boolean {
  * changes from either layout — the pill, the board menu, a column drop — share
  * `patchStatus`, so the toast/undo contract cannot differ by surface.
  */
-export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUserId }: Props) {
+export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeFormat, currentUserId }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Same one-shot contract for an absent and an empty `?task=`.
@@ -527,30 +530,25 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     });
   }
 
-  /** Date change + the PATCH that puts both dates back where they were. */
-  function patchSchedule(
+  /** Due change + the PATCH that puts the previous date and time back. */
+  function patchDue(
     target: TaskView,
-    input: Pick<UpdateTaskInput, "scheduledOn" | "dueOn">,
+    input: Pick<UpdateTaskInput, "dueOn" | "dueTime">,
     message: string,
   ): void {
     patch(target, input, {
-      failure:
-        input.dueOn !== undefined
-          ? input.scheduledOn !== undefined
-            ? "Could not update the task dates."
-            : "Could not update the due date."
-          : "Could not schedule the task.",
+      failure: "Could not update the due date.",
       onSuccess: (saved) => {
-        if (saved.scheduledOn === target.scheduledOn && saved.dueOn === target.dueOn) {
+        if (saved.dueOn === target.dueOn && saved.dueTime === target.dueTime) {
           return;
         }
         const handle = pushUndo({
-          label: "Schedule task",
+          label: "Set due date",
           undo: async () => {
             await updateTask.mutateAsync({
               id: target.id,
-              scheduledOn: target.scheduledOn,
               dueOn: target.dueOn,
+              dueTime: target.dueTime,
             });
           },
         });
@@ -708,27 +706,23 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
       return;
     }
     if (bucket === 1) {
-      patchSchedule(selectedTask, { scheduledOn: today }, "Task scheduled");
+      patchDue(selectedTask, { dueOn: today }, "Due today");
       return;
     }
     if (bucket === 2) {
       // D6: on the last day of the household week this equals today, so the task
       // lands in Today rather than silently into next week.
-      patchSchedule(
-        selectedTask,
-        { scheduledOn: endOfWeek(today, weekStartsOn) },
-        "Task scheduled",
-      );
+      patchDue(selectedTask, { dueOn: endOfWeek(today, weekStartsOn) }, "Due this week");
       return;
     }
-    // `3` ("Someday"): clearing both dates is the only state change — an
-    // undated task is already in Someday whichever list holds it.
+    // `3` ("Someday"): clearing the due date (and its time) is the only state
+    // change — an undated task is already in Someday whichever list holds it.
     const action = resolveSomedayTriage({
-      scheduledOn: selectedTask.scheduledOn,
       dueOn: selectedTask.dueOn,
+      dueTime: selectedTask.dueTime,
     });
-    if (action.kind === "clear-dates") {
-      patchSchedule(selectedTask, { scheduledOn: null, dueOn: null }, "Task unscheduled");
+    if (action.kind === "clear-due") {
+      patchDue(selectedTask, { dueOn: null, dueTime: null }, "Due date cleared");
       return;
     }
     toast(ALREADY_SOMEDAY);
@@ -771,12 +765,18 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     }
   }
 
-  /** Toast copy for a chip change; the chips send exactly one date field. */
-  function dateMessage(patch: { scheduledOn?: string | null; dueOn?: string | null }): string {
-    if (patch.dueOn !== undefined) {
-      return patch.dueOn === null ? "Due date cleared" : "Due date updated";
+  /**
+   * Toast copy for a chip change. The single due chip sends a date, a time, or
+   * both (clearing the date also clears the time in the same PATCH).
+   */
+  function dueMessage(patch: { dueOn?: string | null; dueTime?: string | null }): string {
+    if (patch.dueOn === null) {
+      return "Due date cleared";
     }
-    return patch.scheduledOn === null ? "Task unscheduled" : "Task scheduled";
+    if (patch.dueOn !== undefined) {
+      return "Due date updated";
+    }
+    return patch.dueTime === null ? "Due time cleared" : "Due time updated";
   }
 
   /** The row/card/panel callbacks, bound to one task. */
@@ -786,7 +786,7 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
       onTitle: (title) => patchTitle(task, title),
       onStatus: (status) => patchStatus(task, status),
       onPriority: (priority) => patchPriority(task, priority),
-      onDates: (patch) => patchSchedule(task, patch, dateMessage(patch)),
+      onDue: (patch) => patchDue(task, patch, dueMessage(patch)),
       onMove: (collectionId) => patchMove(task, collectionId),
       onDrop: () => patchStatus(task, "dropped"),
       onDelete: () => deleteTaskWithUndo(task),
@@ -881,6 +881,7 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
             <TaskBoard
               tasks={rows}
               today={today}
+              timeFormat={timeFormat}
               timezone={timezone}
               selectedId={selectedTaskId}
               closed={state.closed}
@@ -893,6 +894,8 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
             <TaskList
               groups={groups}
               today={today}
+              timeFormat={timeFormat}
+              timezone={timezone}
               selectedId={selectedTaskId}
               onFocus={setSelectedTaskId}
               actionsFor={actionsFor}
@@ -914,6 +917,8 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
         <TaskPanel
           task={panelTask}
           today={today}
+          timeFormat={timeFormat}
+          timezone={timezone}
           onClose={closeEditor}
           moveTargets={moveTargets}
           actions={{

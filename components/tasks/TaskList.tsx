@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 import type { TaskGroup } from "@/lib/domain/taskViews";
 import type { TaskView } from "@/lib/services/tasks";
+import type { TimeFormat } from "@/lib/services/preferences";
 import { TaskGroupHeader } from "./TaskGroupHeader";
 import { TaskRow } from "./TaskRow";
 import type { TaskActions, WritableList } from "./types";
@@ -11,6 +12,10 @@ interface Props {
   /** `sortTasks` output already split by `groupTasks`; empty groups are omitted. */
   groups: TaskGroup<TaskView>[];
   today: string;
+  /** The household 12/24-hour preference, forwarded to every row's due chip. */
+  timeFormat: TimeFormat;
+  /** Household zone, for every row's shared time picker. */
+  timezone: string;
   selectedId: string | null;
   onFocus(id: string): void;
   /**
@@ -46,6 +51,8 @@ interface Props {
 export function TaskList({
   groups,
   today,
+  timeFormat,
+  timezone,
   selectedId,
   onFocus,
   actionsFor,
@@ -99,6 +106,8 @@ export function TaskList({
                   key={task.id}
                   task={task}
                   today={today}
+                  timeFormat={timeFormat}
+                  timezone={timezone}
                   selected={task.id === selectedId}
                   onFocus={() => onFocus(task.id)}
                   actions={actionsFor(task)}

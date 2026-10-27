@@ -73,22 +73,30 @@ describe("resolveTaskShortcut", () => {
 });
 
 describe("resolveSomedayTriage", () => {
-  it("clears both dates when either one is set", () => {
-    expect(resolveSomedayTriage({ scheduledOn: "2026-10-26", dueOn: null })).toEqual({
-      kind: "clear-dates",
+  it("clears the due date when one is set", () => {
+    expect(resolveSomedayTriage({ dueOn: "2026-10-26", dueTime: null })).toEqual({
+      kind: "clear-due",
     });
-    expect(resolveSomedayTriage({ scheduledOn: null, dueOn: "2026-10-30" })).toEqual({
-      kind: "clear-dates",
+    expect(resolveSomedayTriage({ dueOn: "2026-10-26", dueTime: "18:30" })).toEqual({
+      kind: "clear-due",
     });
-    expect(resolveSomedayTriage({ scheduledOn: "2026-10-26", dueOn: "2026-10-30" })).toEqual({
-      kind: "clear-dates",
+    expect(resolveSomedayTriage({ dueOn: "2026-10-30", dueTime: null })).toEqual({
+      kind: "clear-due",
+    });
+  });
+
+  it("clears on a stray time too, so no time can outlive its date", () => {
+    // The service rejects a time without a date, so this is not a stored state;
+    // the pure decision table still treats any residue as work for `3` to clear.
+    expect(resolveSomedayTriage({ dueOn: null, dueTime: "18:30" })).toEqual({
+      kind: "clear-due",
     });
   });
 
   it("reports an undated task as already in Someday", () => {
     // The Inbox is no longer a bucket, so there is no list to file it into and
     // no "already unscheduled" outcome: the row is simply already Someday.
-    expect(resolveSomedayTriage({ scheduledOn: null, dueOn: null })).toEqual({
+    expect(resolveSomedayTriage({ dueOn: null, dueTime: null })).toEqual({
       kind: "already-someday",
     });
   });

@@ -416,9 +416,9 @@ export function CalendarShell({
     return (taskData?.tasks ?? []).filter(
       (task) =>
         isActiveStatus(task.status) &&
-        task.scheduledOn !== null &&
-        task.scheduledOn >= from &&
-        task.scheduledOn < to &&
+        task.dueOn !== null &&
+        task.dueOn >= from &&
+        task.dueOn < to &&
         visibleIds.has(task.collectionId),
     );
   }, [range, taskData, timezone, visibleIds]);

@@ -6,9 +6,9 @@ import { hasOpenOverlay, isTextEntryTarget } from "./shortcutGuards";
 /**
  * The `/tasks` keyboard triage layer (spec §7.9): `j`/`k` move the selected row,
  * `1`/`2`/`3` triage it into Today / the end of this week / Someday (`3` clears
- * both dates, so a dated task drops back to Someday), `4` moves it to the next
- * writable list, `x` completes it, `Enter` opens it, `?` shows the shortcut list
- * and `Escape` clears the selection.
+ * the due date and its time, so a dated task drops back to Someday), `4` moves
+ * it to the next writable list, `x` completes it, `Enter` opens it, `?` shows
+ * the shortcut list and `Escape` clears the selection.
  *
  * The calendar's `useKeyboardShortcuts` owns the same letters on `/`; both hooks
  * are page-scoped, so only the page currently mounted sees them. The key map is
@@ -94,20 +94,20 @@ export function resolveTaskShortcut(event: KeyboardEvent): TaskShortcutAction | 
   }
 }
 
-export type SomedayTriageAction = { kind: "clear-dates" } | { kind: "already-someday" };
+export type SomedayTriageAction = { kind: "clear-due" } | { kind: "already-someday" };
 
 /**
- * What `3` ("Someday") should do to the selected row. A dated task is cleared
- * back to undated, which is what puts it in Someday whatever list holds it. An
- * already-undated task is already in Someday, so the gesture only says so
+ * What `3` ("Someday") should do to the selected row. A dated task has its due
+ * date (and time) cleared, which is what puts it in Someday whatever list holds
+ * it. An already-undated task is already in Someday, so the gesture only says so
  * instead of issuing a no-op PATCH.
  */
 export function resolveSomedayTriage(input: {
-  scheduledOn: string | null;
   dueOn: string | null;
+  dueTime: string | null;
 }): SomedayTriageAction {
-  return input.scheduledOn !== null || input.dueOn !== null
-    ? { kind: "clear-dates" }
+  return input.dueOn !== null || input.dueTime !== null
+    ? { kind: "clear-due" }
     : { kind: "already-someday" };
 }
 

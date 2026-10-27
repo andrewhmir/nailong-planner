@@ -164,11 +164,12 @@ async function main(): Promise<void> {
 
   // Tasks. The three time views are seeded from the household's own dates (the
   // Week view can be empty on the household week's last day): two undated Inbox
-  // captures (Someday), a task for today, one for the end of the household week,
-  // a Someday project task, an overdue deadline, a finished task, a shared-list
-  // task and two tasks in Andrew's private Journal. On the last day of the week
-  // `weekEnd === today`, so the "week" task lands in Today (plan ruling R1);
-  // that is still the honest week-end date.
+  // captures (Someday), a task due today, one due at the end of the household
+  // week (date-only), a Someday project task, a timed deadline that is always
+  // overdue (yesterday at 09:00, so no test depends on the wall clock), a
+  // finished task, a shared-list task and two tasks in Andrew's private Journal.
+  // On the last day of the week `weekEnd === today`, so the "week" task lands in
+  // Today (plan ruling R1); that is still the honest week-end date.
   const inboxOne = createTask(db, andrew, {
     title: "Call the plumber",
     collectionId: andrewInbox.id,
@@ -180,12 +181,12 @@ async function main(): Promise<void> {
   const todayTask = createTask(db, andrew, {
     title: "Take out the recycling",
     collectionId: andrewInbox.id,
-    scheduledOn: today,
+    dueOn: today,
   });
   const weekTask = createTask(db, andrew, {
     title: "Plan the weekend groceries",
     collectionId: andrewInbox.id,
-    scheduledOn: weekEnd,
+    dueOn: weekEnd,
   });
   const somedayTask = createTask(db, andrew, {
     title: "Draft the garden plan",
@@ -201,6 +202,7 @@ async function main(): Promise<void> {
     title: "Renew the passport",
     collectionId: errands.id,
     dueOn: yesterday,
+    dueTime: "09:00",
   });
   const doneTask = createTask(db, andrew, {
     title: "Water the plants",

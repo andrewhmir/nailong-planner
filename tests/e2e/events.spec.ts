@@ -54,18 +54,18 @@ test("task chips join a day's stack without breaking +N more or event drag", asy
   const today = householdToday();
   // Days 2–5 are never a seeded event day (the 15th/20th) nor a day another spec
   // pins a task chip on (the 10th–13th). The seed itself schedules a chip on
-  // today and on the end of the household week, so read the already-scheduled
-  // dates from the API instead of assuming the week ends late in the month.
+  // today and on the end of the household week, so read the already-due dates
+  // from the API instead of assuming the week ends late in the month.
   const tasksResponse = await page.request.get("/api/tasks?view=all");
   expect(tasksResponse.ok()).toBeTruthy();
-  const scheduledDays = new Set(
-    ((await tasksResponse.json()) as { tasks: Array<{ scheduledOn: string | null }> }).tasks
-      .map((task) => task.scheduledOn)
+  const dueDays = new Set(
+    ((await tasksResponse.json()) as { tasks: Array<{ dueOn: string | null }> }).tasks
+      .map((task) => task.dueOn)
       .filter((date): date is string => date !== null),
   );
   const quietDays = [2, 3, 4, 5]
     .map((day) => dayInMonth(today, day))
-    .filter((date) => date !== today && !scheduledDays.has(date));
+    .filter((date) => date !== today && !dueDays.has(date));
   const [chipDay, dragDay] = quietDays;
   expect(chipDay).toBeTruthy();
   expect(dragDay).toBeTruthy();
@@ -94,7 +94,7 @@ test("task chips join a day's stack without breaking +N more or event drag", asy
       const task = ((await created.json()) as { task: { id: string } }).task;
       createdIds.push(task.id);
       const planned = await page.request.patch(`/api/tasks/${task.id}`, {
-        data: { scheduledOn: chipDay },
+        data: { dueOn: chipDay },
       });
       expect(planned.ok()).toBeTruthy();
     }

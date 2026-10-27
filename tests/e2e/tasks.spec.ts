@@ -12,8 +12,8 @@ interface ApiTask {
   status: string;
   priority: string;
   collectionId: string;
-  scheduledOn: string | null;
   dueOn: string | null;
+  dueTime: string | null;
 }
 
 interface ApiCounts {
@@ -286,12 +286,12 @@ test("grouping, sorting, hide-closed and the Done filter change the painted rows
   const dueNew = await createTask(page, {
     title: dueNewTitle,
     collectionId: fixtures.collections.andrewInbox,
-    scheduledOn: addDaysToDate(today, -1),
+    dueOn: addDaysToDate(today, -1),
   });
   const dueOld = await createTask(page, {
     title: dueOldTitle,
     collectionId: fixtures.collections.andrewInbox,
-    scheduledOn: addDaysToDate(today, -2),
+    dueOn: addDaysToDate(today, -2),
   });
 
   await openTasks(page);
@@ -444,12 +444,12 @@ test("keyboard triage works and typing in the capture row does not fire it", asy
   );
   await page.locator("#task-capture").fill("");
 
-  // `2` schedules the selected row to the end of the household week; it leaves
-  // Someday (Today or Week owns it now).
+  // `2` sets the selected row's due date to the end of the household week; it
+  // leaves Someday (Today or Week owns it now).
   await rowById(page, scheduleTask.id).focus();
   await page.keyboard.press("2");
-  await expect(toast(page, "Task scheduled")).toBeVisible();
-  await expect.poll(async () => (await apiTask(page, scheduleTask.id)).scheduledOn).not.toBeNull();
+  await expect(toast(page, "Due this week")).toBeVisible();
+  await expect.poll(async () => (await apiTask(page, scheduleTask.id)).dueOn).not.toBeNull();
   await expect(rowById(page, scheduleTask.id)).toHaveCount(0);
 
   // `x` completes the selected row.

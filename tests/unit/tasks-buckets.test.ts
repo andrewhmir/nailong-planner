@@ -6,6 +6,7 @@ import {
   endOfWeek,
   isActiveStatus,
   isOverdue,
+  localTimeOfDay,
   localToday,
   priorityRank,
   TASK_ACTIVE_STATUSES,
@@ -16,13 +17,13 @@ import {
 } from "@/lib/domain/tasks";
 
 /**
- * Derived task buckets and scopes (spec D6 + ruling 29). Every expectation is
- * pinned to real calendar dates: 2026-10-21 is a Wednesday and 2026-10-25 is a
- * Sunday. A Sunday-started week ends on Saturday 2026-10-31; a Monday-started
- * week ends on Sunday 2026-10-25, because Sunday is its seventh and last day.
- * The bucket anchor is the earliest of `scheduledOn`/`dueOn`, so a past-due task
- * is never stranded by a later schedule. A bucket is a time horizon only: the
- * list that holds the task (the Inbox included) never changes it.
+ * Derived task buckets and scopes (spec D6 + ruling 29, due-date-only follow-up).
+ * Every expectation is pinned to real calendar dates: 2026-10-21 is a Wednesday
+ * and 2026-10-25 is a Sunday. A Sunday-started week ends on Saturday 2026-10-31;
+ * a Monday-started week ends on Sunday 2026-10-25, because Sunday is its seventh
+ * and last day. A task has exactly one date — its due date — so the bucket anchor
+ * is `dueOn` itself. A bucket is a time horizon only: the list that holds the
+ * task (the Inbox included) never changes it.
  */
 
 const TODAY = "2026-10-21";
@@ -32,12 +33,11 @@ const PROJECT_ID = "list-project";
 
 const ctx: BucketContext = { today: TODAY, endOfWeek: END_OF_WEEK };
 
-type BucketFields = Pick<TaskRow, "status" | "scheduledOn" | "dueOn">;
+type BucketFields = Pick<TaskRow, "status" | "dueOn">;
 
 function task(overrides: Partial<BucketFields> = {}): BucketFields {
   return {
     status: overrides.status ?? "open",
-    scheduledOn: overrides.scheduledOn ?? null,
     dueOn: overrides.dueOn ?? null,
   };
 }
@@ -64,8 +64,6 @@ describe("endOfWeek", () => {
   it("ends a Monday-started week on Sunday", () => {
     // The week containing Sun 2026-10-25 starts Mon 2026-10-19, so that Sunday
     // is already the last day; Mon 2026-10-26 opens the week ending 2026-11-01.
-    // (The plan's example pins 2026-11-01 for Sun 2026-10-25, which would make
-    // that week 14 days long and contradict D6's "last day of the week" case.)
     expect(endOfWeek("2026-10-25", 1)).toBe("2026-10-25");
     expect(endOfWeek("2026-10-19", 1)).toBe("2026-10-25");
     expect(endOfWeek("2026-10-21", 1)).toBe("2026-10-25");
@@ -74,9 +72,9 @@ describe("endOfWeek", () => {
 });
 
 describe("bucketOf", () => {
-  it("returns null for a task that is no longer open", () => {
-    expect(bucketOfTask({ status: "done", scheduledOn: TODAY })).toBeNull();
-    expect(bucketOfTask({ status: "dropped", scheduledOn: TODAY })).toBeNull();
+  it("returns null for a task that is no longer active", () => {
+    expect(bucketOfTask({ status: "done", dueOn: TODAY })).toBeNull();
+    expect(bucketOfTask({ status: "dropped", dueOn: TODAY })).toBeNull();
     expect(bucketOfTask({ status: "done" })).toBeNull();
   });
 
@@ -89,53 +87,55 @@ describe("bucketOf", () => {
     expect(bucketOf(projectRow, ctx)).toBe("someday");
   });
 
-  it("buckets a dated task by its dates", () => {
+  it("puts a due date of today or earlier in today", () => {
     expect(bucketOfTask({ dueOn: TODAY })).toBe("today");
-    expect(bucketOfTask({ scheduledOn: "2026-10-23" })).toBe("week");
+    expect(bucketOfTask({ dueOn: "2026-10-20" })).toBe("today");
+    expect(bucketOfTask({ dueOn: "2026-01-01" })).toBe("today");
   });
 
-  it("puts scheduled work dated today or earlier in today", () => {
-    expect(bucketOfTask({ scheduledOn: TODAY })).toBe("today");
-    expect(bucketOfTask({ scheduledOn: "2026-10-20" })).toBe("today");
-  });
-
-  it("puts a due-only task in today or week, not someday", () => {
-    // A deadline with no schedule is still work to do, so the absent
-    // `scheduledOn` must not demote it to someday.
-    expect(bucketOfTask({ dueOn: TODAY })).toBe("today");
-    expect(bucketOfTask({ dueOn: "2026-10-19" })).toBe("today");
+  it("puts a due date after today up to the end of the week in week", () => {
     expect(bucketOfTask({ dueOn: "2026-10-22" })).toBe("week");
-  });
-
-  it("puts work dated after today up to the end of the week in week", () => {
-    expect(bucketOfTask({ scheduledOn: "2026-10-22" })).toBe("week");
-    expect(bucketOfTask({ scheduledOn: END_OF_WEEK })).toBe("week");
     expect(bucketOfTask({ dueOn: END_OF_WEEK })).toBe("week");
   });
 
-  it("anchors on the earliest of the schedule and the deadline", () => {
-    // A later schedule must not hide work that is already overdue or due today,
-    // and the deadline alone is a commitment when nothing scheduled the task.
-    expect(bucketOfTask({ scheduledOn: "2026-10-26", dueOn: "2026-10-20" })).toBe("today");
-    expect(bucketOfTask({ scheduledOn: "2026-10-26", dueOn: TODAY })).toBe("today");
-    expect(bucketOfTask({ scheduledOn: "2026-10-26", dueOn: "2026-11-02" })).toBeNull();
-    expect(bucketOfTask({ scheduledOn: "2026-10-23", dueOn: TODAY })).toBe("today");
-  });
-
-  it("leaves work dated beyond this week in no bucket", () => {
-    expect(bucketOfTask({ scheduledOn: "2026-10-26" })).toBeNull();
+  it("leaves work due beyond this week in no bucket", () => {
+    expect(bucketOfTask({ dueOn: "2026-10-26" })).toBeNull();
     expect(bucketOfTask({ dueOn: "2026-11-02" })).toBeNull();
   });
 });
 
 describe("isOverdue", () => {
-  it("is true only for an open task whose due date is strictly before today", () => {
-    expect(isOverdue({ status: "open", dueOn: "2026-10-20" }, TODAY)).toBe(true);
-    expect(isOverdue({ status: "open", dueOn: TODAY }, TODAY)).toBe(false);
-    expect(isOverdue({ status: "open", dueOn: "2026-10-22" }, TODAY)).toBe(false);
-    expect(isOverdue({ status: "open", dueOn: null }, TODAY)).toBe(false);
-    expect(isOverdue({ status: "done", dueOn: "2026-10-20" }, TODAY)).toBe(false);
-    expect(isOverdue({ status: "dropped", dueOn: "2026-10-20" }, TODAY)).toBe(false);
+  it("is true for an active task due before today, whatever its time", () => {
+    expect(isOverdue({ status: "open", dueOn: "2026-10-20", dueTime: null }, TODAY, "00:00")).toBe(
+      true,
+    );
+    expect(
+      isOverdue({ status: "open", dueOn: "2026-10-20", dueTime: "23:59" }, TODAY, "00:00"),
+    ).toBe(true);
+  });
+
+  it("treats a date-only due today as not overdue until the day passes", () => {
+    expect(isOverdue({ status: "open", dueOn: TODAY, dueTime: null }, TODAY, "23:59")).toBe(false);
+  });
+
+  it("is overdue only after the due minute passes", () => {
+    expect(isOverdue({ status: "open", dueOn: TODAY, dueTime: "09:00" }, TODAY, "14:00")).toBe(true);
+    // Equal to the due minute is still on time; the deadline is inclusive.
+    expect(isOverdue({ status: "open", dueOn: TODAY, dueTime: "09:00" }, TODAY, "09:00")).toBe(false);
+    expect(isOverdue({ status: "open", dueOn: TODAY, dueTime: "18:00" }, TODAY, "14:00")).toBe(false);
+  });
+
+  it("is false for an undated, closed or future task", () => {
+    expect(isOverdue({ status: "open", dueOn: null, dueTime: null }, TODAY, "14:00")).toBe(false);
+    expect(isOverdue({ status: "open", dueOn: "2026-10-22", dueTime: null }, TODAY, "14:00")).toBe(
+      false,
+    );
+    expect(
+      isOverdue({ status: "done", dueOn: "2026-10-20", dueTime: null }, TODAY, "14:00"),
+    ).toBe(false);
+    expect(
+      isOverdue({ status: "dropped", dueOn: "2026-10-20", dueTime: null }, TODAY, "14:00"),
+    ).toBe(false);
   });
 });
 
@@ -144,6 +144,14 @@ describe("localToday", () => {
     // 2026-10-24T17:00Z is 01:00 on 2026-10-25 in Taipei (Review Focus 3).
     expect(localToday("Asia/Taipei", Date.UTC(2026, 9, 24, 17, 0))).toBe("2026-10-25");
     expect(localToday("UTC", Date.UTC(2026, 9, 24, 17, 0))).toBe("2026-10-24");
+  });
+});
+
+describe("localTimeOfDay", () => {
+  it("reads the household-local wall clock as HH:MM", () => {
+    expect(localTimeOfDay("Asia/Taipei", Date.UTC(2026, 9, 24, 17, 0))).toBe("01:00");
+    expect(localTimeOfDay("UTC", Date.UTC(2026, 9, 24, 17, 5))).toBe("17:05");
+    expect(localTimeOfDay("UTC", Date.UTC(2026, 9, 24, 7, 9))).toBe("07:09");
   });
 });
 
@@ -160,15 +168,19 @@ describe("active statuses", () => {
   it("buckets in_progress tasks like open ones", () => {
     // Same fields, same bucket as an open task: the status is not a second rule.
     expect(bucketOf(task({ status: "in_progress" }), ctx)).toBe("someday");
-    expect(bucketOf(task({ status: "in_progress", scheduledOn: TODAY }), ctx)).toBe("today");
-    expect(isOverdue({ status: "in_progress", dueOn: "2026-10-20" }, TODAY)).toBe(true);
-    expect(isOverdue({ status: "in_progress", dueOn: TODAY }, TODAY)).toBe(false);
+    expect(bucketOf(task({ status: "in_progress", dueOn: TODAY }), ctx)).toBe("today");
+    expect(
+      isOverdue({ status: "in_progress", dueOn: "2026-10-20", dueTime: null }, TODAY, "14:00"),
+    ).toBe(true);
+    expect(isOverdue({ status: "in_progress", dueOn: TODAY, dueTime: null }, TODAY, "14:00")).toBe(
+      false,
+    );
   });
 });
 
 describe("bucketOfIncludingClosed", () => {
   it("gives closed tasks a bucket only through bucketOfIncludingClosed", () => {
-    const done = task({ status: "done", scheduledOn: "2026-10-21" });
+    const done = task({ status: "done", dueOn: "2026-10-21" });
     expect(bucketOf(done, ctx)).toBeNull();
     expect(bucketOfIncludingClosed(done, ctx)).toBe("today");
     const undatedDone = task({ status: "done" });
@@ -178,14 +190,7 @@ describe("bucketOfIncludingClosed", () => {
     ).toBeNull();
   });
 
-  it("applies the same earliest-anchor rule to a closed task", () => {
-    // The later schedule must not hide the deadline that already passed.
-    expect(
-      bucketOfIncludingClosed(
-        task({ status: "done", scheduledOn: "2026-10-26", dueOn: TODAY }),
-        ctx,
-      ),
-    ).toBe("today");
+  it("keeps an undated closed task in someday", () => {
     expect(bucketOfIncludingClosed(task({ status: "dropped" }), ctx)).toBe("someday");
   });
 });

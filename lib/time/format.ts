@@ -198,3 +198,18 @@ export function formatWallDate(date: string): string {
   }
   return `${weekdayName(date)}, ${parsed.day} ${monthName(date)} ${parsed.year}`;
 }
+
+/**
+ * A compact wall date for a row chip: "Tue 27 Oct", with the year appended only
+ * when it differs from the reference household date (the picker's `today`).
+ * Unparseable values come back untouched.
+ */
+export function formatShortWallDate(date: string, referenceDate: string): string {
+  const parsed = parseDate(date);
+  if (!parsed) {
+    return date;
+  }
+  const reference = parseDate(referenceDate);
+  const year = reference !== null && reference.year === parsed.year ? "" : ` ${parsed.year}`;
+  return `${weekdayName(date)} ${parsed.day} ${monthName(date)}${year}`;
+}
