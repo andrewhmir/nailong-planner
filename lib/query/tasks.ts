@@ -7,7 +7,7 @@ import {
   type QueryClient,
   type QueryKey,
 } from "@tanstack/react-query";
-import type { TaskBucket } from "@/lib/domain/tasks";
+import type { TaskScope } from "@/lib/domain/tasks";
 import { patchTasksEntry, type TasksCacheData } from "@/lib/query/taskCache";
 import type { TaskCountSummary, TaskView } from "@/lib/services/tasks";
 import type { CreateTaskInput, ReorderTasksInput, UpdateTaskInput } from "@/lib/validation/tasks";
@@ -28,14 +28,14 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 /**
- * Every task the viewer may see for a view (or one list), plus the rail counts.
- * `view` defaults to `"all"` (the calendar grid and the list's initial paint);
+ * Every task the viewer may see for a scope (or one list), plus the rail counts.
+ * `view` defaults to `"all"` (the bare `/tasks` and the calendar grid);
  * `includeClosed` opts into `done`/`dropped` rows. The key always carries the
  * effective values, so an omitted filter and `"all"` share one cache entry and
  * the open and closed-row variants never overwrite each other.
  */
 export function useTasks(
-  view?: TaskBucket | "all",
+  view?: TaskScope,
   collectionId?: string,
   includeClosed?: boolean,
 ) {

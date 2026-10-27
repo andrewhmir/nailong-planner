@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { TaskPriority, TaskStatus } from "@/lib/db/schema";
-import { TASK_BUCKETS, endOfWeek, localToday, type TaskBucket } from "@/lib/domain/tasks";
+import { endOfWeek, localToday, type TaskScope } from "@/lib/domain/tasks";
 import { filterTasks, groupTasks, sortTasks } from "@/lib/domain/taskViews";
 import { useCollections } from "@/lib/query/collections";
 import { useCreateTask, useDeleteTask, useTasks, useUpdateTask } from "@/lib/query/tasks";
@@ -14,7 +14,9 @@ import type { TaskView } from "@/lib/services/tasks";
 import { taskDeepLinkAction } from "@/lib/ui/taskDeepLink";
 import { deletedTaskCreateInput, deletedTaskRestorePatch } from "@/lib/ui/taskUndo";
 import {
+  mergeTaskScopeParams,
   mergeTaskViewParams,
+  parseTaskScope,
   parseTaskViewState,
   type TaskViewState,
 } from "@/lib/ui/taskViewParams";
@@ -29,7 +31,7 @@ import { TaskList } from "./TaskList";
 import { TaskPanel } from "./TaskPanel";
 import { TaskShortcutHelpDialog } from "./TaskShortcutHelpDialog";
 import { TaskToolbar } from "./TaskToolbar";
-import { TASK_BUCKET_LABELS, TaskViewTabs } from "./TaskViewTabs";
+import { TASK_SCOPE_LABELS, TaskViewTabs } from "./TaskViewTabs";
 import type { TaskActions, WritableList } from "./types";
 
 interface Props {
@@ -42,10 +44,8 @@ interface Props {
 
 /** The no-other-list toast: the `4` gesture is a no-op with a single list. */
 const NO_OTHER_LIST = "No other writable list to move to.";
-/** Key `3` on an already-undated Inbox task has three honest outcomes. */
-const FILED_TO_SOMEDAY = "Filed to Someday";
+/** Key `3` on an already-undated task: it is already in Someday. */
 const ALREADY_SOMEDAY = "Already in Someday";
-const ALREADY_UNSCHEDULED = "Already unscheduled";
 
 /** Stack label + success toast for each status transition (undo is the reverse). */
 const STATUS_COPY: Record<TaskStatus, { label: string; message: string }> = {
@@ -57,12 +57,6 @@ const STATUS_COPY: Record<TaskStatus, { label: string; message: string }> = {
 
 /** One deep-link lookup: the task, or the message the settle site should toast. */
 type DeepLinkResult = { ok: true; task: TaskView } | { ok: false; error: string };
-
-/** The `?view=` scope from a URL; anything unknown falls back to the default Inbox. */
-function scopeFromSearch(params: URLSearchParams): TaskBucket {
-  const value = params.get("view");
-  return TASK_BUCKETS.includes(value as TaskBucket) ? (value as TaskBucket) : "inbox";
-}
 
 /**
  * The deep link's single `GET /api/tasks/{id}`. It resolves instead of toasting
@@ -111,9 +105,9 @@ function sameTaskViewState(a: TaskViewState, b: TaskViewState): boolean {
  * `TaskViewState` (layout/group/sort/closed/filters) is the single URL-backed
  * state: it is parsed once from `useSearchParams`, written with `router.replace`
  * through `mergeTaskViewParams` on every toolbar change, and re-parsed when the
- * URL changes underneath (Back/Forward). The scope (Inbox/Today/Week/Someday) is
- * URL state as well (`?view=`), and switching it clears the selection while
- * keeping the rest of the URL state. Rows are a pure projection:
+ * URL changes underneath (Back/Forward). The scope (All/Today/Week/Someday) is
+ * URL state as well (`?view=`, omitted for All), and switching it clears the
+ * selection while keeping the rest of the URL state. Rows are a pure projection:
  * `sortTasks(filterTasks(...))`. The list renders it through `groupTasks`; the
  * board gets the same sorted array and splits it by status, so a filter/sort
  * change drives both layouts identically.
@@ -143,9 +137,9 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     parseTaskViewState(new URLSearchParams(searchParams.toString())),
   );
   // The scope is URL state too (`?view=`), so a pasted `/tasks?view=today` link
-  // and Back/Forward land on the same bucket the tab bar shows.
-  const [view, setView] = useState<TaskBucket>(() =>
-    scopeFromSearch(new URLSearchParams(searchParams.toString())),
+  // and Back/Forward land on the same tab the tab bar shows. Absent means All.
+  const [view, setView] = useState<TaskScope>(() =>
+    parseTaskScope(new URLSearchParams(searchParams.toString())),
   );
   // Group collapse is a paint-only concern, but the shell owns it because
   // keyboard traversal must skip rows the user cannot see. Default: every group
@@ -202,7 +196,7 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   if (searchKey !== syncedSearchKey) {
     const params = new URLSearchParams(searchKey);
     const fromUrl = parseTaskViewState(params);
-    const nextView = scopeFromSearch(params);
+    const nextView = parseTaskScope(params);
     setSyncedSearchKey(searchKey);
     if (!sameTaskViewState(state, fromUrl)) {
       setState(fromUrl);
@@ -269,8 +263,8 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
 
   // A calendar task chip navigates to `/tasks?task=<id>`: open that task's
   // panel. The current view's rows are preferred (they are the live snapshot
-  // the panel expects); otherwise one GET covers a task that is not in the
-  // open bucket yet — and a scheduled task is never in the Inbox view, so that
+  // the panel expects); otherwise one GET covers a task outside the current
+  // scope — e.g. one dated beyond this week while Someday is open — so that
   // GET is the normal path, not a fallback. A missing/unreadable task toasts
   // and drops the param.
   //
@@ -403,13 +397,15 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
    * Write the next toolbar state to both React and the URL. `replace`, never
    * `push`: toolbar changes are view state, so Back should leave `/tasks`
    * instead of undoing each click. `mergeTaskViewParams` preserves `view`/`task`
-   * and drops default-valued keys.
+   * and drops default-valued keys; `mergeTaskScopeParams` then writes a real
+   * scope and deletes `view` for All.
    */
   function updateState(next: TaskViewState): void {
     setState(next);
-    const params = mergeTaskViewParams(new URLSearchParams(searchParams.toString()), next);
-    // Keep the scope in the URL even when it was the implicit default.
-    params.set("view", view);
+    const params = mergeTaskScopeParams(
+      mergeTaskViewParams(new URLSearchParams(searchParams.toString()), next),
+      view,
+    );
     const query = params.toString();
     router.replace(query.length > 0 ? `/tasks?${query}` : "/tasks");
   }
@@ -419,9 +415,11 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
     if (taskParam === null) {
       return;
     }
-    const params = mergeTaskViewParams(new URLSearchParams(searchParams.toString()), state);
+    const params = mergeTaskScopeParams(
+      mergeTaskViewParams(new URLSearchParams(searchParams.toString()), state),
+      view,
+    );
     params.delete("task");
-    params.set("view", view);
     const query = params.toString();
     router.replace(query.length > 0 ? `/tasks?${query}` : "/tasks");
   }
@@ -595,15 +593,17 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
   }
 
   /** A scope switch keeps the URL-backed toolbar state but drops the selection. */
-  function changeScope(next: TaskBucket): void {
+  function changeScope(next: TaskScope): void {
     // A selection is only meaningful against the rows of the view it was made
     // in; keeping the id would leave an invisible selection behind the switch.
     setView(next);
     setSelectedTaskId(null);
-    const params = mergeTaskViewParams(new URLSearchParams(searchParams.toString()), state);
-    params.set("view", next);
+    const params = mergeTaskScopeParams(
+      mergeTaskViewParams(new URLSearchParams(searchParams.toString()), state),
+      next,
+    );
     const query = params.toString();
-    router.replace(`/tasks?${query}`);
+    router.replace(query.length > 0 ? `/tasks?${query}` : "/tasks");
   }
 
   /**
@@ -702,31 +702,17 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
       );
       return;
     }
-    // `3` ("Someday"): clearing dates is a no-op on an Inbox task that is
-    // already undated, so that case files it into the next writable list
-    // instead — which is what actually moves it out of the Inbox.
-    const target = nextListTarget(selectedTask);
+    // `3` ("Someday"): clearing both dates is the only state change — an
+    // undated task is already in Someday whichever list holds it.
     const action = resolveSomedayTriage({
       scheduledOn: selectedTask.scheduledOn,
       dueOn: selectedTask.dueOn,
-      view,
-      hasOtherWritableList: target !== null,
     });
     if (action.kind === "clear-dates") {
       patchSchedule(selectedTask, { scheduledOn: null, dueOn: null }, "Task unscheduled");
       return;
     }
-    if (action.kind === "file-to-list") {
-      if (target) {
-        patchMove(selectedTask, target.id, FILED_TO_SOMEDAY);
-      }
-      return;
-    }
-    if (action.kind === "already-someday") {
-      toast(ALREADY_SOMEDAY);
-      return;
-    }
-    toast(ALREADY_UNSCHEDULED);
+    toast(ALREADY_SOMEDAY);
   }
 
   /** The next writable list after the task's own, wrapping; `null` when there is none. */
@@ -871,7 +857,7 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, currentUs
           Loading tasks…
         </p>
       ) : (
-        <div ref={listRef} role="group" aria-label={`${TASK_BUCKET_LABELS[view]} tasks`}>
+        <div ref={listRef} role="group" aria-label={`${TASK_SCOPE_LABELS[view]} tasks`}>
           {state.layout === "board" ? (
             <TaskBoard
               tasks={rows}

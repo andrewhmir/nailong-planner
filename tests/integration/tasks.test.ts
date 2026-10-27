@@ -265,7 +265,7 @@ describe("createTask", () => {
 });
 
 describe("listTasks", () => {
-  it("filters the four D6 buckets and reports global counts for both week starts", async () => {
+  it("filters the three D6 buckets and reports global counts for both week starts", async () => {
     const seeded = await makeSeededDb();
     const { db, close, ctxA } = seeded;
     const { shared } = makeLists(seeded);
@@ -300,23 +300,26 @@ describe("listTasks", () => {
 
       const monday = listTasks(db, ctxA, filterInput({ timezone: TIMEZONE, weekStartsOn: 1 }));
       expect(ids(monday.tasks)).toHaveLength(7);
-      expect(monday.counts).toEqual({ inbox: 1, today: 2, week: 2, someday: 1, overdue: 1 });
+      // `all` is every active row; the undated Inbox capture is Someday now.
+      expect(monday.counts).toEqual({ all: 7, today: 2, week: 2, someday: 2, overdue: 1 });
 
       const sundayWeek = listTasks(db, ctxA, filterInput({ timezone: TIMEZONE, weekStartsOn: 0 }));
       // Sunday 2026-10-25 is beyond a Sunday-started week, so it belongs to no
       // bucket and only `view: "all"` shows it.
-      expect(sundayWeek.counts).toEqual({ inbox: 1, today: 2, week: 1, someday: 1, overdue: 1 });
+      expect(sundayWeek.counts).toEqual({ all: 7, today: 2, week: 1, someday: 2, overdue: 1 });
 
       const buckets = {
-        inbox: filterInput({ weekStartsOn: 1 as const, view: "inbox" as const }),
         today: filterInput({ weekStartsOn: 1 as const, view: "today" as const }),
         week: filterInput({ weekStartsOn: 1 as const, view: "week" as const }),
         someday: filterInput({ weekStartsOn: 1 as const, view: "someday" as const }),
       };
-      expect(ids(listTasks(db, ctxA, buckets.inbox).tasks)).toEqual([inboxTask.id]);
       expect(ids(listTasks(db, ctxA, buckets.today).tasks)).toEqual([today.id, overdue.id]);
       expect(ids(listTasks(db, ctxA, buckets.week).tasks)).toEqual([week.id, sunday.id]);
-      expect(ids(listTasks(db, ctxA, buckets.someday).tasks)).toEqual([someday.id]);
+      // The undated Inbox capture and the undated project task share Someday;
+      // both carry sortOrder 0, so the tie is by id - compare as a set.
+      expect(new Set(ids(listTasks(db, ctxA, buckets.someday).tasks))).toEqual(
+        new Set([someday.id, inboxTask.id]),
+      );
 
       const mondayWeek = listTasks(db, ctxA, filterInput({ weekStartsOn: 1, view: "week" }));
       expect(ids(mondayWeek.tasks)).toEqual([week.id, sunday.id]);
@@ -374,7 +377,7 @@ describe("listTasks", () => {
       });
       updateTask(db, ctxA, done.id, { status: "done" });
 
-      for (const view of ["inbox", "today", "week", "someday", "all"] as const) {
+      for (const view of ["today", "week", "someday", "all"] as const) {
         const result = listTasks(db, ctxA, filterInput({ view, weekStartsOn: 1 }));
         expect(result.counts.overdue).toBe(1);
         expect(ids(result.tasks)).not.toContain(done.id);
@@ -396,7 +399,7 @@ describe("listTasks", () => {
 
       const partner = listTasks(db, ctxB, filterInput({ view: "all" }));
       expect(partner.tasks).toEqual([]);
-      expect(partner.counts).toEqual({ inbox: 0, today: 0, week: 0, someday: 0, overdue: 0 });
+      expect(partner.counts).toEqual({ all: 0, today: 0, week: 0, someday: 0, overdue: 0 });
       expect(listTasks(db, ctxOther, filterInput({ view: "all" })).tasks).toEqual([]);
 
       // The owner still sees it.
@@ -1055,7 +1058,7 @@ describe("includeClosed", () => {
 
       const all = listTasks(db, ctxA, filterInput({ view: "all", includeClosed: true }));
       expect(ids(all.tasks)).toContain(doneNextMonth.id);
-      expect(all.counts).toEqual({ inbox: 0, today: 0, week: 0, someday: 0, overdue: 0 });
+      expect(all.counts).toEqual({ all: 0, today: 0, week: 0, someday: 0, overdue: 0 });
     } finally {
       close();
     }
@@ -1085,10 +1088,10 @@ describe("getTaskCountSummary", () => {
       updateTask(db, ctxA, done.id, { status: "done" });
 
       const summary = getTaskCountSummary(db, ctxA, { timezone: TIMEZONE, weekStartsOn: 0 });
-      // The inbox row is undated in the Inbox; the past-due row also buckets to
-      // today; the owner's own private task is undated outside the Inbox, so it
-      // adds a second Someday; the finished row contributes nothing.
-      expect(summary.counts).toEqual({ inbox: 1, today: 2, week: 0, someday: 2, overdue: 1 });
+      // Five active rows. The undated Inbox capture, the undated shared row and
+      // the owner's undated private row are all Someday; the scheduled and the
+      // past-due rows are Today; the finished row contributes nothing.
+      expect(summary.counts).toEqual({ all: 5, today: 2, week: 0, someday: 3, overdue: 1 });
       expect(summary.byCollection).toEqual({
         [inboxTask.collectionId]: 1,
         [shared.id]: 3,
@@ -1099,7 +1102,7 @@ describe("getTaskCountSummary", () => {
       expect(Object.values(summary.byCollection).every((count) => count > 0)).toBe(true);
 
       const partner = getTaskCountSummary(db, ctxB, { timezone: TIMEZONE, weekStartsOn: 0 });
-      expect(partner.counts).toEqual({ inbox: 0, today: 2, week: 0, someday: 1, overdue: 1 });
+      expect(partner.counts).toEqual({ all: 3, today: 2, week: 0, someday: 1, overdue: 1 });
       expect(partner.byCollection).toEqual({ [shared.id]: 3 });
       expect(partner.byCollection[privateList.id]).toBeUndefined();
       expect(partner.byCollection[inboxTask.collectionId]).toBeUndefined();

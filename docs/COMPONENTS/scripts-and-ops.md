@@ -291,7 +291,7 @@ Migrations are plain Drizzle SQL in `drizzle/`. `lib/db/migrate.ts` wraps `drizz
 
 ### scripts/seed-test-db.mts
 
-**Purpose** — Builds the deterministic world every E2E spec runs against: two users, ten calendars across both owners, six task lists (a private Inbox per user, the shared `Ours` list, Andrew's shared `Errands`, the partner's shared `Projects`, Andrew's private `Journal`), four events in the current month, ten tasks spread across the buckets (including one done task; the Week bucket can collapse into Today on the week's last day — ruling R1), and a fixtures file the specs read ids from.
+**Purpose** — Builds the deterministic world every E2E spec runs against: two users, ten calendars across both owners, six task lists (a private Inbox per user, the shared `Ours` list, Andrew's shared `Errands`, the partner's shared `Projects`, Andrew's private `Journal`), four events in the current month, ten tasks spread across the time views (there is no Inbox bucket: an undated Inbox capture is Someday; including one done task; the Week view can collapse into Today on the week's last day — ruling R1), and a fixtures file the specs read ids from.
 
 **Invocation / wiring** — `npm run test:e2e` runs `tsx scripts/seed-test-db.mts && playwright test`, so a seeding failure stops the run. Re-run it alone with `npx tsx scripts/seed-test-db.mts` before `npx playwright test <spec>`. It forces `DATABASE_URL=file:./.playwright/test.db`, `BETTER_AUTH_URL=http://localhost:3100`, a fixed Better Auth secret and `TZ=Asia/Taipei` after loading `.env.local`.
 

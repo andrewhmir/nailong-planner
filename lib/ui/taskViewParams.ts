@@ -1,4 +1,5 @@
 import type { TaskPriority, TaskStatus } from "@/lib/db/schema";
+import { TASK_SCOPES, type TaskScope } from "@/lib/domain/tasks";
 import {
   TASK_PRIORITY_ORDER,
   TASK_STATUS_ORDER,
@@ -10,12 +11,13 @@ import {
 /**
  * Pure URL codec for the `/tasks` toolbar state (spec §6).
  *
- * The page owns `?view=` (scope) and `?task=` (panel deep link); this module owns
- * the rest: `layout`, `group`, `sort`, `closed=1`, comma-joined `status` and
- * `priority`, and `list=<collectionId>`. Defaults are omitted from the URL so a
- * bare `/tasks` stays clean, and unknown enum values fall back to those defaults
- * rather than throwing: a stale bookmark or a hand-edited URL must not break the
- * page.
+ * This module owns `layout`, `group`, `sort`, `closed=1`, comma-joined `status`
+ * and `priority`, `list=<collectionId>`, and the scope codec (`parseTaskScope` /
+ * `mergeTaskScopeParams`). The page owns `?task=` (the panel deep link). Defaults
+ * are omitted from the URL so a bare `/tasks` stays clean — including `view`:
+ * the default scope is `all`, which is never written. Unknown enum values fall
+ * back to those defaults rather than throwing: a stale bookmark or a hand-edited
+ * URL must not break the page (a retired `view=inbox` opens All).
  *
  * All functions are pure over `URLSearchParams` — no React, no router, no DOM.
  * The caller mirrors the merged result with `router.replace()` (never `push()`):
@@ -49,11 +51,14 @@ export const DEFAULT_TASK_VIEW_STATE: TaskViewState = {
   collectionId: null,
 };
 
+/** The default scope: the bare `/tasks` is All, so `view` is never written for it. */
+export const DEFAULT_TASK_SCOPE: TaskScope = "all";
+
 const TASK_LAYOUTS: readonly TaskLayout[] = ["list", "board"];
 const GROUP_BYS: readonly GroupBy[] = ["status", "priority", "list"];
 const TASK_SORTS: readonly TaskSort[] = ["manual", "priority", "due", "created", "title"];
 
-/** The keys this module writes; `view`/`task` are page-owned and left alone. */
+/** The keys this module writes; `view`/`task` are left alone by the merge. */
 const MANAGED_PARAMS = [
   "layout",
   "group",
@@ -96,6 +101,30 @@ function parseEnumList<T extends string>(raw: string | null, allowed: readonly T
 }
 
 /**
+ * Reads the scope from `?view=`. Absent, unknown and retired values fall back to
+ * `all`, so an old `?view=inbox` bookmark opens the All scope instead of
+ * breaking; the API rejects `inbox` with a `400 VALIDATION` if a client sends it.
+ */
+export function parseTaskScope(params: URLSearchParams): TaskScope {
+  return parseEnum(params.get("view"), TASK_SCOPES, DEFAULT_TASK_SCOPE);
+}
+
+/**
+ * Returns a **new** `URLSearchParams` carrying `base`'s params with `view`
+ * written for a real scope and **deleted** for `all`, so switching Today → All
+ * cannot leave a stale `view=today` behind. The argument is never mutated.
+ */
+export function mergeTaskScopeParams(base: URLSearchParams, scope: TaskScope): URLSearchParams {
+  const params = new URLSearchParams(base);
+  if (scope === DEFAULT_TASK_SCOPE) {
+    params.delete("view");
+  } else {
+    params.set("view", scope);
+  }
+  return params;
+}
+
+/**
  * Reads a `/tasks` URL into the toolbar state. `layout`, `group` and `sort` fall
  * back to their defaults (as do the individual filter values); `closed` is on
  * only for the literal `1`; an empty `list` is no list filter.
@@ -114,7 +143,7 @@ export function parseTaskViewState(params: URLSearchParams): TaskViewState {
 }
 
 /**
- * Returns a **new** `URLSearchParams` carrying `base`'s page-owned params
+ * Returns a **new** `URLSearchParams` carrying `base`'s unmanaged params
  * (`view`, `task`, and anything else) plus `state`. Every managed key is deleted
  * first, so a stale `layout=board` cannot survive a return to the default, and
  * only non-default values are written back. The argument is never mutated.

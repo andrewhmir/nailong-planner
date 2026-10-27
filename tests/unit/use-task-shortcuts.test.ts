@@ -73,34 +73,22 @@ describe("resolveTaskShortcut", () => {
 });
 
 describe("resolveSomedayTriage", () => {
-  const base = {
-    scheduledOn: null,
-    dueOn: null,
-    view: "inbox" as const,
-    hasOtherWritableList: true,
-  };
-
-  it("clears either date before it considers filing", () => {
-    expect(resolveSomedayTriage({ ...base, scheduledOn: "2026-10-26" })).toEqual({
+  it("clears both dates when either one is set", () => {
+    expect(resolveSomedayTriage({ scheduledOn: "2026-10-26", dueOn: null })).toEqual({
       kind: "clear-dates",
     });
-    expect(resolveSomedayTriage({ ...base, dueOn: "2026-10-30" })).toEqual({
+    expect(resolveSomedayTriage({ scheduledOn: null, dueOn: "2026-10-30" })).toEqual({
+      kind: "clear-dates",
+    });
+    expect(resolveSomedayTriage({ scheduledOn: "2026-10-26", dueOn: "2026-10-30" })).toEqual({
       kind: "clear-dates",
     });
   });
 
-  it("files an already-undated Inbox task into another writable list", () => {
-    expect(resolveSomedayTriage(base)).toEqual({ kind: "file-to-list" });
-  });
-
-  it("says Already unscheduled when the Inbox has no other writable list", () => {
-    expect(resolveSomedayTriage({ ...base, hasOtherWritableList: false })).toEqual({
-      kind: "already-unscheduled",
-    });
-  });
-
-  it("reports an undated task outside the Inbox as already in Someday", () => {
-    expect(resolveSomedayTriage({ ...base, view: "someday" })).toEqual({
+  it("reports an undated task as already in Someday", () => {
+    // The Inbox is no longer a bucket, so there is no list to file it into and
+    // no "already unscheduled" outcome: the row is simply already Someday.
+    expect(resolveSomedayTriage({ scheduledOn: null, dueOn: null })).toEqual({
       kind: "already-someday",
     });
   });

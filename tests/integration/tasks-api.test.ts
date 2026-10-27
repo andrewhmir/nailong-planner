@@ -50,27 +50,37 @@ async function setup() {
 }
 
 describe("task API", () => {
-  it("returns the filtered tasks with counts covering every visible open task", async () => {
+  it("returns the filtered tasks with counts covering every visible active task", async () => {
     const { db, close, ctxA, shared } = await setup();
     try {
       const inboxTask = createTask(db, ctxA, { title: "Buy milk" });
       const somedayTask = createTask(db, ctxA, { collectionId: shared.id, title: "Water plants" });
 
-      const inbox = await listTasksHandler(
+      // An undated Inbox capture is Someday now, exactly like a project task.
+      const someday = await listTasksHandler(
         db,
         ctxA,
-        jsonRequest("/api/tasks?view=inbox", "GET"),
+        jsonRequest("/api/tasks?view=someday", "GET"),
       );
-      expect(inbox.status).toBe(200);
-      const inboxPayload = await body<{ tasks: TaskView[]; counts: TaskCounts }>(inbox);
-      expect(inboxPayload.tasks.map((task) => task.id)).toEqual([inboxTask.id]);
-      expect(inboxPayload.counts).toEqual({
-        inbox: 1,
+      expect(someday.status).toBe(200);
+      const somedayPayload = await body<{ tasks: TaskView[]; counts: TaskCounts }>(someday);
+      expect(new Set(somedayPayload.tasks.map((task) => task.id))).toEqual(
+        new Set([inboxTask.id, somedayTask.id]),
+      );
+      expect(somedayPayload.counts).toEqual({
+        all: 2,
         today: 0,
         week: 0,
-        someday: 1,
+        someday: 2,
         overdue: 0,
       });
+
+      // A bare request is the All scope: the default lists every active task.
+      const all = await body<{ tasks: TaskView[]; counts: TaskCounts }>(
+        await listTasksHandler(db, ctxA, jsonRequest("/api/tasks", "GET")),
+      );
+      expect(all.tasks).toHaveLength(2);
+      expect(all.counts).toEqual(somedayPayload.counts);
 
       // The collection filter narrows `tasks` only; the rail badges stay global.
       const narrowed = await listTasksHandler(
@@ -80,26 +90,30 @@ describe("task API", () => {
       );
       const narrowedPayload = await body<{ tasks: TaskView[]; counts: TaskCounts }>(narrowed);
       expect(narrowedPayload.tasks.map((task) => task.id)).toEqual([somedayTask.id]);
-      expect(narrowedPayload.counts).toEqual(inboxPayload.counts);
+      expect(narrowedPayload.counts).toEqual(somedayPayload.counts);
     } finally {
       close();
     }
   });
 
-  it("rejects an unknown view with a field error", async () => {
+  it("rejects an unknown or retired view with a field error", async () => {
     const { db, close, ctxA } = await setup();
     try {
-      const response = await listTasksHandler(
-        db,
-        ctxA,
-        jsonRequest("/api/tasks?view=later", "GET"),
-      );
-      expect(response.status).toBe(400);
-      const payload = await body<{ error: { code: string; fields?: Record<string, string> } }>(
-        response,
-      );
-      expect(payload.error.code).toBe("VALIDATION");
-      expect(payload.error.fields?.view).toBeTruthy();
+      // `inbox` was a bucket in v0.2.0; it is not a scope now, so the wire
+      // contract rejects it instead of silently reading as All.
+      for (const view of ["later", "inbox"]) {
+        const response = await listTasksHandler(
+          db,
+          ctxA,
+          jsonRequest(`/api/tasks?view=${view}`, "GET"),
+        );
+        expect(response.status).toBe(400);
+        const payload = await body<{ error: { code: string; fields?: Record<string, string> } }>(
+          response,
+        );
+        expect(payload.error.code).toBe("VALIDATION");
+        expect(payload.error.fields?.view).toBeTruthy();
+      }
     } finally {
       close();
     }
@@ -249,7 +263,7 @@ describe("task API", () => {
         await listTasksHandler(db, ctxA, jsonRequest("/api/tasks?view=today", "GET")),
       );
       expect(today.tasks.map((task) => task.id)).toEqual([todayTask.id]);
-      expect(today.counts).toEqual({ inbox: 0, today: 1, week: 1, someday: 0, overdue: 0 });
+      expect(today.counts).toEqual({ all: 2, today: 1, week: 1, someday: 0, overdue: 0 });
 
       const week = await body<{ tasks: TaskView[] }>(
         await listTasksHandler(db, ctxA, jsonRequest("/api/tasks?view=week", "GET")),
@@ -315,7 +329,7 @@ describe("task API", () => {
         await listTasksHandler(db, ctxA, jsonRequest("/api/tasks?view=today", "GET")),
       );
       expect(open.tasks).toHaveLength(0);
-      expect(open.counts).toEqual({ inbox: 0, today: 0, week: 0, someday: 0, overdue: 0 });
+      expect(open.counts).toEqual({ all: 0, today: 0, week: 0, someday: 0, overdue: 0 });
 
       const withClosed = await body<{ tasks: TaskView[]; counts: TaskCounts }>(
         await listTasksHandler(
@@ -366,14 +380,14 @@ describe("task API", () => {
       const own = await body<{ counts: TaskCounts; byCollection: Record<string, number> }>(
         await taskCountsHandler(db, ctxA),
       );
-      expect(own.counts).toEqual({ inbox: 0, today: 0, week: 0, someday: 2, overdue: 0 });
+      expect(own.counts).toEqual({ all: 2, today: 0, week: 0, someday: 2, overdue: 0 });
       expect(own.byCollection[shared.id]).toBe(1);
       expect(own.byCollection[privateList.id]).toBe(1);
 
       const partner = await body<{ counts: TaskCounts; byCollection: Record<string, number> }>(
         await taskCountsHandler(db, ctxB),
       );
-      expect(partner.counts).toEqual({ inbox: 0, today: 0, week: 0, someday: 1, overdue: 0 });
+      expect(partner.counts).toEqual({ all: 1, today: 0, week: 0, someday: 1, overdue: 0 });
       expect(partner.byCollection[shared.id]).toBe(1);
       expect(partner.byCollection[privateList.id]).toBeUndefined();
     } finally {

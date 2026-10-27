@@ -303,12 +303,12 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 ### lib/ui/useTaskShortcuts.ts
 
-**Purpose** — The `/tasks` page's keyboard triage layer: `j`/`k` move the row selection, `1`/`2`/`3` triage into Today / the end of this week / Someday, `4` moves to the next writable list, `x` completes, `Enter` opens, `?` lists the keys and `Escape` clears the selection. `3` clears both dates, but because an Inbox task is already undated it files that row into the next writable list instead (the same path as `4`), which is what actually moves it out of the Inbox and into Someday. It is page-scoped like the calendar hook: the calendar's `j`/`k` still mean period navigation on `/`, and the task keys do nothing there because the hook is mounted by `TasksShell` only.
+**Purpose** — The `/tasks` page's keyboard triage layer: `j`/`k` move the row selection, `1`/`2`/`3` triage into Today / the end of this week / Someday, `4` moves to the next writable list, `x` completes, `Enter` opens, `?` lists the keys and `Escape` clears the selection. `3` clears both dates, so a dated row drops back to Someday; an already-undated row is told `Already in Someday` instead of issuing a no-op PATCH. It is page-scoped like the calendar hook: the calendar's `j`/`k` still mean period navigation on `/`, and the task keys do nothing there because the hook is mounted by `TasksShell` only.
 
 **Public API**
 - `type TaskShortcutAction = { kind: "move"; delta: 1 | -1 } | { kind: "bucket"; bucket: 1 | 2 | 3 } | { kind: "next-list" } | { kind: "complete" } | { kind: "open" } | { kind: "help" } | { kind: "escape" }`.
 - `interface TaskShortcutHandlers { onMoveSelection(delta: 1 | -1); onBucket(bucket: 1 | 2 | 3); onNextList(); onComplete(); onOpen(); onHelp(); onEscape(); }`.
-- `type SomedayTriageAction = { kind: "clear-dates" } | { kind: "file-to-list" } | { kind: "already-someday" } | { kind: "already-unscheduled" }` and `resolveSomedayTriage({ scheduledOn, dueOn, view, hasOtherWritableList }): SomedayTriageAction` — the **pure** decision table behind `3`; the shell owns the PATCH/toast.
+- `type SomedayTriageAction = { kind: "clear-dates" } | { kind: "already-someday" }` and `resolveSomedayTriage({ scheduledOn, dueOn }): SomedayTriageAction` — the **pure** decision table behind `3` (no view or list id: an undated task is Someday in every list); the shell owns the PATCH/toast.
 - `resolveTaskShortcut(event: KeyboardEvent): TaskShortcutAction | null` — the **pure** key map; no DOM reads and no side effects.
 - `useTaskShortcuts(enabled: boolean, handlers: TaskShortcutHandlers): void`.
 
@@ -319,7 +319,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 | `j` / `k` | `move` +1 / -1 | Clamped by the shell; from no selection `j` starts at the first row and `k` at the last. |
 | `1` | `bucket` 1 | `scheduledOn = localToday(timezone)`. |
 | `2` | `bucket` 2 | `scheduledOn = endOfWeek(today, weekStartsOn)`; on the household week's last day this equals today, so the task appears in Today (D6). |
-| `3` | `bucket` 3 | Dated task: clears both `scheduledOn` and `dueOn`. Already-undated Inbox task: files it into the next writable list and toasts `Filed to Someday`; with no other writable list it toasts `Already unscheduled`. Already-undated outside the Inbox: toasts `Already in Someday`. |
+| `3` | `bucket` 3 | Dated task: clears both `scheduledOn` and `dueOn`, so it drops back to Someday. Already-undated task: toasts `Already in Someday` (no PATCH). |
 | `4` | `next-list` | Cycles through the viewer's writable `kind="list"` collections; the shell toasts when there is no other list. |
 | `x` | `complete` | PATCHes `status: "done"`. |
 | `Enter` | `open` | Calls the shell's `openTask`, which opens `TaskPanel` for the selection. |
@@ -340,7 +340,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 - Task keys fire on the calendar -> `useTaskShortcuts` moved out of `TasksShell` into `AppShell`/a server layout -> the hook must stay page-scoped.
 - Pressing `Enter` does nothing -> the focused element is a button/menu item (native activation wins) or no row is selected -> `TasksShell`'s `openSelection`, or this file's native-activation guard.
 
-**Tests** — `tests/unit/use-task-shortcuts.test.ts` (every mapping, modifiers, repeats, shifted keys, Caps Lock, unknown keys, and the `resolveSomedayTriage` table: clear-dates, file-to-list, already-unscheduled, already-someday); the guard side is in `tests/unit/shortcut-guards.test.ts`; the end-to-end triage flow is scenario 2 of `tests/e2e/tasks.spec.ts`.
+**Tests** — `tests/unit/use-task-shortcuts.test.ts` (every mapping, modifiers, repeats, shifted keys, Caps Lock, unknown keys, and the `resolveSomedayTriage` table: clear-dates for either/both dates, already-someday for an undated row); the guard side is in `tests/unit/shortcut-guards.test.ts`; the end-to-end triage flow is scenario 2 of `tests/e2e/tasks.spec.ts`.
 
 ### lib/ui/useMediaQuery.ts
 
@@ -453,19 +453,21 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 ### lib/ui/taskViewParams.ts
 
-**Purpose** — The pure URL codec for the `/tasks` toolbar: read `layout`, `group`, `sort`, `closed`, `status`, `priority` and `list` into a `TaskViewState`, fall back to the defaults for missing or unknown values, and merge the state back while leaving the page-owned `view` and `task` params (and any other unknown params) untouched. It is the module of record for spec §6's "all non-`view` params are client state mirrored with `router.replace`".
+**Purpose** — The pure URL codec for the `/tasks` toolbar: read `layout`, `group`, `sort`, `closed`, `status`, `priority` and `list` into a `TaskViewState`, fall back to the defaults for missing or unknown values, and merge the state back while leaving `?task=` and any other unknown params untouched. It is also the scope codec: `parseTaskScope` reads `?view=` (absent, unknown and the retired `inbox` all mean All) and `mergeTaskScopeParams` writes a real scope or deletes `view` for All. It is the module of record for spec §6's "all non-`view` params are client state mirrored with `router.replace`".
 
 **Public API**
 - `interface TaskViewState { layout: TaskLayout; group: GroupBy; sort: TaskSort; closed: boolean; status: TaskStatus[]; priority: TaskPriority[]; collectionId: string | null }`.
 - `DEFAULT_TASK_VIEW_STATE` — `{ layout: "list", group: "status", sort: "manual", closed: false, status: [], priority: [], collectionId: null }`.
 - `parseTaskViewState(params: URLSearchParams): TaskViewState` — `layout`/`group`/`sort` only accept their enum members, otherwise they default; `closed` is true only for the literal `closed=1`; `status`/`priority` are comma-separated, trimmed, filtered to `TASK_STATUS_ORDER`/`TASK_PRIORITY_ORDER`, and de-duplicated in first-seen order; `list` is the `collectionId` and an empty value is `null`. `view`/`task` are ignored by design.
 - `mergeTaskViewParams(base: URLSearchParams, state: TaskViewState): URLSearchParams` — returns a new `URLSearchParams` (never mutates `base`): it deletes every managed key (`layout`, `group`, `sort`, `closed`, `status`, `priority`, `list`) and writes back only non-defaults — `layout`/`group`/`sort` when they differ from the default, `closed=1` when closed rows are shown, comma-joined `status`/`priority` when non-empty, and `list=<id>` when a collection is selected.
+- `DEFAULT_TASK_SCOPE: TaskScope = "all"`; `parseTaskScope(params: URLSearchParams): TaskScope` — a valid `view` wins, everything else (absent, unknown, `inbox`) falls back to `all`.
+- `mergeTaskScopeParams(base: URLSearchParams, scope: TaskScope): URLSearchParams` — returns a new params object with `view=<scope>` for today/week/someday and `view` **deleted** for `all`, so switching Today → All cannot leave a stale `view=today` in the URL.
 
 **State & side effects** — None: pure over its arguments; a fresh params object and fresh arrays on every call, no storage, no React, no router. The caller owns the URL write.
 
-**Replace, never push** — Toolbar changes must call `router.replace` with `mergeTaskViewParams(searchParams, state)`, not `router.push`: spec §6 makes the non-`view` params view state, so Back must leave `/tasks` instead of stepping through every filter change, while a reload or a shared URL restores the same layout/group/sort/filters. `view` and `task` survive the merge precisely so switching scope or closing the panel does not drop the other params.
+**Replace, never push** — Toolbar changes must call `router.replace` with `mergeTaskViewParams(searchParams, state)`, not `router.push`: spec §6 makes the non-`view` params view state, so Back must leave `/tasks` instead of stepping through every filter change, while a reload or a shared URL restores the same layout/group/sort/filters. `view` and `task` survive the toolbar merge precisely so switching scope or closing the panel does not drop the other params; the scope itself is then written by `mergeTaskScopeParams`, which deletes `view` for All.
 
-**Depends on / Used by** — `TaskLayout`, `GroupBy`, `TaskSort`, `TASK_STATUS_ORDER` and `TASK_PRIORITY_ORDER` from `lib/domain/taskViews`; `TaskStatus`/`TaskPriority` types from `lib/db/schema`. Used by `components/tasks/TasksShell.tsx` (the shell parses the initial state, re-parses it on every URL change, and writes it back through `updateState`/`changeScope`/`clearTaskParam`) and rendered from by `components/tasks/TaskToolbar.tsx` (`TaskViewState` only).
+**Depends on / Used by** — `TaskLayout`, `GroupBy`, `TaskSort`, `TASK_STATUS_ORDER` and `TASK_PRIORITY_ORDER` from `lib/domain/taskViews`; `TASK_SCOPES`/`TaskScope` from `lib/domain/tasks`; `TaskStatus`/`TaskPriority` types from `lib/db/schema`. Used by `components/tasks/TasksShell.tsx` (the shell parses the initial state and scope, re-parses both on every URL change, and writes them back through `updateState`/`changeScope`/`clearTaskParam`) and rendered from by `components/tasks/TaskToolbar.tsx` (`TaskViewState` only).
 
 **Debugging**
 - A toolbar choice does not survive a reload -> the shell wrote local state only, or `mergeTaskViewParams` was not given the full state -> check the `/tasks` URL and the merge argument.
@@ -474,7 +476,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 - A filter is on but the rows ignore it -> the value is not one of the enum members and `parseTaskViewState` dropped it -> log the parsed state; statuses are `open`/`in_progress`/`done`/`dropped`, priorities `none`/`low`/`normal`/`high`/`urgent`.
 - A list filter selects the wrong list -> `list` is the collection id, never the list name -> check the value.
 
-**Tests** — `tests/unit/task-view-params.test.ts` (defaults, valid parse with unknown values dropped, duplicate collapse, unknown enum fallbacks, merge preserving `view`/`task`, stale managed params cleared, non-default round-trip).
+**Tests** — `tests/unit/task-view-params.test.ts` (defaults, valid parse with unknown values dropped, duplicate collapse, unknown enum fallbacks, merge preserving `view`/`task`, stale managed params cleared, non-default round-trip; plus `parseTaskScope`'s All default/unknown/retired fallbacks and `mergeTaskScopeParams` deleting `view` for All, writing the three real scopes and never mutating the base).
 
 ### lib/ui/taskUndo.ts
 

@@ -77,8 +77,8 @@ rather not have edited.
   roadmap is part of the app instead of a document nobody reads. Only the next
   version is ever promised; everything after it says `Planned`.
 - **Tasks, captured and triaged** — `Shift+K` captures anything from any screen;
-  `/tasks` buckets it into Inbox · Today · Week · Someday, then shows it as a
-  dense grouped list or a status board: drag a card between To do and In progress
+  `/tasks` opens on **All** and filters by Today · Week · Someday, then shows it
+  as a dense grouped list or a status board: drag a card between To do and In progress
   (or into Done/Dropped with "show closed" on), or capture straight into a
   column. Rows and cards edit their status (including the new **In progress**
   state), priority, dates and list inline, and clicking one opens a right-hand

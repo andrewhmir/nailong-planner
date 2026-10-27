@@ -10,17 +10,19 @@ import {
   priorityRank,
   TASK_ACTIVE_STATUSES,
   TASK_BUCKETS,
+  TASK_SCOPES,
   type BucketContext,
   type TaskBucket,
 } from "@/lib/domain/tasks";
 
 /**
- * Derived task buckets (spec D6). Every expectation is pinned to real calendar
- * dates: 2026-10-21 is a Wednesday and 2026-10-25 is a Sunday. A Sunday-started
- * week ends on Saturday 2026-10-31; a Monday-started week ends on Sunday
- * 2026-10-25, because Sunday is its seventh and last day. The bucket anchor is
- * the earliest of `scheduledOn`/`dueOn`, so a past-due task is never stranded
- * by a later schedule.
+ * Derived task buckets and scopes (spec D6 + ruling 29). Every expectation is
+ * pinned to real calendar dates: 2026-10-21 is a Wednesday and 2026-10-25 is a
+ * Sunday. A Sunday-started week ends on Saturday 2026-10-31; a Monday-started
+ * week ends on Sunday 2026-10-25, because Sunday is its seventh and last day.
+ * The bucket anchor is the earliest of `scheduledOn`/`dueOn`, so a past-due task
+ * is never stranded by a later schedule. A bucket is a time horizon only: the
+ * list that holds the task (the Inbox included) never changes it.
  */
 
 const TODAY = "2026-10-21";
@@ -28,16 +30,15 @@ const END_OF_WEEK = "2026-10-25";
 const INBOX_ID = "list-inbox";
 const PROJECT_ID = "list-project";
 
-const ctx: BucketContext = { today: TODAY, endOfWeek: END_OF_WEEK, inboxId: INBOX_ID };
+const ctx: BucketContext = { today: TODAY, endOfWeek: END_OF_WEEK };
 
-type BucketFields = Pick<TaskRow, "status" | "scheduledOn" | "dueOn" | "collectionId">;
+type BucketFields = Pick<TaskRow, "status" | "scheduledOn" | "dueOn">;
 
 function task(overrides: Partial<BucketFields> = {}): BucketFields {
   return {
     status: overrides.status ?? "open",
     scheduledOn: overrides.scheduledOn ?? null,
     dueOn: overrides.dueOn ?? null,
-    collectionId: overrides.collectionId ?? PROJECT_ID,
   };
 }
 
@@ -45,9 +46,11 @@ function bucketOfTask(overrides: Partial<BucketFields> = {}): TaskBucket | null 
   return bucketOf(task(overrides), ctx);
 }
 
-describe("TASK_BUCKETS", () => {
-  it("lists the four triage views in rail order", () => {
-    expect(TASK_BUCKETS).toEqual(["inbox", "today", "week", "someday"]);
+describe("TASK_BUCKETS and TASK_SCOPES", () => {
+  it("lists the three time buckets and the four scope tabs in rail order", () => {
+    expect(TASK_BUCKETS).toEqual(["today", "week", "someday"]);
+    // All first and the default; `inbox` is retired as a scope.
+    expect(TASK_SCOPES).toEqual(["all", "today", "week", "someday"]);
   });
 });
 
@@ -74,17 +77,21 @@ describe("bucketOf", () => {
   it("returns null for a task that is no longer open", () => {
     expect(bucketOfTask({ status: "done", scheduledOn: TODAY })).toBeNull();
     expect(bucketOfTask({ status: "dropped", scheduledOn: TODAY })).toBeNull();
-    expect(bucketOfTask({ status: "done", collectionId: INBOX_ID })).toBeNull();
+    expect(bucketOfTask({ status: "done" })).toBeNull();
   });
 
-  it("separates undated inbox work from undated project work", () => {
-    expect(bucketOfTask({ collectionId: INBOX_ID })).toBe("inbox");
-    expect(bucketOfTask({ collectionId: PROJECT_ID })).toBe("someday");
+  it("puts every undated active task in someday, whatever list holds it", () => {
+    // The Inbox is a list, not a bucket: an undated capture is Someday.
+    expect(bucketOfTask()).toBe("someday");
+    const inboxRow = { ...task(), collectionId: INBOX_ID };
+    const projectRow = { ...task(), collectionId: PROJECT_ID };
+    expect(bucketOf(inboxRow, ctx)).toBe("someday");
+    expect(bucketOf(projectRow, ctx)).toBe("someday");
   });
 
-  it("moves a dated inbox task out of the inbox (the D6 fallback)", () => {
-    expect(bucketOfTask({ collectionId: INBOX_ID, dueOn: TODAY })).toBe("today");
-    expect(bucketOfTask({ collectionId: INBOX_ID, scheduledOn: "2026-10-23" })).toBe("week");
+  it("buckets a dated task by its dates", () => {
+    expect(bucketOfTask({ dueOn: TODAY })).toBe("today");
+    expect(bucketOfTask({ scheduledOn: "2026-10-23" })).toBe("week");
   });
 
   it("puts scheduled work dated today or earlier in today", () => {
@@ -92,7 +99,7 @@ describe("bucketOf", () => {
     expect(bucketOfTask({ scheduledOn: "2026-10-20" })).toBe("today");
   });
 
-  it("puts a due-only project task in today or week, not someday", () => {
+  it("puts a due-only task in today or week, not someday", () => {
     // A deadline with no schedule is still work to do, so the absent
     // `scheduledOn` must not demote it to someday.
     expect(bucketOfTask({ dueOn: TODAY })).toBe("today");
@@ -152,7 +159,7 @@ describe("active statuses", () => {
 
   it("buckets in_progress tasks like open ones", () => {
     // Same fields, same bucket as an open task: the status is not a second rule.
-    expect(bucketOf(task({ status: "in_progress", collectionId: INBOX_ID }), ctx)).toBe("inbox");
+    expect(bucketOf(task({ status: "in_progress" }), ctx)).toBe("someday");
     expect(bucketOf(task({ status: "in_progress", scheduledOn: TODAY }), ctx)).toBe("today");
     expect(isOverdue({ status: "in_progress", dueOn: "2026-10-20" }, TODAY)).toBe(true);
     expect(isOverdue({ status: "in_progress", dueOn: TODAY }, TODAY)).toBe(false);
@@ -164,8 +171,8 @@ describe("bucketOfIncludingClosed", () => {
     const done = task({ status: "done", scheduledOn: "2026-10-21" });
     expect(bucketOf(done, ctx)).toBeNull();
     expect(bucketOfIncludingClosed(done, ctx)).toBe("today");
-    const undatedDone = task({ status: "done", collectionId: INBOX_ID });
-    expect(bucketOfIncludingClosed(undatedDone, ctx)).toBe("inbox");
+    const undatedDone = task({ status: "done" });
+    expect(bucketOfIncludingClosed(undatedDone, ctx)).toBe("someday");
     expect(
       bucketOfIncludingClosed(task({ status: "dropped", dueOn: "2026-11-30" }), ctx),
     ).toBeNull();

@@ -17,7 +17,7 @@ interface ApiTask {
 }
 
 interface ApiCounts {
-  counts: { inbox: number; today: number; week: number; someday: number; overdue: number };
+  counts: { all: number; today: number; week: number; someday: number; overdue: number };
   byCollection: Record<string, number>;
 }
 
@@ -115,8 +115,8 @@ function rowById(page: Page, id: string) {
   return page.locator(`li[data-task-id="${id}"]`);
 }
 
-/** The scope tab; its accessible name carries the open count ("Inbox, 4 open"). */
-function scopeTab(page: Page, label: "Inbox" | "Today" | "Week" | "Someday") {
+/** The scope tab; its accessible name carries the open count ("All, 4 open"). */
+function scopeTab(page: Page, label: "All" | "Today" | "Week" | "Someday") {
   return page
     .getByRole("group", { name: "Task scopes" })
     .getByRole("button", { name: new RegExp(`^${label}(,|$)`) });
@@ -190,8 +190,9 @@ test("the default view is the grouped list and the board shows the status column
   await patchTask(page, doneTask.id, { status: "done" });
   await openTasks(page);
 
-  // Scope badges are painted from the payload (the seeded Inbox has open tasks).
-  await expect(page.getByTestId("tasks-count-inbox")).toBeVisible();
+  // Scope badges are painted from the payload, and All is the default tab.
+  await expect(page.getByTestId("tasks-count-all")).toBeVisible();
+  await expect(scopeTab(page, "All")).toHaveAttribute("aria-pressed", "true");
   await expect(groupSection(page, "To do")).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "Call the plumber" })).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "Book a dentist appointment" })).toBeVisible();
@@ -394,8 +395,8 @@ test("the ?task deep link opens the panel once and closing clears the param", as
 });
 
 // Keyboard triage: `j` selects the first row, typing in the capture field is
-// inert, `2` schedules the selection out of the Inbox and `x` completes it.
-// The scope itself is URL state, so `?view=today` opens Today directly.
+// inert, `2` schedules the selection out of Someday and `x` completes it.
+// The scope itself is URL state, so `?view=someday` opens Someday directly.
 test("keyboard triage works and typing in the capture row does not fire it", async ({ page }) => {
   const base = stamp();
   const scheduleTitle = `E2E key schedule ${base}`;
@@ -403,7 +404,10 @@ test("keyboard triage works and typing in the capture row does not fire it", asy
   const scheduleTask = await createTask(page, { title: scheduleTitle });
   const completeTask = await createTask(page, { title: completeTitle });
 
-  await openTasks(page);
+  // The undated captures are Someday rows now: `2`/`x` remove them there.
+  await page.goto("/tasks?view=someday");
+  await expect(page.getByTestId("tasks-shell")).toBeVisible();
+  await expect(page.getByTestId("task-list")).toBeVisible();
 
   // `j` with no selection lands on the first painted row; retry the press so a
   // cold hydration on the dev server cannot swallow the key.
@@ -429,7 +433,7 @@ test("keyboard triage works and typing in the capture row does not fire it", asy
   await page.locator("#task-capture").fill("");
 
   // `2` schedules the selected row to the end of the household week; it leaves
-  // the Inbox bucket (Today or Week owns it now).
+  // Someday (Today or Week owns it now).
   await rowById(page, scheduleTask.id).focus();
   await page.keyboard.press("2");
   await expect(toast(page, "Task scheduled")).toBeVisible();
@@ -538,9 +542,9 @@ test("a sidebar list shows its active count and quick-add creates a task in it",
   createdIds.push(created!.id);
 });
 
-// The page capture row is the pointer path into the Inbox: Enter creates the
-// task without leaving `/tasks`, and the settle refetch paints it in the To do
-// group (the create body carries no dates, so the server buckets it as Inbox).
+// The page capture row is the pointer path into the Inbox list: Enter creates
+// the task without leaving `/tasks`, and because All is the default scope the
+// settle refetch paints it in the To do group (no dates, so it is Someday).
 test("the page capture row creates an Inbox task that appears in the list", async ({ page }) => {
   const title = `E2E capture row ${stamp()}`;
   await openTasks(page);

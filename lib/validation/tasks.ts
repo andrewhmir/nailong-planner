@@ -60,15 +60,18 @@ export const reorderTasksSchema = z.object({
 });
 
 /**
- * The wire name of the triage filter: a bucket or `"all"`. Built from
- * `TASK_BUCKETS` so a new bucket reaches the API without a second edit.
+ * The wire name of the scope filter: one of the three time buckets or `"all"`.
+ * Built from `TASK_BUCKETS` so a new bucket reaches the API without a second
+ * edit; the retired `inbox` value is simply not in the enum any more, so
+ * `?view=inbox` is a `400 VALIDATION`.
  */
 export const taskViewSchema = z.enum([...TASK_BUCKETS, "all"]);
 
 /**
- * GET /api/tasks query. Every filter is optional: no `view` means every active
- * visible task, and an unknown `collectionId` deliberately returns an empty
- * list rather than a 404 (existence is never leaked by a filter).
+ * GET /api/tasks query. Every filter is optional: no `view` means the `all`
+ * scope (every active visible task), and an unknown `collectionId` deliberately
+ * returns an empty list rather than a 404 (existence is never leaked by a
+ * filter).
  * `includeClosed` arrives as the literal query-string `"true"`/`"false"` and is
  * mapped to a boolean here. It must stay an `enum` transform: `z.coerce.boolean()`
  * would make `Boolean("false")` true.

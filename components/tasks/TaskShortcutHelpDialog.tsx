@@ -23,7 +23,7 @@ const GROUPS: Array<{ title: string; rows: Array<{ keys: string[]; description: 
       { keys: ["k"], description: "Previous task or card" },
       { keys: ["1"], description: "Schedule for today" },
       { keys: ["2"], description: "Schedule for the end of this week" },
-      { keys: ["3"], description: "Someday: clear dates, or file an Inbox task to a list" },
+      { keys: ["3"], description: "Someday: clear the task's dates" },
       { keys: ["4"], description: "Move to the next writable list" },
       { keys: ["x"], description: "Complete the selected task or card" },
       { keys: ["Enter"], description: "Open the selected task in the panel" },

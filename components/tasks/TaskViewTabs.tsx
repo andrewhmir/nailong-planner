@@ -2,17 +2,17 @@
 
 import type { Ref } from "react";
 import { BoardIcon, ListIcon } from "@/components/ui/icons";
-import { TASK_BUCKETS, type TaskBucket } from "@/lib/domain/tasks";
+import { TASK_SCOPES, type TaskScope } from "@/lib/domain/tasks";
 import type { TaskLayout } from "@/lib/domain/taskViews";
 import type { TaskCounts } from "@/lib/services/tasks";
 import { cn } from "@/lib/utils";
 
 /**
- * The four triage scopes, in rail order. Moved here from the deleted
- * `TaskViewSwitcher.tsx`; `TasksShell` reads it for the list's accessible name.
+ * The scope tabs' labels, in rail order: All first and the default. `TasksShell`
+ * reads this record for the list's accessible name.
  */
-export const TASK_BUCKET_LABELS: Record<TaskBucket, string> = {
-  inbox: "Inbox",
+export const TASK_SCOPE_LABELS: Record<TaskScope, string> = {
+  all: "All",
   today: "Today",
   week: "Week",
   someday: "Someday",
@@ -24,23 +24,25 @@ const LAYOUTS: ReadonlyArray<{ layout: TaskLayout; label: string; icon: typeof L
 ];
 
 interface Props {
-  view: TaskBucket;
+  view: TaskScope;
   /**
    * Omitted until `useTasks` has a payload: every scope then renders without a
    * badge, so loading or an error never shows a false row of zeros.
    */
   counts?: TaskCounts;
   layout: TaskLayout;
-  onScope(view: TaskBucket): void;
+  onScope(scope: TaskScope): void;
   onLayout(layout: TaskLayout): void;
   /** The current scope's button; the shell focuses it when the view loses its last row. */
   activeRef?: Ref<HTMLButtonElement>;
 }
 
 /**
- * The scope tabs (Inbox · Today · Week · Someday with open counts, plus the
- * cross-cutting overdue pill) and the List/Board segmented control. The count
- * badge keeps `data-testid="tasks-count-<bucket>"` from the v0.2.0 switcher.
+ * The scope tabs (All · Today · Week · Someday with open counts, plus the
+ * cross-cutting overdue pill) and the List/Board segmented control. `counts.all`
+ * is every visible active task, including the ones dated beyond this week that no
+ * time bucket holds. The count badge keeps `data-testid="tasks-count-<scope>"` from
+ * the v0.2.0 switcher, so the default tab is `tasks-count-all`.
  *
  * Board layout is selected here and persisted in the URL as `layout=board`;
  * `TasksShell` then renders `TaskBoard` in place of the list, and the toolbar
@@ -50,18 +52,18 @@ export function TaskViewTabs({ view, counts, layout, onScope, onLayout, activeRe
   return (
     <div className="flex flex-wrap items-center gap-3">
       <div role="group" aria-label="Task scopes" className="flex flex-wrap items-center gap-1">
-        {TASK_BUCKETS.map((bucket) => {
-          const active = bucket === view;
-          const label = TASK_BUCKET_LABELS[bucket];
-          const count = counts?.[bucket];
+        {TASK_SCOPES.map((scope) => {
+          const active = scope === view;
+          const label = TASK_SCOPE_LABELS[scope];
+          const count = counts?.[scope];
           return (
             <button
-              key={bucket}
+              key={scope}
               type="button"
               ref={active ? activeRef : undefined}
               aria-pressed={active}
               aria-label={count === undefined ? label : `${label}, ${count} open`}
-              onClick={() => onScope(bucket)}
+              onClick={() => onScope(scope)}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-sm border px-2.5 py-1 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet [@media(pointer:coarse)]:min-h-11",
                 active
@@ -73,7 +75,7 @@ export function TaskViewTabs({ view, counts, layout, onScope, onLayout, activeRe
               {count === undefined ? null : (
                 <span
                   aria-hidden
-                  data-testid={`tasks-count-${bucket}`}
+                  data-testid={`tasks-count-${scope}`}
                   className={cn(
                     "rounded-pill px-1.5 text-xs font-bold",
                     active ? "bg-violet-press text-white" : "bg-well text-ink-soft",

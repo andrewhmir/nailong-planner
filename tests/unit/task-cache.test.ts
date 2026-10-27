@@ -27,7 +27,7 @@ function makeTask(overrides: Partial<TaskView> = {}): TaskView {
   };
 }
 
-const COUNTS: TaskCounts = { inbox: 1, today: 0, week: 0, someday: 1, overdue: 0 };
+const COUNTS: TaskCounts = { all: 2, today: 0, week: 0, someday: 2, overdue: 0 };
 
 function makeData(tasks: TaskView[]): TasksCacheData {
   return { tasks, counts: COUNTS };
@@ -66,7 +66,7 @@ describe("updateTaskInData", () => {
     const after = updateTaskInData(data, "t1", { completedAt: 1_000 });
 
     expect(after.counts).toBe(COUNTS);
-    expect(after.counts).toEqual({ inbox: 1, today: 0, week: 0, someday: 1, overdue: 0 });
+    expect(after.counts).toEqual({ all: 2, today: 0, week: 0, someday: 2, overdue: 0 });
   });
 });
 

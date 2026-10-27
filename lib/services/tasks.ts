@@ -17,7 +17,7 @@ import {
   isOverdue,
   localToday,
   type BucketContext,
-  type TaskBucket,
+  type TaskScope,
 } from "@/lib/domain/tasks";
 import { AppError } from "@/lib/errors";
 import type {
@@ -56,7 +56,8 @@ export interface TaskView extends TaskRow {
 }
 
 export interface TaskCounts {
-  inbox: number;
+  /** Every visible active task, including the ones dated beyond this week. */
+  all: number;
   today: number;
   week: number;
   someday: number;
@@ -70,8 +71,8 @@ export interface TaskCountSummary {
 }
 
 export interface ListTasksInput {
-  /** A triage bucket, or `"all"` (the calendar grid) — omitted means all too. */
-  view?: TaskBucket | "all";
+  /** A scope: one time bucket, or `"all"` (the default) — omitted means all too. */
+  view?: TaskScope;
   collectionId?: string;
   /**
    * Opt in to `done`/`dropped` rows as well as the active pair. Closed rows are
@@ -190,15 +191,18 @@ function readTasks(
 }
 
 /**
- * The rail badges over active rows only. Closed rows are skipped, so widening a
- * read with `includeClosed` can never move a count.
+ * The rail badges over active rows only. `all` counts every visible active row,
+ * including the ones dated beyond this week that no time bucket holds. Closed
+ * rows are skipped, so widening a read with `includeClosed` can never move a
+ * count.
  */
 function countActive(rows: TaskRow[], bucketContext: BucketContext, today: string): TaskCounts {
-  const counts: TaskCounts = { inbox: 0, today: 0, week: 0, someday: 0, overdue: 0 };
+  const counts: TaskCounts = { all: 0, today: 0, week: 0, someday: 0, overdue: 0 };
   for (const row of rows) {
     if (!isActiveStatus(row.status)) {
       continue;
     }
+    counts.all += 1;
     const bucket = bucketOf(row, bucketContext);
     if (bucket) {
       counts[bucket] += 1;
@@ -213,25 +217,24 @@ function countActive(rows: TaskRow[], bucketContext: BucketContext, today: strin
 /**
  * Every task in a visible collection, bucketed with `bucketOf`. The
  * `collectionId` and `view` filters only narrow `tasks`: `counts` always covers
- * all visible active tasks, because the rail badges must not change when the
- * user narrows a list. Done and dropped rows are absent by default; with
- * `includeClosed` they join the read set and the `view` filter buckets them with
- * `bucketOfIncludingClosed`, so a finished task dated today still lands in
- * Today. A task dated beyond this week has no bucket, so only `"all"` shows it.
- * `ensureInbox` may create the caller's Inbox on the first call.
+ * all visible active tasks (`all` included), because the rail badges must not
+ * change when the user narrows a list. Done and dropped rows are absent by
+ * default; with `includeClosed` they join the read set and the `view` filter
+ * buckets them with `bucketOfIncludingClosed`, so a finished task dated today
+ * still lands in Today. A task dated beyond this week has no bucket, so only
+ * `"all"` shows it. Reading tasks never creates the caller's Inbox: the Inbox is
+ * an ordinary list as far as the views are concerned.
  */
 export function listTasks(
   db: Database,
   ctx: ViewerContext,
   input: ListTasksInput,
 ): { tasks: TaskView[]; counts: TaskCounts } {
-  const inbox = ensureInbox(db, ctx);
   const visibleIds = resolveVisibleCollections(db, ctx).map((row) => row.id);
   const today = localToday(input.timezone);
   const bucketContext: BucketContext = {
     today,
     endOfWeek: endOfWeek(today, input.weekStartsOn),
-    inboxId: inbox.id,
   };
 
   const includeClosed = input.includeClosed === true;
@@ -266,13 +269,11 @@ export function getTaskCountSummary(
   ctx: ViewerContext,
   input: { timezone: string; weekStartsOn: 0 | 1 },
 ): TaskCountSummary {
-  const inbox = ensureInbox(db, ctx);
   const visibleIds = resolveVisibleCollections(db, ctx).map((row) => row.id);
   const today = localToday(input.timezone);
   const bucketContext: BucketContext = {
     today,
     endOfWeek: endOfWeek(today, input.weekStartsOn),
-    inboxId: inbox.id,
   };
 
   const active = visibleIds.length === 0 ? [] : readTasks(db, ctx, TASK_ACTIVE_STATUSES, visibleIds);
