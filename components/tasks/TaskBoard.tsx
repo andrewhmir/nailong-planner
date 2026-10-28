@@ -34,8 +34,8 @@ interface Props {
    * argument (the same reason `TaskList` takes `actionsFor`).
    */
   actionsFor(task: TaskView): TaskActions;
-  /** Writable lists a card may move to; the current list is removed per card. */
-  moveTargets: WritableList[];
+  /** Every writable list a card may be filed under; the inline picker gets them all. */
+  lists: WritableList[];
   /**
    * The column's add affordance (its `+` button) — the shell focuses that
    * column's capture row. The capture row itself owns the create request.
@@ -73,7 +73,7 @@ export function TaskBoard({
   closed,
   onFocus,
   actionsFor,
-  moveTargets,
+  lists,
   onCreate,
 }: Props) {
   // The active pair always renders; the closed pair only when the payload carries
@@ -184,7 +184,7 @@ export function TaskBoard({
                     selected={task.id === selectedId}
                     onFocus={() => onFocus(task.id)}
                     actions={actionsFor(task)}
-                    moveTargets={moveTargets.filter((target) => target.id !== task.collectionId)}
+                    lists={lists}
                   />
                 ))}
               </ul>

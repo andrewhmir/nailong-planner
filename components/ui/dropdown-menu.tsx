@@ -17,14 +17,17 @@ const ITEM =
 export function DropdownMenuContent({
   children,
   className,
+  align = "end",
 }: {
   children: React.ReactNode;
   /** Extra classes for the content surface (e.g. a max-height for a long menu). */
   className?: string;
+  /** Which edge of the trigger the menu hangs from; `end` for the toolbar menus. */
+  align?: "start" | "end";
 }) {
   return (
     <DropdownPrimitive.Portal>
-      <DropdownPrimitive.Content align="end" sideOffset={4} className={cn(SURFACE, className)}>
+      <DropdownPrimitive.Content align={align} sideOffset={4} className={cn(SURFACE, className)}>
         {children}
       </DropdownPrimitive.Content>
     </DropdownPrimitive.Portal>
@@ -140,16 +143,19 @@ export function DropdownMenuRadioItem({
   children,
   value,
   disabled = false,
+  className,
 }: {
   children: React.ReactNode;
   value: string;
   disabled?: boolean;
+  /** Extra classes for the item (e.g. the checked background of a picker). */
+  className?: string;
 }) {
   return (
     <DropdownPrimitive.RadioItem
       value={value}
       disabled={disabled}
-      className={cn(ITEM, "data-[state=checked]:font-bold")}
+      className={cn(ITEM, "data-[state=checked]:font-bold", className)}
     >
       <span className="grid h-4 w-4 shrink-0 place-items-center">
         <DropdownPrimitive.ItemIndicator>

@@ -25,8 +25,8 @@ interface Props {
    * built for it.
    */
   actionsFor(task: TaskView): TaskActions;
-  /** Writable lists a task may move to; the current list is removed per row. */
-  moveTargets: WritableList[];
+  /** Every writable list a task may be filed under; each row's picker gets them all. */
+  lists: WritableList[];
   /**
    * Which groups are collapsed. The shell owns this because a collapsed group's
    * rows must leave the keyboard-traversal projection (`visibleRows`); `TaskList`
@@ -88,7 +88,7 @@ export function TaskList({
   selectedId,
   onFocus,
   actionsFor,
-  moveTargets,
+  lists,
   collapsedGroups,
   onToggleGroup,
   emptyMessage,
@@ -144,7 +144,7 @@ export function TaskList({
                   selected={task.id === selectedId}
                   onFocus={() => onFocus(task.id)}
                   actions={actionsFor(task)}
-                  moveTargets={moveTargets.filter((target) => target.id !== task.collectionId)}
+                  lists={lists}
                 />
               ))}
             </ul>

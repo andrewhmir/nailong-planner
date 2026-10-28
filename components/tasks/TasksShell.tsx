@@ -391,9 +391,12 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
     }
   }, [editorTask, tasksQuery.isPending, selectedTaskId, visibleRows]);
 
-  // Move targets are the viewer's writable lists, labelled by their parent when
-  // nested. The server stays authoritative: a stale tree still gets a 403.
-  const moveTargets = useMemo<WritableList[]>(() => {
+  // Every writable list, labelled by its parent when nested: the inline list
+  // picker's menu, the overflow menu's move targets and the toolbar's list
+  // filter all read this one array. Colours are folded from the root because a
+  // sub-list stores `hueFamily: null`; the server stays authoritative, so a
+  // stale tree still gets a 403.
+  const lists = useMemo<WritableList[]>(() => {
     const viewer = { userId: currentUserId, householdId: "" };
     const targets: WritableList[] = [];
     for (const root of collectionsQuery.data ?? []) {
@@ -401,14 +404,24 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
         continue;
       }
       if (canWriteCollection(viewer, foldCollectionPermission(root))) {
-        targets.push({ id: root.id, name: root.name });
+        targets.push({
+          id: root.id,
+          name: root.name,
+          hueFamily: root.hueFamily,
+          shadeIndex: root.shadeIndex,
+        });
       }
       for (const child of root.children) {
         if (child.kind !== "list") {
           continue;
         }
         if (canWriteCollection(viewer, foldCollectionPermission(child, root))) {
-          targets.push({ id: child.id, name: `${root.name} / ${child.name}` });
+          targets.push({
+            id: child.id,
+            name: `${root.name} / ${child.name}`,
+            hueFamily: root.hueFamily ?? child.hueFamily,
+            shadeIndex: child.shadeIndex,
+          });
         }
       }
     }
@@ -730,10 +743,10 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
 
   /** The next writable list after the task's own, wrapping; `null` when there is none. */
   function nextListTarget(task: TaskView): WritableList | null {
-    const currentIndex = moveTargets.findIndex((target) => target.id === task.collectionId);
+    const currentIndex = lists.findIndex((target) => target.id === task.collectionId);
     const start = currentIndex === -1 ? 0 : currentIndex + 1;
-    for (let step = 0; step < moveTargets.length; step += 1) {
-      const candidate = moveTargets[(start + step) % moveTargets.length];
+    for (let step = 0; step < lists.length; step += 1) {
+      const candidate = lists[(start + step) % lists.length];
       if (candidate && candidate.id !== task.collectionId) {
         return candidate;
       }
@@ -857,7 +870,7 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
         state={state}
         onChange={updateState}
         onAddTask={focusCapture}
-        lists={moveTargets}
+        lists={lists}
       />
 
       {tasksQuery.isError ? (
@@ -887,7 +900,7 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
               closed={state.closed}
               onFocus={setSelectedTaskId}
               actionsFor={actionsFor}
-              moveTargets={moveTargets}
+              lists={lists}
               onCreate={focusColumnCapture}
             />
           ) : (
@@ -899,7 +912,7 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
               selectedId={selectedTaskId}
               onFocus={setSelectedTaskId}
               actionsFor={actionsFor}
-              moveTargets={moveTargets}
+              lists={lists}
               collapsedGroups={collapsedGroups}
               onToggleGroup={toggleGroup}
               emptyMessage={
@@ -920,7 +933,7 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
           timeFormat={timeFormat}
           timezone={timezone}
           onClose={closeEditor}
-          moveTargets={moveTargets}
+          lists={lists}
           actions={{
             ...actionsFor(panelTask),
             onDelete: () => {

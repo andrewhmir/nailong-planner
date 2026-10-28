@@ -83,8 +83,9 @@ rather not have edited.
   column. A task has **one date — its due date** — plus an optional
   household-local time; there is no separate "scheduled" date. Rows and cards
   edit their status (including the **In progress**
-  state), priority, due date (date plus optional time) and list inline, and
-  clicking one opens a right-hand
+  state), priority, due date (date plus optional time) and list inline — clicking
+  a task's **List** cell opens a **LIST** picker of the same lists the sidebar
+  shows — and clicking one opens a right-hand
   slide-over for the title, notes and checklist. Lists in the sidebar show their
   active-task counts while you are on `/tasks` (Ruling 23 — the count query is
   route-gated so the calendar never pays for it) and carry a one-click quick add.

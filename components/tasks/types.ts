@@ -30,8 +30,15 @@ export interface TaskActions {
   onToggleDone(done: boolean): void;
 }
 
-/** A list a task may be moved to (or filtered by): id plus display name. */
+/**
+ * A list a task may be filed under (moved to, or filtered by): its id, the
+ * display name (parent-prefixed for a sub-list) and the colour its dot needs.
+ */
 export interface WritableList {
   id: string;
   name: string;
+  /** The root's palette family; `null` for an uncoloured list such as the Inbox. */
+  hueFamily: string | null;
+  /** The shade inside that family. */
+  shadeIndex: number;
 }

@@ -4,19 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { ChevronDownIcon, XIcon } from "@/components/ui/icons";
-import { isHueFamily, shadeTokens } from "@/lib/color/palette";
+import { XIcon } from "@/components/ui/icons";
 import { useUpdateTask } from "@/lib/query/tasks";
 import type { TaskView } from "@/lib/services/tasks";
 import type { TimeFormat } from "@/lib/services/preferences";
 import { cn } from "@/lib/utils";
 import { TaskDueChip } from "./TaskDueChip";
+import { TaskListPicker } from "./TaskListPicker";
 import { TaskPriorityFlag } from "./TaskPriorityFlag";
 import { TaskStatusPill } from "./TaskStatusPill";
 import type { TaskActions, WritableList } from "./types";
@@ -34,8 +28,8 @@ interface Props {
   onClose(): void;
   /** Task-bound callbacks built by the shell (title, status, priority, dates, move, delete). */
   actions: TaskActions;
-  /** Writable lists the task may move to; the current list is filtered out here. */
-  moveTargets: WritableList[];
+  /** Every writable list the task may be filed under, the current one included. */
+  lists: WritableList[];
   /** Task 5's replace contract: the complete checklist, in display order. */
   onChecklist(items: { title: string; done: boolean }[]): void;
 }
@@ -62,18 +56,11 @@ const CHIP =
 const PRIMARY =
   "inline-flex h-[38px] shrink-0 items-center justify-center rounded-md bg-violet-press px-3 text-base font-bold text-white transition-colors hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet disabled:cursor-not-allowed disabled:opacity-50 [@media(pointer:coarse)]:min-h-11";
 
-/** The task's list shade, the same fallback the row uses for an unstyled collection. */
-function listDot(task: TaskView): string {
-  const hue = task.collection.hueFamily;
-  return hue !== null && isHueFamily(hue)
-    ? shadeTokens(hue, task.collection.shadeIndex).main
-    : "var(--color-ink-mute)";
-}
-
 /**
  * The right slide-over task panel: an inline title, the status/priority/date
- * pickers, a list chip with the move menu, notes, the checklist and the
- * Complete / Drop / Delete actions. It replaces the v0.2.0 modal editor, so the
+ * pickers, a list chip that opens the same LIST picker the row's List cell uses,
+ * notes, the checklist and the Complete / Drop / Delete actions. It replaces the
+ * v0.2.0 modal editor, so the
  * list/board behind it stays visible and clickable (`aria-modal="false"`, no
  * backdrop, no focus trap).
  *
@@ -111,7 +98,7 @@ function TaskPanelBody({
   timezone,
   onClose,
   actions,
-  moveTargets,
+  lists,
   onChecklist,
 }: Props & {
   task: TaskView;
@@ -124,8 +111,6 @@ function TaskPanelBody({
   const updateTask = useUpdateTask();
 
   const items = task.checklist.map((item) => ({ title: item.title, done: item.done }));
-  const targets = moveTargets.filter((target) => target.id !== task.collectionId);
-  const dot = listDot(task);
 
   // Re-seed a field from the live task whenever it changes underneath the draft
   // (the optimistic PATCH echo, or its rollback after a rejected write). A
@@ -292,37 +277,15 @@ function TaskPanelBody({
             timezone={timezone}
             onChange={actions.onDue}
           />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label={`List: ${task.collection.name}`}
-                data-testid="task-panel-list"
-                className={cn(CHIP, "max-w-44")}
-              >
-                <span
-                  aria-hidden
-                  className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-                  style={{ background: dot }}
-                />
-                <span className="truncate">{task.collection.name}</span>
-                <ChevronDownIcon size={12} className="shrink-0" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              {targets.length === 0 ? (
-                <DropdownMenuItem disabled onSelect={() => undefined}>
-                  No other list
-                </DropdownMenuItem>
-              ) : (
-                targets.map((target) => (
-                  <DropdownMenuItem key={target.id} onSelect={() => actions.onMove(target.id)}>
-                    {target.name}
-                  </DropdownMenuItem>
-                ))
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <TaskListPicker
+            current={task.collection}
+            lists={lists}
+            onMove={actions.onMove}
+            triggerClassName={cn(CHIP, "mx-0 max-w-44")}
+            nameClassName="truncate"
+            showChevron
+            testId="task-panel-list"
+          />
         </div>
 
         <div className="space-y-1">

@@ -309,6 +309,44 @@ test("changing a row's priority shows the flag and survives a reload", async ({ 
   await expect(rowById(page, task.id).getByTestId("task-priority-high")).toBeVisible();
 });
 
+// The List cell is the inline picker now: it opens the LIST menu of writable
+// lists with the task's current one checked, files the task under another list
+// through the same optimistic move the overflow menu uses, and `Ctrl+Z` restores
+// the source list. Lists are the same `kind="list"` collections the calendar
+// sidebar shows — never calendars.
+test("the list cell files the task under another list and Ctrl+Z restores it", async ({ page }) => {
+  const title = `E2E picker ${stamp()}`;
+  const task = await createTask(page, {
+    title,
+    collectionId: fixtures.collections.andrewInbox,
+  });
+  await openTasks(page);
+
+  const row = rowById(page, task.id);
+  await expect(row.getByRole("button", { name: "List: Inbox" })).toBeVisible();
+  await row.getByRole("button", { name: "List: Inbox" }).click();
+
+  const menu = page.getByRole("menu");
+  await expect(menu.getByText("List", { exact: true })).toBeVisible();
+  await expect(menu.getByRole("menuitemradio", { name: "Inbox", exact: true })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+  await menu.getByRole("menuitemradio", { name: "Errands", exact: true }).click();
+
+  await expect(toast(page, "Task moved")).toBeVisible();
+  await expect(row.getByRole("button", { name: "List: Errands" })).toBeVisible();
+  await expect.poll(async () => (await apiTask(page, task.id)).collectionId).toBe(
+    fixtures.collections.errands,
+  );
+
+  await page.keyboard.press("Control+z");
+  await expect(row.getByRole("button", { name: "List: Inbox" })).toBeVisible();
+  await expect.poll(async () => (await apiTask(page, task.id)).collectionId).toBe(
+    fixtures.collections.andrewInbox,
+  );
+});
+
 // The toolbar's Group/Sort/Hide-closed controls: grouping really reorders the
 // sections, sort=due reorders within the view, and the Done filter pulls in the
 // closed rows by turning "show closed" on for the user.
@@ -414,6 +452,8 @@ test("a row opens the slide-over panel and Escape returns focus to the row", asy
   const panel = page.getByTestId("task-panel");
   await expect(panel).toBeVisible();
   await expect(panel.getByTestId("task-panel-title")).toHaveValue(title);
+  // The list chip is the same inline picker the row's List cell uses.
+  await expect(panel.getByTestId("task-panel-list")).toHaveAttribute("aria-label", "List: Inbox");
 
   await page.keyboard.press("Escape");
   await expect(panel).toHaveCount(0);

@@ -6,7 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet — the next promised release is v0.3.0 (Today).
+### Changed
+
+- **File a task under a list in place** — the List cell on every `/tasks` row and
+  board card (and the task panel's list chip) is now an inline **LIST** picker.
+  It lists every writable list — the same lists the calendar sidebar shows,
+  sub-lists labelled `Parent / Child` — marks the task's current list, and moves
+  the task with the usual `Task moved` toast and targeted undo. Tasks stay in
+  lists; a calendar is never a task container.
 
 ## [0.2.0] - 2026-10-26
 

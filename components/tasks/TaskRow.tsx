@@ -12,12 +12,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MoreVerticalIcon } from "@/components/ui/icons";
-import { isHueFamily, shadeTokens } from "@/lib/color/palette";
 import type { TaskView } from "@/lib/services/tasks";
 import type { TimeFormat } from "@/lib/services/preferences";
 import { setTaskDragPayload } from "@/lib/ui/taskDrag";
 import { cn } from "@/lib/utils";
 import { TaskDueChip } from "./TaskDueChip";
+import { TaskListPicker } from "./TaskListPicker";
 import { TaskPriorityFlag } from "./TaskPriorityFlag";
 import { TaskStatusPill } from "./TaskStatusPill";
 import type { TaskActions, WritableList } from "./types";
@@ -36,14 +36,19 @@ interface Props {
   onFocus(): void;
   /** Task-bound callbacks built by the shell. */
   actions: TaskActions;
-  /** Writable lists this task may move to, with the current list already removed. */
-  moveTargets: WritableList[];
+  /**
+   * Every writable list the task may be filed under, the current one included.
+   * The List cell's inline picker shows them all (current checked); the overflow
+   * menu's `Move to list…` drops the current one before rendering its submenu.
+   */
+  lists: WritableList[];
 }
 
 /**
- * One dense ClickUp-style row: completion checkbox, clickable title, owning
- * list's dot and name, the inline status/priority/date pickers and the overflow
- * menu (`Open`, `Move to list…`, `Drop`, `Delete`).
+ * One dense ClickUp-style row: completion checkbox, clickable title, the owning
+ * list's dot and name as an inline picker (`TaskListPicker`, whose LIST menu
+ * files the task under another list), the inline status/priority/date pickers
+ * and the overflow menu (`Open`, `Move to list…`, `Drop`, `Delete`).
  *
  * **Columns.** The row is a wrapping flex row on narrow screens and a seven-track
  * grid from `md` up — `md:task-row-cols` (checkbox · title · list · status ·
@@ -71,14 +76,11 @@ export function TaskRow({
   selected,
   onFocus,
   actions,
-  moveTargets,
+  lists,
 }: Props) {
   const done = task.status === "done";
-  const hue = task.collection.hueFamily;
-  const dot =
-    hue !== null && isHueFamily(hue)
-      ? shadeTokens(hue, task.collection.shadeIndex).main
-      : "var(--color-ink-mute)";
+  // The overflow menu's `Move to list…` only offers lists other than this one.
+  const otherLists = lists.filter((target) => target.id !== task.collectionId);
 
   return (
     <li
@@ -125,17 +127,13 @@ export function TaskRow({
         {task.title}
       </button>
 
-      <span className="flex min-w-0 items-center gap-1.5">
-        <span
-          aria-hidden
-          data-testid={`task-collection-dot-${task.id}`}
-          className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-          style={{ background: dot }}
-        />
-        <span className="min-w-0 max-w-32 truncate text-xs text-ink-mute max-sm:sr-only">
-          {task.collection.name}
-        </span>
-      </span>
+      <TaskListPicker
+        current={task.collection}
+        lists={lists}
+        onMove={actions.onMove}
+        dotTestId={`task-collection-dot-${task.id}`}
+        nameClassName="max-w-32 max-sm:sr-only"
+      />
 
       <TaskStatusPill status={task.status} onChange={actions.onStatus} />
       <TaskPriorityFlag priority={task.priority} onChange={actions.onPriority} />
@@ -165,11 +163,11 @@ export function TaskRow({
         </DropdownMenuTrigger>
         <DropdownMenuContent>
           <DropdownMenuItem onSelect={actions.onOpen}>Open</DropdownMenuItem>
-          {moveTargets.length > 0 ? (
+          {otherLists.length > 0 ? (
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>Move to list…</DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
-                {moveTargets.map((target) => (
+                {otherLists.map((target) => (
                   <DropdownMenuItem key={target.id} onSelect={() => actions.onMove(target.id)}>
                     {target.name}
                   </DropdownMenuItem>

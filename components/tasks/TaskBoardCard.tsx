@@ -11,12 +11,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MoreVerticalIcon } from "@/components/ui/icons";
-import { isHueFamily, shadeTokens } from "@/lib/color/palette";
 import type { TaskView } from "@/lib/services/tasks";
 import type { TimeFormat } from "@/lib/services/preferences";
 import { setBoardDragPayload } from "@/lib/ui/taskBoardDrag";
 import { cn } from "@/lib/utils";
 import { TaskDueChip } from "./TaskDueChip";
+import { TaskListPicker } from "./TaskListPicker";
 import { TaskPriorityFlag } from "./TaskPriorityFlag";
 import { TaskStatusPill } from "./TaskStatusPill";
 import type { TaskActions, WritableList } from "./types";
@@ -35,8 +35,12 @@ interface Props {
   onFocus(): void;
   /** Task-bound callbacks built by the shell. */
   actions: TaskActions;
-  /** Writable lists this card may move to, with the current list already removed. */
-  moveTargets: WritableList[];
+  /**
+   * Every writable list the task may be filed under, the current one included:
+   * the list line is the same inline picker the row's List cell uses, and the
+   * overflow menu's `Move to list…` filters the current one out itself.
+   */
+  lists: WritableList[];
 }
 
 /**
@@ -61,13 +65,10 @@ export function TaskBoardCard({
   selected,
   onFocus,
   actions,
-  moveTargets,
+  lists,
 }: Props) {
-  const hue = task.collection.hueFamily;
-  const dot =
-    hue !== null && isHueFamily(hue)
-      ? shadeTokens(hue, task.collection.shadeIndex).main
-      : "var(--color-ink-mute)";
+  // The overflow menu's `Move to list…` only offers lists other than this one.
+  const otherLists = lists.filter((target) => target.id !== task.collectionId);
 
   return (
     <li
@@ -113,11 +114,11 @@ export function TaskBoardCard({
           </DropdownMenuTrigger>
           <DropdownMenuContent>
             <DropdownMenuItem onSelect={actions.onOpen}>Open</DropdownMenuItem>
-            {moveTargets.length > 0 ? (
+            {otherLists.length > 0 ? (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>Move to list…</DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
-                  {moveTargets.map((target) => (
+                  {otherLists.map((target) => (
                     <DropdownMenuItem key={target.id} onSelect={() => actions.onMove(target.id)}>
                       {target.name}
                     </DropdownMenuItem>
@@ -139,13 +140,13 @@ export function TaskBoardCard({
       </div>
 
       <div className="flex flex-wrap items-center gap-1">
-        <span
-          aria-hidden
-          data-testid={`task-collection-dot-${task.id}`}
-          className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-          style={{ background: dot }}
+        <TaskListPicker
+          current={task.collection}
+          lists={lists}
+          onMove={actions.onMove}
+          dotTestId={`task-collection-dot-${task.id}`}
+          nameClassName="max-w-24"
         />
-        <span className="max-w-24 truncate text-xs text-ink-mute">{task.collection.name}</span>
         <TaskStatusPill status={task.status} onChange={actions.onStatus} compact />
         <TaskPriorityFlag priority={task.priority} onChange={actions.onPriority} />
       </div>

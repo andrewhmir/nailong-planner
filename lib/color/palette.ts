@@ -132,3 +132,23 @@ export function shadeTokens(family: HueFamily, shadeIndex: number): ShadeTokens 
 export function isHueFamily(value: string): value is HueFamily {
   return (HUE_FAMILIES as readonly string[]).includes(value);
 }
+
+/**
+ * The dot colour a collection row paints for itself: its family's main shade, or
+ * the muted fallback for an uncoloured row (the Inbox is created without a hue
+ * family). The sidebar's rows, the task row/card and the inline list picker all
+ * call this, so one list never renders in two colours.
+ *
+ * A sub-collection stores `hueFamily: null` and inherits its root's family, so a
+ * caller that has the root must pass the folded family — the tasks shell builds
+ * its `WritableList` rows with `root.hueFamily ?? child.hueFamily`.
+ */
+export function collectionDot(collection: {
+  hueFamily: string | null;
+  shadeIndex: number;
+}): string {
+  const hue = collection.hueFamily;
+  return hue !== null && isHueFamily(hue)
+    ? shadeTokens(hue, collection.shadeIndex).main
+    : "var(--color-ink-mute)";
+}

@@ -62,6 +62,7 @@ shifts by a day, or an API error carries the wrong code or status.
 - `interface ShadeTokens { main: string; mainHex: string; container: string; containerHex: string; onContainer: string }`.
 - `shadeTokens(family: HueFamily, shadeIndex: number): ShadeTokens` — throws `RangeError` when `shadeIndex` is not an integer in `0..7`.
 - `isHueFamily(value: string): value is HueFamily`.
+- `collectionDot(collection: { hueFamily: string | null; shadeIndex: number }): string` — the dot colour for a collection row: the family's `main` shade, or `var(--color-ink-mute)` for an uncoloured row (the Inbox) or an unknown family. Shared by the task row/card and the inline `TaskListPicker`; a sub-collection stores `hueFamily: null`, so the caller must pass its **root's** family.
 
 **The eight-shade family rule** — `MAIN_LIGHTNESS` is one shared ramp `[0.86, 0.79, 0.72, 0.65, 0.58, 0.51, 0.44, 0.37]`; a family contributes only `{hue, chroma}` from the private `FAMILIES` table. So `shadeTokens("amber", 3)` and `shadeTokens("sky", 3)` differ in hue/chroma but share the same lightness, and no two shades of one family collide. `shadeIndex` is a *slot on that ramp*, not an ordinal: a parent renders at slot 3 (lightness 0.65, the most saturated-looking mid step) and its children claim slots in `CHILD_SHADE_ORDER` order — `4, 2, 5, 1, 6, 0, 7` — deliberately alternating lighter/darker so siblings stay distinguishable and never reuse the parent's slot 3. That is also why seven children is the hard maximum while eight shades exist.
 
@@ -69,12 +70,13 @@ shifts by a day, or an API error carries the wrong code or status.
 
 **State & side effects** — None. Pure functions over module-level constant tables; no caching, no I/O.
 
-**Depends on / Used by** — No imports. Consumers: `lib/services/collections.ts` (assigns the next free `CHILD_SHADE_ORDER` slot on create, enforces `MAX_CHILDREN`, and `resolveShade` for a row), `lib/services/events.ts` (`toView` attaches tokens to each event; `shadeTokens("slate", 3)` fallback), `lib/query/events.ts`, `lib/validation/collections.ts` (`z.enum(HUE_FAMILIES)`), `components/sidebar/CollectionDialog.tsx`, `CollectionRow.tsx`, `CollectionTree.tsx`, `components/calendar/CalendarShell.tsx`, `lib/ui/calendarPicker.ts`.
+**Depends on / Used by** — No imports. Consumers: `lib/services/collections.ts` (assigns the next free `CHILD_SHADE_ORDER` slot on create, enforces `MAX_CHILDREN`, and `resolveShade` for a row), `lib/services/events.ts` (`toView` attaches tokens to each event; `shadeTokens("slate", 3)` fallback), `lib/query/events.ts`, `lib/validation/collections.ts` (`z.enum(HUE_FAMILIES)`), `components/sidebar/CollectionDialog.tsx`, `CollectionRow.tsx`, `CollectionTree.tsx`, `components/calendar/CalendarShell.tsx`, `lib/ui/calendarPicker.ts`, `components/tasks/TaskListPicker.tsx` (`collectionDot` for the picker's dots).
 
 **Debugging**
 - Two sub-calendars of one family look identical -> two rows stored the same `shadeIndex` (or a row is a root, so it always renders slot 3) -> check `collection.shade_index` for the parent's children and the assignment in `createCollection`.
 - A grid block renders FullCalendar blue instead of the family colour -> an `oklch()` string was handed to FullCalendar instead of the hex twin -> grep the caller's `backgroundColor`/`borderColor` for `main` vs `mainHex`.
 - `RangeError: shadeIndex must be an integer between 0 and 7` -> a child row was inserted with slot 3 or an out-of-range value -> check the insert in `lib/services/collections.ts` and any migration seed.
+- A sub-list's dot is grey while the sidebar shows its family shade -> the caller passed the child row to `collectionDot` instead of the folded root family (`root.hueFamily ?? child.hueFamily`) -> the tasks shell's `lists` memo is the reference implementation.
 
 **Tests** — `tests/unit/palette.test.ts`; `tests/unit/calendarPicker.test.ts` asserts swatch hexes for parent and child rows.
 
