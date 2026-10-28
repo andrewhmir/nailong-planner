@@ -57,9 +57,9 @@ test("the time field opens the quick-pick list and saves the chosen times", asyn
   await expect(page.getByRole("button", { name: /^End time: 11:15/ })).toBeVisible();
 
   await page.getByRole("button", { name: "Save" }).click();
-  // A busy day folds extra chips into "+N more" (today already carries five
-  // events in the seed), so assert the save itself rather than the grid text:
-  // the success toast appears and the dialog closes.
+  // A busy day folds extra events into "+N more" (today already carries several
+  // events from the seed and earlier specs), so assert the save itself rather
+  // than the grid text: the success toast appears and the dialog closes.
   await expect(page.getByText("Event created")).toBeVisible();
   await expect(page.getByLabel("Title")).toHaveCount(0);
 });

@@ -15,14 +15,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Parent / Child` — marks the task's current one, and moves the task with the
   usual `Task moved` toast and targeted undo. A task may be filed under a
   calendar (the subject its events use) without becoming an event: it is always
-  a task row and only ever draws on the grid as its read-only due-date chip. The
-  former "Tasks live in lists." server rule is retired.
+  a task row and never draws on the calendar grid. The former "Tasks live in
+  lists." server rule is retired.
 
 - **Filter tasks by calendar or sub-calendar** — the toolbar's Filter menu now
   groups the sidebar tree into **Calendar** and **List**. Picking a calendar
   includes its sub-calendars' tasks; picking a sub-calendar narrows to that one;
   the choice lives in `?list=<id>` so a filtered view is shareable, and Clear
   filters resets it.
+
+### Removed
+
+- **Task chips on the calendar** — a dated task no longer draws on the month,
+  week or list grid at all: the grid shows events only. Tasks keep their due
+  date in the row/card/panel pickers, and dragging a task row onto the sidebar
+  mini month (or a day cell) still sets its due date. The `?task=<id>` deep link
+  remains for shareable links.
 
 ## [0.2.0] - 2026-10-26
 

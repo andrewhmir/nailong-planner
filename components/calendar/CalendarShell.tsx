@@ -21,7 +21,6 @@ import {
   shadeTokens,
   type HueFamily,
 } from "@/lib/color/palette";
-import { isActiveStatus } from "@/lib/domain/tasks";
 import { useCollections } from "@/lib/query/collections";
 import { parseExdates } from "@/lib/query/eventCache";
 import {
@@ -34,7 +33,6 @@ import {
   type UpdateEventResult,
 } from "@/lib/query/events";
 import { usePreferences, useUpdatePreferences } from "@/lib/query/preferences";
-import { useTasks } from "@/lib/query/tasks";
 import { expandOccurrences } from "@/lib/recurrence/expand";
 import { isShiftableRule } from "@/lib/recurrence/scopes";
 import type { CollectionNode } from "@/lib/services/collections";
@@ -378,9 +376,6 @@ export function CalendarShell({
   }, []);
 
   const { data: events } = useEvents(range);
-  // The month grid draws every active scheduled task the viewer may see; the
-  // global list is also the cache the drop handler reads its previous date from.
-  const { data: taskData } = useTasks("all");
   const planTaskDrop = useTaskPlanDrop();
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
@@ -400,28 +395,6 @@ export function CalendarShell({
     () => (events ?? []).filter((event) => visibleIds.has(event.collectionId)),
     [events, visibleIds],
   );
-
-  // Task chips cover the visible grid window (the month view's cells, including
-  // the adjacent-month days it paints) and only visible collections. A date
-  // compare on `YYYY-MM-DD` strings avoids any timezone round-trip. Only active
-  // (open/in_progress) tasks draw: the optimistic task cache can still hold a
-  // done/dropped row for a beat after `x`/Drop, and a chip for a finished task
-  // would be a lie.
-  const visibleTasks = useMemo(() => {
-    if (!range) {
-      return [];
-    }
-    const from = utcToLocalDate(range.from, timezone);
-    const to = utcToLocalDate(range.to, timezone);
-    return (taskData?.tasks ?? []).filter(
-      (task) =>
-        isActiveStatus(task.status) &&
-        task.dueOn !== null &&
-        task.dueOn >= from &&
-        task.dueOn < to &&
-        visibleIds.has(task.collectionId),
-    );
-  }, [range, taskData, timezone, visibleIds]);
 
   const collectionNames = useMemo(() => {
     const names = new Map<string, string>();
@@ -923,16 +896,6 @@ export function CalendarShell({
   }
 
   function handleEventClick(info: EventClickInfo) {
-    const extended = info.event.extendedProps as { kind?: string; taskId?: string };
-    if (extended.kind === "task" && extended.taskId) {
-      // A chip is a task, not an event: route to its editor and never open the
-      // event details popover or the event edit form.
-      overlaySeqRef.current += 1;
-      setQuickDraft(null);
-      setSelection(null);
-      router.push(`/tasks?task=${encodeURIComponent(extended.taskId)}`);
-      return;
-    }
     const parsed = parseOccurrenceFcId(info.event.id);
     if (!parsed) {
       return;
@@ -1453,7 +1416,6 @@ export function CalendarShell({
         scrollTime={scrollTime}
         firstDay={weekStartsOn}
         occurrences={occurrences}
-        tasks={visibleTasks}
         collectionNames={collectionNames}
         readOnlyCollectionIds={readOnlyCollectionIds}
         onDatesSet={handleDatesSet as (info: DatesSetInfo) => void}

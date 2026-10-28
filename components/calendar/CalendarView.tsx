@@ -20,11 +20,9 @@ import type { RefObject } from "react";
 import type { Occurrence } from "@/lib/recurrence/expand";
 import type { EventView } from "@/lib/services/events";
 import type { TimeFormat } from "@/lib/services/preferences";
-import type { TaskView } from "@/lib/services/tasks";
 import { fcEventTimeFormat, formatInstant } from "@/lib/time/format";
 import { utcToLocalDate } from "@/lib/time/zone";
 import { isTaskDrag, readTaskDrag, type TaskDragPayload } from "@/lib/ui/taskDrag";
-import { taskChip, type TaskChip } from "./taskChip";
 import { occurrenceToFcEvent } from "./toFcEvent";
 
 import "@fullcalendar/react/skeleton.css";
@@ -46,12 +44,6 @@ interface Props {
   scrollTime: string;
   firstDay: number;
   occurrences: RenderableOccurrence[];
-  /**
-   * Scheduled tasks to draw as read-only chips. Mapped here through
-   * `taskChip` (not by the shell) so the chip contract has one owner; the shell
-   * only filters by visibility and the visible range.
-   */
-  tasks?: TaskView[];
   collectionNames: ReadonlyMap<string, string>;
   readOnlyCollectionIds: ReadonlySet<string>;
   onDatesSet: (info: DatesSetInfo) => void;
@@ -75,7 +67,6 @@ export function CalendarView({
   scrollTime,
   firstDay,
   occurrences,
-  tasks,
   collectionNames,
   readOnlyCollectionIds,
   onDatesSet,
@@ -89,12 +80,6 @@ export function CalendarView({
     ...occurrenceToFcEvent(occurrence, event, collectionNames.get(event.collectionId) ?? ""),
     editable: !readOnlyCollectionIds.has(event.collectionId),
   })) as EventInput[];
-
-  // Task chips are ordinary all-day events on the same calendar; their ids are
-  // `task:`-prefixed so they can never collide with an occurrence id.
-  const taskEvents = (tasks ?? [])
-    .map(taskChip)
-    .filter((chip): chip is TaskChip => chip !== null);
 
   // `min-h-0 flex-1` gives FullCalendar a definite height to fill; the shell
   // owns the page frame, so the panel never scrolls the document.
@@ -166,9 +151,6 @@ export function CalendarView({
         }}
         eventDidMount={(info) => {
           const extended = info.event.extendedProps as {
-            kind?: string;
-            taskId?: string;
-            ariaLabel?: string;
             accent?: string;
             calendarName?: string;
             eventId?: string;
@@ -176,21 +158,6 @@ export function CalendarView({
           };
           // v7 dropped `borderColor`; the saturated bar is painted directly.
           info.el.style.borderLeftColor = String(extended.accent ?? "transparent");
-          // Task chips are calendar citizens but NOT events: they carry their
-          // own data hook and label, and a click routes to the task editor.
-          if (extended.kind === "task") {
-            // FullCalendar 7 ignores `EventInput.classNames`, so the chip class
-            // (and the overrides CSS keyed off it) is applied here instead.
-            info.el.classList.add("fc-task-chip");
-            if (extended.taskId) {
-              info.el.setAttribute("data-task-id", extended.taskId);
-            }
-            info.el.setAttribute(
-              "aria-label",
-              extended.ariaLabel ?? `Task: ${info.event.title}`,
-            );
-            return;
-          }
           // Deep links and notification links find the clicked block by these.
           if (extended.eventId) {
             info.el.setAttribute("data-event-id", extended.eventId);
@@ -238,7 +205,7 @@ export function CalendarView({
         selectMirror
         editable
         eventResizableFromStart
-        events={[...fcEvents, ...taskEvents]}
+        events={fcEvents}
         datesSet={onDatesSet}
         dateClick={onDateClick}
         select={onSelect}

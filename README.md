@@ -99,11 +99,9 @@ rather not have edited.
   tree as calendars and can be private, shared or view-only, with the same
   two-person rules. A task can be filed under a calendar or sub-calendar as well
   as a list — the LIST picker on its row offers the sidebar's whole tree — so it
-  lives under the same subject its events use; it never becomes an event, only
-  the read-only due-date chip on the grid. A task with a due date shows on the
-  calendar as a read-only
-  chip, and dragging a row onto the sidebar mini month sets its due date to that
-  day.
+  lives under the same subject its events use; it never becomes an event, and it
+  no longer draws on the calendar grid at all. Dragging a row onto the sidebar
+  mini month still sets its due date to that day.
 - **Google-Calendar-shaped daily loops** — a day/slot click, a range drag or
   `Shift+C` opens a quick-create bubble (Enter saves, "More options" escalates to
   the full editor); clicking an event opens anchored details with its repeat
