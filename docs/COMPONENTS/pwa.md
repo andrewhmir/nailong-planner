@@ -158,6 +158,7 @@ reports `env()` as 0 and cannot emulate the notch or home indicator.
 | Update | waiting worker -> `nailong:sw-update-ready` -> pill/toast -> user taps -> `SKIP_WAITING` -> one reload on `controllerchange` |
 | Sign-out | `CLEAR_OFFLINE` deletes the pages cache, paired with the snapshot purge in `GlobalNavRail.signOut` |
 | Session expiry | a navigation whose request **or followed response** resolves to `/login` clears the pages cache and is not stored (Next's auth guard redirects) |
+
 ### lib/pwa/offlineSnapshot.ts
 
 **Purpose** — The per-user read-only snapshot: a small, allowlisted TanStack Query dehydration kept in `localStorage` so the installed app can show the last saved calendar/tasks view without a network.
@@ -174,15 +175,15 @@ reports `env()` as 0 and cannot emulate the notch or home indicator.
 
 ### components/pwa/OfflineSnapshotWriter.tsx
 
-**Purpose** — Hydrates the snapshot on mount and keeps it fresh: one write ~1.5s after any query-cache change, plus a `pagehide` flush for iOS.
+**Purpose** — Hydrates the snapshot for an **offline cold start only** (when `navigator.onLine` is false) and keeps it fresh: one write ~1.5s after any query-cache change, plus a `pagehide` flush for iOS.
 
 **Public API** — `OfflineSnapshotWriter({ userId })` — renders `null`.
 
-**State & side effects** — One effect: `loadSnapshot(userId)` then `hydrate(queryClient, state)`; subscribes to `queryClient.getQueryCache()`; debounced `serializeSnapshot` -> `saveSnapshot`; `pagehide` listener writes synchronously. Cleanup clears the timer, unsubscribes and removes the listener. Hydration happens in the effect, never during render, so SSR/first paint are unchanged and the normal refetch still runs.
+**State & side effects** — One effect: `loadSnapshot(userId)` then `hydrate(queryClient, state)`; subscribes to `queryClient.getQueryCache()`; debounced `serializeSnapshot` -> `saveSnapshot`; `pagehide` listener writes synchronously. Cleanup clears the timer, unsubscribes and removes the listener. Hydration happens in the effect, never during render, so SSR/first paint are unchanged. Online it deliberately does nothing: restoring saved rows first would mark them fresh for `staleTime` and hide data a partner or another tab just changed.
 
 **Depends on / Used by** — `lib/pwa/offlineSnapshot.ts`, `@tanstack/react-query` (`hydrate`, `useQueryClient`). Mounted once in `app/providers.tsx`.
 
-**Debugging** — The snapshot key never appears -> the writer is unmounted or no query ever succeeded; cached values are reverted -> something calls `queryClient.clear()` or a second writer hydrates a stale snapshot; a write storm -> the debounce was removed.
+**Debugging** — The snapshot key never appears -> the writer is unmounted or no query ever succeeded; online reloads show saved rows instead of fresh data -> hydration is no longer gated to `navigator.onLine === false` (see State & side effects above); a write storm -> the debounce was removed.
 
 **Tests** — Covered indirectly by `tests/e2e/pwa-offline.spec.ts` (waits for the key, then goes offline) and by the unit spec above.
 

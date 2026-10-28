@@ -20,7 +20,12 @@ export function OfflineSnapshotWriter({ userId }: { userId: string }) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const snapshot = loadSnapshot(userId);
+    // Only hydrate for an offline cold start. Online the normal queries must be
+    // authoritative: restoring saved rows first would mark them fresh for
+    // `staleTime`, hiding data another tab or device just changed (and breaking
+    // create-then-reload flows).
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    const snapshot = offline ? loadSnapshot(userId) : null;
     if (snapshot) {
       try {
         hydrate(queryClient, snapshot.state);
