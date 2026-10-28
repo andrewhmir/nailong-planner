@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { ANDREW, PARTNER, loadFixtures, signIn } from "./helpers";
 
 const fixtures = loadFixtures();
@@ -222,6 +222,51 @@ test("the default view is the grouped list and the board shows the status column
   await expect(page.getByRole("checkbox", { name: "Call the plumber" })).toBeVisible();
   await expect(scopeTab(page, "All")).toHaveAttribute("aria-pressed", "true");
   await expect(page).not.toHaveURL(/view=/);
+});
+
+// ClickUp-style columns: on a desktop viewport a row is the `task-row-cols`
+// grid, so the status/priority/due chips of two different rows start at the same
+// x and line up with the column header's labels. A wrapping flex row (the old
+// layout) floated the chips right of a variable-width title and failed this.
+test("the list lines the metadata chips up in columns under their header", async ({ page }) => {
+  await openTasks(page);
+  const header = page.getByTestId("task-list-header");
+  await expect(header).toBeVisible();
+
+  const rowFor = (title: string) =>
+    page.locator("li[data-task-id]", { has: page.getByRole("checkbox", { name: title }) });
+  const plumber = rowFor("Call the plumber");
+  const dentist = rowFor("Book a dentist appointment");
+  await expect(plumber).toBeVisible();
+  await expect(dentist).toBeVisible();
+
+  const x = async (target: Locator): Promise<number> => {
+    const box = await target.boundingBox();
+    if (box === null) {
+      throw new Error("expected a laid-out element");
+    }
+    return box.x;
+  };
+
+  // The desktop row is the aligned grid, not the wrapping flex row.
+  await expect(plumber).toHaveCSS("display", "grid");
+
+  const columns = [
+    { chip: '[data-testid^="task-status-"]', label: "Status" },
+    { chip: '[data-testid^="task-priority-"]', label: "Priority" },
+    { chip: '[data-testid="task-due"]', label: "Due date" },
+  ] as const;
+
+  for (const { chip, label } of columns) {
+    const headerX = await x(header.getByText(label, { exact: true }));
+    expect(Math.abs((await x(plumber.locator(chip))) - headerX)).toBeLessThanOrEqual(1);
+    expect(Math.abs((await x(dentist.locator(chip))) - headerX)).toBeLessThanOrEqual(1);
+  }
+
+  // Below `md` the same row falls back to the wrapping layout: no columns, no header.
+  await page.setViewportSize({ width: 640, height: 900 });
+  await expect(plumber).toHaveCSS("display", "flex");
+  await expect(header).toBeHidden();
 });
 
 // Inline status: To do → In progress is a real transition between two painted

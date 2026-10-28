@@ -45,6 +45,15 @@ interface Props {
  * list's dot and name, the inline status/priority/date pickers and the overflow
  * menu (`Open`, `Move to list…`, `Drop`, `Delete`).
  *
+ * **Columns.** The row is a wrapping flex row on narrow screens and a seven-track
+ * grid from `md` up — `md:task-row-cols` (checkbox · title · list · status ·
+ * priority · due date · menu) — so every metadata chip starts at the same x as
+ * its neighbours' and lines up with `TaskList`'s column header. The tracks are
+ * declared once in `app/globals.css` because the header and the row must agree;
+ * the two 44px end tracks also fit the coarse-pointer (touch) targets without a
+ * separate layout. Under `md` the row keeps wrapping, which is the only sane
+ * layout for a phone (the list name is `sr-only` there too).
+ *
  * The row stays the triage layer's selection unit and the drag source: it is
  * `tabIndex={0}`, `aria-label={title}`, carries `data-task-id`,
  * `data-selected`/`aria-current` when selected, reports focus upward through
@@ -83,15 +92,20 @@ export function TaskRow({
       onDragStart={(event) => setTaskDragPayload(event.dataTransfer, task)}
       className={cn(
         "group relative flex flex-wrap items-center gap-1.5 border-b border-line px-1.5 py-1 outline-none last:border-b-0",
+        // ClickUp-style aligned columns from `md` up; the template lives in
+        // `app/globals.css` and is shared with `TaskList`'s header row.
+        "md:task-row-cols md:grid md:items-center md:justify-items-start md:gap-x-2 md:gap-y-0",
         "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-violet",
-        selected && "bg-violet-soft shadow-[inset_2px_0_0_0_var(--color-violet)]",
+        selected
+          ? "bg-violet-soft shadow-[inset_2px_0_0_0_var(--color-violet)]"
+          : "md:hover:bg-well/60",
       )}
     >
       <Checkbox
         label={task.title}
         checked={done}
         onCheckedChange={actions.onToggleDone}
-        className="[@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
+        className="[@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 md:justify-self-center"
       />
 
       <button
@@ -102,20 +116,25 @@ export function TaskRow({
           // The primary open affordance must be a 44px target on touch too: the
           // text-sm line box alone is ~20px.
           "[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:px-2",
+          // In the grid the title owns the flexible track; `w-full` keeps that
+          // whole track clickable instead of shrinking to the text.
+          "md:w-full",
           done ? "text-ink-mute line-through" : "text-ink",
         )}
       >
         {task.title}
       </button>
 
-      <span
-        aria-hidden
-        data-testid={`task-collection-dot-${task.id}`}
-        className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-        style={{ background: dot }}
-      />
-      <span className="max-w-32 truncate text-xs text-ink-mute max-sm:sr-only">
-        {task.collection.name}
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span
+          aria-hidden
+          data-testid={`task-collection-dot-${task.id}`}
+          className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+          style={{ background: dot }}
+        />
+        <span className="min-w-0 max-w-32 truncate text-xs text-ink-mute max-sm:sr-only">
+          {task.collection.name}
+        </span>
       </span>
 
       <TaskStatusPill status={task.status} onChange={actions.onStatus} />
@@ -139,6 +158,7 @@ export function TaskRow({
             "opacity-0 hover:text-ink focus-visible:opacity-100 data-[state=open]:opacity-100",
             "group-hover:opacity-100 group-focus-within:opacity-100",
             "[@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11",
+            "md:justify-self-center",
           )}
         >
           <MoreVerticalIcon size={16} />

@@ -138,6 +138,16 @@
   }
 }
 
+/* The `/tasks` list column contract, shared by `components/tasks/TaskRow.tsx`
+   (as `md:task-row-cols`) and `components/tasks/TaskList.tsx`'s header row (as
+   `task-row-cols`), so a metadata column can never drift between the two:
+   checkbox · title · list · status · priority · due date · menu. The two end
+   tracks are 44px because every icon control grows to a 44px target on a coarse
+   pointer; the title track is the only flexible one. */
+@utility task-row-cols {
+  grid-template-columns: 2.75rem minmax(0, 1fr) 7rem 6rem 5.5rem 9.5rem 2.75rem;
+}
+
 /* Picker surfaces enter from their trigger and a committed value pulses its
    field once: the two pieces of motion that make a pick feel acknowledged.
    The reduced-motion block below neutralises both. */
