@@ -36,6 +36,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "tsx scripts/seed-test-db.mts && playwright test",
+    "test:pwa": "tsx scripts/seed-test-db.mts && playwright test --config playwright.pwa.config.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.mts",
     "provision": "tsx scripts/provision.mts",

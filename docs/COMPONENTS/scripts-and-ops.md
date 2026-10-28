@@ -412,6 +412,16 @@ Pinned choices that must not drift casually: `@fullcalendar/react` and `@fullcal
 
 ### playwright.config.ts
 
+### playwright.pwa.config.ts
+
+**Purpose** — The production-build PWA suite: `testMatch` `pwa-offline.spec.ts`, `next start -p 3100` (never `next dev`), no server reuse, the same seed database/origin/secret as the dev E2E config, and a 90s timeout for the build-sized first paint.
+
+**State & side effects** — Owns the server lifecycle for the run; reads `.playwright/test.db` seeded by `scripts/seed-test-db.mts`. Run with `npm run build && npm run test:pwa`; the CI `pwa` job does exactly that.
+
+**Debugging** — `EADDRINUSE` -> a dev/E2E server is already on :3100 (`reuseExistingServer: false` by design); `next start` failing with standalone output -> copy `public/` and `.next/static` into `.next/standalone/` and start `node .next/standalone/server.js` with `PORT=3100` (the Dockerfile documents that layout).
+
+**Tests** — The whole `tests/e2e/pwa-offline.spec.ts` file.
+
 **Purpose** — Runs the browser suites against a dedicated dev server on `:3100` with the seeded `.playwright/test.db`.
 
 **Invocation / wiring** — Read by `npm run test:e2e` and by a bare `npx playwright test tests/e2e/<spec>.spec.ts` (which then expects the database to be seeded already).
@@ -429,6 +439,8 @@ Pinned choices that must not drift casually: `@fullcalendar/react` and `@fullcal
 ## Runtime and deployment config
 
 ### next.config.ts
+
+**PWA headers (v0.3.0)** — a second header rule for `/sw.js` sets `Cache-Control: no-cache, no-store, must-revalidate`, `Content-Type: application/javascript; charset=utf-8` and `Service-Worker-Allowed: /`, so a deployment can never leave a cached worker behind. The Report-Only CSP also names `worker-src 'self'` and `manifest-src 'self'` so enabling it later cannot silently kill the service worker.
 
 **Purpose** — Sets the Next build and runtime behaviour that the Docker image and the E2E server both depend on.
 
@@ -528,6 +540,8 @@ Pinned choices that must not drift casually: `@fullcalendar/react` and `@fullcal
 ## CI and GitHub configuration
 
 ### .github/workflows/ci.yml
+
+**PWA job (v0.3.0)** — a `pwa` job (needs `verify`) installs Chromium, runs `npm run build`, then `npm run test:pwa`, and uploads `test-results/` as `pwa-traces` on failure. It is the only CI place where the production server, the service worker and offline behaviour are exercised.
 
 **Purpose** — The required checks: a `verify` job (lint, typecheck, docs, unit/integration), then `build` and a full Playwright `e2e` run.
 

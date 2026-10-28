@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
+import { ServiceWorkerRegistrar } from "@/components/pwa/ServiceWorkerRegistrar";
+import { UpdatePill } from "@/components/pwa/UpdatePill";
 import { CollectionTree } from "@/components/sidebar/CollectionTree";
 import { SidebarMiniMonth } from "@/components/sidebar/SidebarMiniMonth";
 import { Button } from "@/components/ui/button";
@@ -116,6 +118,7 @@ export function AppShell({
           <div className="shrink-0 bg-rail text-white md:hidden">
             <div className="safe-pt safe-x flex h-14 items-center gap-2">
               <Brand name="Nailong Planner" showName />
+              <UpdatePill />
               <Button
                 variant="ghost"
                 size="sm"
@@ -225,6 +228,7 @@ export function AppShell({
           </div>
         ) : null}
 
+        <ServiceWorkerRegistrar />
         <ComingSoonDialog entry={comingSoon} onClose={closeComingSoon} />
         <GlobalCapture initialPreferences={preferences} />
       </div>

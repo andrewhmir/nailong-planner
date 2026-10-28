@@ -78,3 +78,82 @@ values are 0 in a normal browser tab, so the frozen viewport contract cannot shi
 
 The manual iPhone checklist (spec §11.4) is the only coverage for real insets: Playwright
 reports `env()` as 0 and cannot emulate the notch or home indicator.
+### public/sw.js
+
+**Purpose** — The hand-written classic service worker: precaches the offline page and install icons, serves navigations network-first with a cached-document fallback, serves hashed static assets cache-first, and never touches `/api/*`.
+
+**Public API** — `SW_VERSION = "v0.3.0-1"` (bump on every release); caches `pages-<SW_VERSION>` and `assets-<SW_VERSION>`; message handler for `{ type: "SKIP_WAITING" }` and `{ type: "CLEAR_OFFLINE" }`.
+
+**State & side effects** — `install` precaches `/offline.html` plus the three manifest icons; `activate` deletes every cache whose name does not carry the current version and claims clients; `fetch` caches successful navigation documents, clears the pages cache and skips caching on a `/login` navigation, falls back to the cached document then `/offline.html`, and runtime-fills static assets. `SKIP_WAITING` is only honoured when the update prompt posts it. No authenticated data ever enters a shared cache, and `/api/*` is never intercepted.
+
+**Depends on / Used by** — Registered by `components/pwa/ServiceWorkerRegistrar.tsx`; served with no-store and `Service-Worker-Allowed: /` by `next.config.ts`. Independent of the app bundle, so it survives a deploy until the new worker activates.
+
+**Debugging** — An installed app keeps showing old UI after a deploy -> `SW_VERSION` was not bumped, the update prompt never fired, or `/sw.js` lost its no-store header -> check the header, then the waiting worker in devtools. Offline navigation shows `/offline.html` although the page was visited -> the navigation happened before the worker took control, or the pages cache was cleared by a `/login` visit. `caches.keys()` contains `pages-*` names from older versions -> `activate` cleanup regressed.
+
+**Tests** — `tests/e2e/pwa-offline.spec.ts` (headers, registration/control, no API caching, offline shell, offline fallback); the dev-server spec asserts no worker exists in development.
+
+### public/offline.html
+
+**Purpose** — Static last-resort page served when a navigation has no cached document (for example a route never visited before going offline): Canvas styling, safe-area padding, a Retry button and a link home.
+
+**Public API** — None; plain HTML/CSS with an inline `location.reload()` handler.
+
+**State & side effects** — Read-only page; no storage, no network calls.
+
+**Depends on / Used by** — Pre-cached by `public/sw.js` (`OFFLINE_URL`) and served as the navigation fallback. Referenced by manual checklist item 7.
+
+**Debugging** — A blank screen instead of this page -> the SW install precache failed (check `PRECACHE_URLS`) or the file path is not `/offline.html`. The page shows in a browser tab but not in the installed app -> the worker is not controlling that scope.
+
+**Tests** — `tests/e2e/pwa-offline.spec.ts` (uncached route while offline).
+
+### lib/pwa/swUpdate.ts
+
+**Purpose** — The update protocol between the service worker and the UI: one event name, one one-shot reload helper, one notify helper.
+
+**Public API** — `UPDATE_EVENT = "nailong:sw-update-ready"`; `applyUpdate(registration: ServiceWorkerRegistration): void` (posts `SKIP_WAITING`, reloads exactly once on the next `controllerchange`); `notifyIfUpdateReady(registration): void` (dispatches the event when a waiting worker exists and a controller is already active).
+
+**State & side effects** — Module-level `reloading` guard so two tabs/events cannot double-reload; touches `navigator.serviceWorker` and `window.location` only when called. Never reloads automatically.
+
+**Depends on / Used by** — `components/pwa/ServiceWorkerRegistrar.tsx` (notify) and `components/pwa/UpdatePill.tsx` (apply).
+
+**Debugging** — Tapping Reload does nothing -> no `registration.waiting` (the new worker already activated) or the app was loaded before any controller existed -> check `navigator.serviceWorker.getRegistration()`; a reload loop means the `reloading` guard was removed.
+
+**Tests** — The update prompt event is covered by `tests/e2e/pwa-offline.spec.ts`; the real waiting-worker path needs a deploy and is covered by manual checklist item 11.
+
+### components/pwa/ServiceWorkerRegistrar.tsx
+
+**Purpose** — Registers `/sw.js` in production only, detects a waiting update, re-checks on visibility, and asks for persistent storage in the installed app.
+
+**Public API** — `ServiceWorkerRegistrar()` — no props; renders `null`.
+
+**State & side effects** — `useEffect` registration with `{ scope: "/", updateViaCache: "none" }`; dispatches `UPDATE_EVENT` via `notifyIfUpdateReady`; `visibilitychange` -> `registration.update()`; `navigator.storage.persist()` when `display-mode: standalone`. Cleanup removes the visibility listener and cancels late async work.
+
+**Depends on / Used by** — `lib/pwa/swUpdate.ts`. Mounted once in `components/shell/AppShell.tsx`. The `process.env.NODE_ENV !== "production"` guard is what keeps `next dev` and the existing E2E dev server service-worker-free.
+
+**Debugging** — A SW appears during `npm run dev` and serves stale chunks -> the production guard was removed; unregister it in devtools. The update prompt never appears though a new build shipped -> the new `/sw.js` byte-differs but the browser did not fetch it (registration update or no-store header), or `registration.waiting` was already consumed by a reload.
+
+**Tests** — `tests/e2e/pwa.spec.ts` (no worker in dev) and `tests/e2e/pwa-offline.spec.ts` (worker + control in production). The deploy/update path is manual checklist item 11.
+
+### components/pwa/UpdatePill.tsx
+
+**Purpose** — The user-initiated update surface: a compact "Update ready" pill in the phone top bar and a persistent Sonner toast with a Reload action on wider screens.
+
+**Public API** — `UpdatePill()` — no props.
+
+**State & side effects** — Listens for `UPDATE_EVENT`; stores the registration; on >=48rem raises one toast (`id: "nailong-update"`, `duration: Infinity`) whose Reload action calls `applyUpdate`. Never reloads by itself. Renders nothing until a waiting worker is announced.
+
+**Depends on / Used by** — `lib/pwa/swUpdate.ts`, `sonner`. Mounted inside the phone top bar in `components/shell/AppShell.tsx` (the CSS hides the pill on wider screens, but its effect still runs to raise the toast).
+
+**Debugging** — A deploy happens and nothing appears -> the event never fired (registrar) or the toast was dismissed and the pill is hidden on desktop -> check the console/service worker panel first. A reload happens without the user pressing it -> `applyUpdate` gained an automatic caller, which is a bug.
+
+**Tests** — `tests/e2e/pwa-offline.spec.ts` dispatches the event and asserts the prompt copy; the real flow is manual checklist item 11.
+
+## Caching and update protocol (v0.3.0)
+
+| Request class | Strategy |
+|---|---|
+| Navigations | network-first; successful documents cached in `pages-<version>`; `/login` clears that cache and is not stored; failure falls back to the cached document, then `/offline.html` |
+| `/_next/static/*`, `/icons/*`, fonts, images, styles, scripts | cache-first; runtime fill in `assets-<version>` |
+| `/api/*` | never intercepted, never cached |
+| Update | waiting worker -> `nailong:sw-update-ready` -> pill/toast -> user taps -> `SKIP_WAITING` -> one reload on `controllerchange` |
+| Sign-out | `CLEAR_OFFLINE` deletes the pages cache (Task 5 pairs it with the snapshot purge) |

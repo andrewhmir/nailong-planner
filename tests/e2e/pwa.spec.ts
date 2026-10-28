@@ -49,3 +49,11 @@ test("emits standalone head metadata", async ({ page }) => {
   await expect(capable).toHaveCount(1);
   await expect(capable).toHaveAttribute("content", "yes");
 });
+
+test("does not register a service worker in development", async ({ page }) => {
+  await page.goto("/");
+  const registrations = await page.evaluate(
+    async () => (await navigator.serviceWorker.getRegistrations()).length,
+  );
+  expect(registrations).toBe(0);
+});
