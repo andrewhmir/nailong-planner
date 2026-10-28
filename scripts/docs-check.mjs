@@ -47,6 +47,9 @@ const SKIPPED_DOCS = new Set(["readme.md"]);
 
 /** Where a missing file's section belongs, longest prefix first. */
 const AREA_DOCS = [
+  ["app/manifest.ts", "docs/COMPONENTS/pwa.md"],
+  ["components/pwa/", "docs/COMPONENTS/pwa.md"],
+  ["lib/pwa/", "docs/COMPONENTS/pwa.md"],
   ["app/", "docs/COMPONENTS/app-routes.md"],
   ["components/calendar/", "docs/COMPONENTS/components-calendar.md"],
   ["components/shell/", "docs/COMPONENTS/components-shell-and-sidebar.md"],

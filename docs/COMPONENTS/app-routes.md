@@ -60,7 +60,9 @@ Radii ("Canvas is nearly square"): `--radius-sm` 3px, `--radius-md` 4px, `--radi
 
 **Debugging** — Text renders in Helvetica -> the `className={lato.variable}` on `<html>` was dropped or the font files are missing -> check `localFont` and the class. A second `<html>`/`<body>` appears in the DOM -> a nested layout added one -> only this file may render them. Toasts or TanStack Query are missing on `/login` -> expected, `Providers` is mounted in `app/(app)/layout.tsx`, not here. The browser tab still shows a blank/Next icon -> the metadata images were deleted or the server predates them -> restart `npm run dev` (rebuild for `next start`) and confirm the `<link rel="icon">` and `<link rel="apple-touch-icon">` tags in the page head.
 
-**Tests** — `tests/e2e/design-tokens.spec.ts` (asserts Lato is self-hosted and applied).
+**Tests** — `tests/e2e/design-tokens.spec.ts` (asserts Lato is self-hosted and applied), `tests/e2e/pwa.spec.ts` (standalone head metadata).
+
+**PWA / standalone** — `export const viewport: Viewport` sets `width: "device-width"`, `initialScale: 1`, `viewportFit: "cover"` and `themeColor` = `PWA_THEME_COLOR` (`#334451`); `metadata.appleWebApp` sets `capable`, `title: "Nailong"` and `statusBarStyle: "black-translucent"`. `viewportFit: "cover"` is what makes `env(safe-area-inset-*)` non-zero in the installed app — without it every `.safe-*` inset in the shell is 0. Never add `maximumScale`/`userScalable`; iOS focus zoom is fixed by 16px inputs. The install manifest itself lives in `app/manifest.ts` (see [`pwa.md`](pwa.md)).
 
 ### app/providers.tsx
 

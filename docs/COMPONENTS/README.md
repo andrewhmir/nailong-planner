@@ -1,7 +1,7 @@
 # Component documentation
 
 Every source file under `app/`, `components/`, `lib/` and `scripts/` has its own
-section in one of the twelve area docs below. Each section follows the same
+section in one of the thirteen area docs below. Each section follows the same
 shape — Purpose, Public API, State & side effects, Depends on / Used by,
 Debugging, Tests — so you can jump to the file you care about instead of reading
 the tree.
@@ -21,6 +21,7 @@ never edited.
 | Doc | Covers | Read it when |
 |---|---|---|
 | [`app-routes.md`](app-routes.md) | `app/` — layouts, pages, API route handlers, global styles/tokens | Routing, auth guards, HTTP status codes, design tokens, viewport contract |
+| [`pwa.md`](pwa.md) | `app/manifest.ts`, `components/pwa/`, `lib/pwa/`, and (ungated) `public/sw.js`, `public/offline.html`, `public/icons/` | Installable shell, service worker, offline snapshot, install/update affordances |
 | [`api-layer.md`](api-layer.md) | `lib/api/` — request pipeline, error mapping, handlers | A route returns the wrong status/body, auth or validation rejection |
 | [`lib-services.md`](lib-services.md) | `lib/services/` — SQL + business rules | Collection/event/task semantics, permissions, shade assignment, recurrence writes |
 | [`lib-data.md`](lib-data.md) | `lib/db/`, `lib/query/`, `lib/auth/`, `lib/validation/` | Schema, query keys, optimistic cache updates, auth tables, Zod schemas |
@@ -85,6 +86,9 @@ Intentionally **not** gated:
 
 - `tests/` — documented as lookup tables in [`tests.md`](tests.md), because a
   table of "spec → behaviour → command" is more useful than 55 one-file sections.
+- `public/` — service worker, offline page and install icons; documented in
+  [`pwa.md`](pwa.md) but only existence-checked, because the browser consumes them
+  directly rather than importing them.
 - `app/fonts/` — vendored binary woff2 files.
 - Root config files (`next.config.ts`, `Dockerfile`, …) — documented in
   [`scripts-and-ops.md`](scripts-and-ops.md) but only existence-checked, not
