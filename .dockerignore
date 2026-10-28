@@ -8,6 +8,7 @@ node_modules
 .superpowers
 .uat
 .dev
+.worktrees
 ops
 .playwright
 test-results

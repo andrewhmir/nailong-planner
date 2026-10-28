@@ -469,12 +469,13 @@ Pinned choices that must not drift casually: `@fullcalendar/react` and `@fullcal
 
 **Invocation / wiring** — Applied by Docker/railway builds before the context is sent; not read by any code.
 
-**Behaviour & side effects** — Excludes `node_modules`, `.next`, `.next-e2e`, `.git`, `.github`, `.agents`, `.dsh`, `.uat`, `.dev`, `ops`, `.playwright`, `.superpowers`, `test-results`, `playwright-report`, `coverage`, `data`, `*.db`, `*.db-shm`, `*.db-wal`, `*.db.gz`, `*.log`, `tsconfig.tsbuildinfo`, `.env`, `.env.*` (with `!.env.example` re-included), `README.md`, `docs` and `tests`.
+**Behaviour & side effects** — Excludes `node_modules`, `.next`, `.next-e2e`, `.git`, `.github`, `.agents`, `.dsh`, `.uat`, `.dev`, `.worktrees`, `ops`, `.playwright`, `.superpowers`, `test-results`, `playwright-report`, `coverage`, `data`, `*.db`, `*.db-shm`, `*.db-wal`, `*.db.gz`, `*.log`, `tsconfig.tsbuildinfo`, `.env`, `.env.*` (with `!.env.example` re-included), `README.md`, `docs` and `tests`.
 
 **Gotchas** —
 - `.env.local` is excluded, but `.env.example` is deliberately re-included; keep that negation last if you add patterns.
 - `data` and `*.db*` excluded means a local household database can never leak into an image layer.
 - `tests` and `docs` are absent from the image, so anything the runtime imports from them would fail only in production.
+- `.worktrees` is excluded because each git worktree carries its own `node_modules`; without it a local `docker build` sent a multi-gigabyte context (Railway builds from a fresh clone, so its context was never affected).
 
 **Tests / verified by** — No test; verified by inspecting a built image.
 
