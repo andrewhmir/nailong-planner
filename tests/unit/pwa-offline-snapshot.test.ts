@@ -79,13 +79,16 @@ describe("offline snapshot allowlist", () => {
 
 describe("offline snapshot persistence", () => {
   it("round-trips a snapshot with its saved time", () => {
-    const snapshot = serializeSnapshot(seededClient(), 5_000);
+    const now = Date.now();
+    const savedAt = now - 1_000;
+    const snapshot = serializeSnapshot(seededClient(), savedAt);
     expect(saveSnapshot("user-a", snapshot)).toBe(true);
-    const loaded = loadSnapshot("user-a", 6_000);
-    expect(loaded?.savedAt).toBe(5_000);
+    const loaded = loadSnapshot("user-a", now);
+    expect(loaded?.savedAt).toBe(savedAt);
     expect(loaded?.appVersion).toBe(APP_VERSION);
     expect(loaded?.version).toBe(OFFLINE_SNAPSHOT_VERSION);
-    expect(readSnapshotMeta("user-a")).toEqual({ savedAt: 5_000 });
+    // readSnapshotMeta reads the real clock, so the fixture must be recent.
+    expect(readSnapshotMeta("user-a")).toEqual({ savedAt });
   });
 
   it("ignores an expired snapshot", () => {
