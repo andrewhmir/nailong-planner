@@ -2,7 +2,7 @@
 
 The suites are documented as lookup tables rather than one section per file: find the behaviour, read the command, run that one file. `tests/` is intentionally excluded from `npm run docs:check`, which does not gate this area — but a new or renamed suite still needs its row here.
 
-The tree currently holds **42 unit files, 15 integration files and 30 E2E specs**, plus the shared fixture helpers. Run one file at a time while editing; the full suites belong to the pre-commit gate.
+The tree currently holds **41 unit files, 15 integration files and 30 E2E specs**, plus the shared fixture helpers. Run one file at a time while editing; the full suites belong to the pre-commit gate.
 
 **How to update this doc:** add a row to the matching table, then add or amend the entry in `## Which spec covers what`.
 
