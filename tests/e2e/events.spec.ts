@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { ANDREW, loadFixtures, signIn } from "./helpers";
 
 const fixtures = loadFixtures();
@@ -23,6 +23,30 @@ function householdToday(): string {
 function dayInMonth(today: string, day: number): string {
   const [year, month] = today.split("-");
   return `${year}-${month}-${String(day).padStart(2, "0")}`;
+}
+
+/**
+ * Assert an event title is painted. The shared E2E database accumulates events
+ * on today (earlier specs create on the dialog's default day) and the seed pins
+ * a task chip there, so FullCalendar's row cap can fold a freshly created event
+ * behind "+N more". Open the folded list once before failing.
+ */
+async function expectGridEvent(page: Page, title: string): Promise<void> {
+  const target = page.getByText(title).first();
+  await expect
+    .poll(async () => {
+      if ((await target.count()) > 0) {
+        return true;
+      }
+      const more = page.locator(".fc-more-link");
+      if ((await more.count()) === 0) {
+        return false;
+      }
+      await more.first().click();
+      return (await target.count()) > 0;
+    })
+    .toBe(true);
+  await expect(target).toBeVisible();
 }
 
 test("renders the month grid with seeded events", async ({ page }) => {
@@ -140,10 +164,16 @@ test("a weekly event appears in the following month", async ({ page }) => {
   await page.getByLabel("Title").fill("Swim class");
   await page.getByLabel("Repeat").selectOption("weekly");
   await page.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText("Swim class").first()).toBeVisible();
 
+  // Today's cell is at the row cap, so verify the series in Week view (which
+  // never folds rows) rather than in the month cell it was created on.
+  await page.getByRole("button", { name: "Week", exact: true }).click();
+  await expectGridEvent(page, "Swim class");
+
+  // Next month's cells are clean, so the recurrence shows up in Month view.
+  await page.getByRole("button", { name: "Month", exact: true }).click();
   await page.getByRole("button", { name: "Next", exact: true }).click();
-  await expect(page.getByText("Swim class").first()).toBeVisible();
+  await expectGridEvent(page, "Swim class");
 });
 
 test("skipping one occurrence leaves the rest of the series", async ({ page }) => {
@@ -192,5 +222,5 @@ test("switching to the week view keeps events visible", async ({ page }) => {
   await page.getByRole("button", { name: "Save" }).click();
 
   await page.getByRole("button", { name: "Week", exact: true }).click();
-  await expect(page.getByText("Week check").first()).toBeVisible();
+  await expectGridEvent(page, "Week check");
 });
