@@ -166,6 +166,8 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 
 ### lib/query/collections.ts
 
+**Offline writes (v0.3.0)** — every request goes through lib/query/request.ts; while offline a mutation throws OFFLINE_MESSAGE before etch (see that section).
+
 **Purpose** — Fetches the household calendar tree and exposes create/update/delete calendar mutations.
 
 **Public API** — `interface CollectionInput { name; parentId?; kind?; hueFamily?; ownerId?; visibility? }`; hooks `useCollections()` (query key `["collections"]`), `useCreateCollection()`, `useUpdateCollection()`, `useDeleteCollection()`. Mutations resolve to `{ collection: CollectionRow }` (create/update) or `void` (delete).
@@ -182,6 +184,8 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 **Tests** — No direct test coverage (the hooks are exercised through `tests/e2e/sidebar.spec.ts`, `tests/e2e/calendar-picker.spec.ts` and the API suite `tests/integration/collections-api.test.ts`).
 
 ### lib/query/events.ts
+
+**Offline writes (v0.3.0)** — every request goes through lib/query/request.ts; while offline a mutation throws OFFLINE_MESSAGE before etch (see that section).
 
 **Purpose** — Range query for the visible grid window and the three event mutations, each with an optimistic cache write over every cached `["events"]` range plus a snapshot rollback.
 
@@ -242,7 +246,22 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 
 **Tests** — `tests/unit/event-cache.test.ts` covers `applyEventPatch`, `removeEvent`, `replaceEvent` (including index preservation). `parseExdates` has no direct unit test; it is covered indirectly by `tests/e2e/events.spec.ts` and `tests/e2e/undo.spec.ts`.
 
+### lib/query/request.ts
+
+**Purpose** — The single JSON request helper for the client query layer, shared by `events.ts`, `tasks.ts`, `collections.ts`, `preferences.ts` and `search.ts` (v0.3.0 removed the five byte-identical copies).
+
+**Public API** — `OFFLINE_MESSAGE` (`"You're offline — changes can't be saved."`), `ApiErrorBody` (the `{ error?: { message?: string } }` envelope type, also imported by the two optimistic handlers that read it), `requestJson<T>(url: string, init?: RequestInit): Promise<T>`.
+
+**State & side effects** — Reads `navigator.onLine` at call time and throws `OFFLINE_MESSAGE` before `fetch` when the browser is known to be offline; otherwise performs the fetch and throws the API envelope message on a non-ok response. No caching, no storage.
+
+**Depends on / Used by** — `fetch`. Imported by every module in `lib/query/`. The offline branch is what makes an offline mutation fail immediately under `mutations.networkMode: "always"` in `app/providers.tsx` instead of pausing and replaying later.
+
+**Debugging** — An offline edit shows "You're offline — changes can't be saved." by design -> nothing retries; a queued/replayed edit means the QueryClient lost `mutations.networkMode: "always"` -> check `app/providers.tsx`. A fetch still fires while offline -> the helper was bypassed -> grep for a local `fetch(` in `lib/query/`.
+
+**Tests** — `tests/unit/query-request.test.ts` (offline refusal without fetch, success body, API envelope) plus the existing cache specs.
 ### lib/query/preferences.ts
+
+**Offline writes (v0.3.0)** — every request goes through lib/query/request.ts; while offline a mutation throws OFFLINE_MESSAGE before etch (see that section).
 
 **Purpose** — Reads the signed-in user's calendar preferences (seeded from the server render so first paint is correct) and patches them with an out-of-order-safe optimistic update.
 
@@ -264,6 +283,8 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 
 ### lib/query/search.ts
 
+**Offline writes (v0.3.0)** — every request goes through lib/query/request.ts; while offline a mutation throws OFFLINE_MESSAGE before etch (see that section).
+
 **Purpose** — Title/description event search for the header search box, plus a helper that decides which date the grid should open at when a result is clicked.
 
 **Public API** — `useSearchEvents(query: string)` returning the matching `EventView[]`; `navigableDateFor(event: EventView, timezone: string): string`.
@@ -281,6 +302,8 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 **Tests** — No direct test coverage for the hook; `navigableDateFor` is exercised through `tests/e2e/search.spec.ts`, and the endpoint through `tests/integration/search-api.test.ts`.
 
 ### lib/query/tasks.ts
+
+**Offline writes (v0.3.0)** — every request goes through lib/query/request.ts; while offline a mutation throws OFFLINE_MESSAGE before etch (see that section).
 
 **Purpose** — The Tasks data layer: one query for a task view (or one list) with the rail counts, one counts-only query the sidebar can enable per route, plus create/update/delete/reorder mutations. Only the update mutation writes the cache optimistically; every mutation invalidates the `["tasks"]` prefix on settle, which also refreshes the counts query.
 

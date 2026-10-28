@@ -1,4 +1,5 @@
 "use client";
+import { requestJson, type ApiErrorBody } from "@/lib/query/request";
 
 import {
   useMutation,
@@ -12,20 +13,9 @@ import { patchTasksEntry, type TasksCacheData } from "@/lib/query/taskCache";
 import type { TaskCountSummary, TaskView } from "@/lib/services/tasks";
 import type { CreateTaskInput, ReorderTasksInput, UpdateTaskInput } from "@/lib/validation/tasks";
 
-interface ApiErrorBody {
-  error?: { message?: string };
-}
 
 type TaskSnapshots = Array<[QueryKey, TasksCacheData | undefined]>;
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  const payload = (await response.json().catch(() => null)) as (T & ApiErrorBody) | null;
-  if (!response.ok) {
-    throw new Error(payload?.error?.message ?? "Something went wrong.");
-  }
-  return payload as T;
-}
 
 /**
  * Every task the viewer may see for a scope (or one list), plus the rail counts.
