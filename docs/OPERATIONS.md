@@ -83,6 +83,74 @@ the first request after the restart; a failed migration leaves `/api/health` at
 503 rather than caching a half-built schema, so the deploy fails visibly instead
 of serving broken pages.
 
+## Installing on a phone (PWA)
+
+v0.3.0 makes Nailong installable. Installing and the service worker require a
+**secure context**: the exact HTTPS origin in `BETTER_AUTH_URL`. A LAN
+`http://192.168.x.x` address cannot install or run the service worker
+(`localhost` is the development exception).
+
+- **iPhone (Safari):** Share -> **Add to Home Screen** -> open "Nailong". iOS has
+  no install prompt event. iOS 26 opens every Home Screen add as a web app by
+  default; older iOS uses the manifest plus the apple metadata.
+- **Android (Chrome):** browser menu -> **Install app** (or **Add to Home screen**).
+- **Desktop:** the install icon in the address bar, or the browser menu.
+
+The installed app opens standalone (no address bar), inset under the status bar,
+Dynamic Island and home indicator in portrait and landscape. With no network it
+reopens the last saved calendar/tasks view read-only and shows an amber
+`Offline · ...` bar; writes are refused with "You're offline — changes can't be
+saved." and are never queued. Signing out removes the per-user offline snapshot
+and the cached pages. After a deploy the running app offers **Update ready**;
+tapping it reloads once.
+
+The service worker registers **only in production** (`npm run start`, the Docker
+image). `npm run dev` has none; if a production worker ever ran on your local
+origin, unregister it in the browser devtools before developing.
+
+### Install icons (generated once, committed)
+
+The three files under `public/icons/` are generated from `app/icon.png` with
+PowerShell `System.Drawing` and committed (no build step, no image dependency):
+
+```powershell
+Add-Type -AssemblyName System.Drawing
+$src = [System.Drawing.Image]::FromFile((Resolve-Path "app/icon.png"))
+New-Item -ItemType Directory -Force -Path "public/icons" | Out-Null
+function Save-Icon([System.Drawing.Image]$source, [int]$target, [string]$out) {
+  $bmp = New-Object System.Drawing.Bitmap($target, $target)
+  $g = [System.Drawing.Graphics]::FromImage($bmp)
+  $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+  $g.DrawImage($source, 0, 0, $target, $target)
+  $bmp.Save((Join-Path (Get-Location) $out), [System.Drawing.Imaging.ImageFormat]::Png)
+  $g.Dispose(); $bmp.Dispose()
+}
+Save-Icon $src 192 "public/icons/icon-192.png"
+Save-Icon $src 512 "public/icons/icon-512.png"
+# maskable: white 512 canvas, mascot at 410x410 centred (80% safe zone)
+$src.Dispose()
+```
+
+### Manual acceptance checklist (run once on the real iPhone)
+
+1. Share -> Add to Home Screen -> open from the Home Screen: no address bar.
+2. Status bar is white over the rail; nothing sits under the Dynamic Island.
+3. Home indicator clears bottom content, sheets, the FAB and toasts.
+4. Landscape both ways: notch side padded, rail not clipped, no horizontal scroll.
+5. The install hint appears once in Safari, dismisses permanently, and is absent
+   once installed.
+6. Settings -> Install app says Installed while running standalone.
+7. Airplane mode -> relaunch: last saved view within ~3s plus the amber bar.
+8. Offline create/edit/delete shows the offline message; nothing applies later.
+9. Reconnect: the bar clears and data refreshes.
+10. Sign out: no `nailong.offline.*` keys and no `pages-*` cache remain; an
+    offline relaunch shows the offline page.
+11. Deploy a new build, reopen the installed app: Update ready appears and one
+    reload takes the new version.
+12. Focus search, task capture and time inputs: no zoom.
+13. Event dialog with the keyboard open: Save stays reachable.
+14. VoiceOver: the install hint dismiss has a name; shell landmarks unchanged.
+15. 320px and long household names still do not overflow.
 ## Operator commands
 
 The image ships plain-Node versions of the three operational scripts, so every
@@ -151,7 +219,7 @@ than trusting SQLite to ignore them.
 
 ## Things deliberately absent
 
-- Reminders/notifications, two-way Google Calendar sync, read-only ICS subscriptions and export feeds, dark mode, PWA, multi-household — all v0.2+. One-time Google Calendar import ships today (see below); it is not sync.
+- Reminders/notifications, two-way Google Calendar sync, read-only ICS subscriptions and export feeds, dark mode, multi-household — all v0.2+. One-time Google Calendar import ships today (see below); it is not sync.
 - Public sign-up, email delivery, password reset by email — by design; this app has exactly two accounts.
 
 ## Importing from Google Calendar

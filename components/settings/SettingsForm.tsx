@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CalendarPreferencesCard } from "@/components/settings/CalendarPreferencesCard";
+import { InstallAppCard } from "@/components/settings/InstallAppCard";
 import { Button } from "@/components/ui/button";
 import type { UserPreferences } from "@/lib/services/preferences";
 import { cn } from "@/lib/utils";
@@ -317,6 +318,8 @@ export function SettingsForm({
             </Link>
           </div>
         </section>
+
+        <InstallAppCard />
 
         <div id="account" className="scroll-mt-6 space-y-6">
           {/* A real <form> with the password-manager tokens is what lets Chrome

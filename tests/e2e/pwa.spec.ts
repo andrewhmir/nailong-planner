@@ -77,3 +77,30 @@ test("names the missing saved view when offline with nothing saved", async ({ co
   await expect(page.getByText(/no saved view yet/i)).toBeVisible();
   await context.setOffline(false);
 });
+const IPHONE_SAFARI =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
+
+test.describe("iPhone install hint", () => {
+  test.use({ userAgent: IPHONE_SAFARI, viewport: { width: 375, height: 812 } });
+
+  test("offers Home Screen instructions once and remembers the dismissal", async ({ page }) => {
+    await page.goto("/");
+    const dismiss = page.getByRole("button", { name: "Dismiss install hint" });
+    await expect(dismiss).toBeVisible();
+    await dismiss.click();
+    await expect(dismiss).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Dismiss install hint" })).toHaveCount(0);
+  });
+});
+
+test("desktop Chrome gets no install hint", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Dismiss install hint" })).toHaveCount(0);
+});
+
+test("Settings explains how to install the app", async ({ page }) => {
+  await page.goto("/settings");
+  await expect(page.getByRole("heading", { name: "Install app" })).toBeVisible();
+  await expect(page.getByText(/Android \(Chrome\)/)).toBeVisible();
+});

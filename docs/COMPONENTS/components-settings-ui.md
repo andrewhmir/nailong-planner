@@ -43,7 +43,23 @@ This area covers the two settings components (the page-level form and the per-us
 
 **Tests** — `tests/e2e/preferences.spec.ts` (all five controls), `tests/e2e/view-preference.spec.ts` (default view reaches the calendar), `tests/integration/preferences-api.test.ts` (handler contract).
 
+### components/settings/InstallAppCard.tsx
+
+**Purpose** — Settings card that explains Home Screen installation and shows an "Installed" state once the app runs standalone.
+
+**Public API** — `InstallAppCard()` — no props.
+
+**State & side effects** — `useSyncExternalStore` watches `(display-mode: standalone)` with a `null` server snapshot; renders no body until the client state is known. Read-only; no mutations, no storage.
+
+**Depends on / Used by** — `lib/pwa/device.ts` (`detectStandalone`). Rendered by `components/settings/SettingsForm.tsx` after the Google Calendar import card.
+
+**Debugging** — Wrong state on an installed phone -> the media query/navigator.standalone read regressed -> `lib/pwa/device.ts`; card missing from Settings -> the `SettingsForm` mount was dropped.
+
+**Tests** — `tests/e2e/pwa.spec.ts` (heading + platform steps).
+
 ### components/settings/SettingsForm.tsx
+
+**Install card (v0.3.0)** — renders `<InstallAppCard />` between the Google Calendar import section and the Account section; it deliberately has no sub-nav entry, like the import card.
 
 **Purpose** — The client shell of `/settings`: a sticky section sub-nav plus the Profile, Household, Calendar, Google Calendar import and Account cards. Profile and Household save explicitly per card; Calendar saves per control through `CalendarPreferencesCard`; the import card links to `/settings/import`; Account owns password change and two-factor setup.
 

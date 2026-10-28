@@ -209,3 +209,39 @@ reports `env()` as 0 and cannot emulate the notch or home indicator.
 | Who can read it | Only the same user id on the same device; sign-out clears it, and the service worker pages cache is cleared too |
 | Offline writes | Refused: mutations use `networkMode: "always"` and `lib/query/request.ts` throws `OFFLINE_MESSAGE` before `fetch`, so optimistic rows roll back instead of queueing |
 | Back online | The query cache refetches normally and the banner disappears |
+### lib/pwa/device.ts
+
+**Purpose** — Dependency-free platform detection for the install UX: iOS/Safari user agents and standalone display mode.
+
+**Public API** — `INSTALL_HINT_KEY` (`nailong.pwa.installHintDismissed`), `isIOS(userAgent)`, `isIOSSafari(userAgent)` (excludes CriOS/FxiOS/EdgiOS/OPiOS/DuckDuckGo, which cannot add to the Home Screen), `StandaloneEnv`, `isStandalone(env)`, `detectStandalone()`.
+
+**State & side effects** — Pure string/`matchMedia`/`navigator.standalone` reads; `detectStandalone` returns false during SSR and calls `window.matchMedia` only in the browser. No storage writes.
+
+**Depends on / Used by** — `components/pwa/InstallHint.tsx`, `components/settings/InstallAppCard.tsx`. Tests pass plain objects, so no DOM is needed.
+
+**Debugging** — The hint never appears on a real iPhone -> the browser is an in-app shell (not Safari) or Safari already added it; check the UA with the helpers. The Settings card says "Not installed" inside the installed app -> `display-mode`/`navigator.standalone` detection regressed; check `isStandalone`.
+
+**Tests** — `tests/unit/pwa-device.test.ts`; the hint flow in `tests/e2e/pwa.spec.ts`.
+
+### components/pwa/InstallHint.tsx
+
+**Purpose** — The one-time install strip under the phone top bar, shown only in iPhone/iPad Safari before install.
+
+**Public API** — `InstallHint()` — no props; renders `null` when not applicable.
+
+**State & side effects** — `useSyncExternalStore` computes the client-only condition (`isIOSSafari`, not standalone, not dismissed) with a server snapshot of `false`, so hydration cannot mismatch and no effect-setState is needed. Dismiss writes `INSTALL_HINT_KEY` to `localStorage` and hides it permanently. The dismiss control is a 44px target with `aria-label="Dismiss install hint"`.
+
+**Depends on / Used by** — `lib/pwa/device.ts`. Mounted in `components/shell/AppShell.tsx` under the phone top bar.
+
+**Debugging** — The strip appears on desktop -> the UA gate was removed; it reappears after a dismiss -> the storage key changed or storage is blocked (the code then deliberately shows it again); it is missing when installed -> correct behaviour.
+
+**Tests** — `tests/e2e/pwa.spec.ts` (iPhone UA shows/dismisses/remembers; desktop shows none).
+
+## Install guidance (v0.3.0)
+
+| Platform | Path | Notes |
+|---|---|---|
+| iPhone/iPad Safari | Share -> Add to Home Screen | No prompt event exists on iOS; the one-time strip plus this Settings card are the whole UX |
+| Android Chrome | Menu -> Install app / Add to Home screen | Manifest criteria (192/512/maskable, standalone) are what make this available |
+| Desktop Chrome/Edge | Install icon in the address bar, or the menu | Same manifest; the app opens its own window |
+| Any HTTP/LAN origin | Not installable | A secure context (HTTPS, or localhost for development) is required |

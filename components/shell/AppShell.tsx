@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
+import { InstallHint } from "@/components/pwa/InstallHint";
 import { OfflineIndicator } from "@/components/pwa/OfflineIndicator";
 import { ServiceWorkerRegistrar } from "@/components/pwa/ServiceWorkerRegistrar";
 import { UpdatePill } from "@/components/pwa/UpdatePill";
@@ -131,6 +132,8 @@ export function AppShell({
               </Button>
             </div>
           </div>
+
+          <InstallHint />
 
           {/* The shell's page heading for routes whose page does not render one.
               It is visually hidden because the shell has no visible title. A

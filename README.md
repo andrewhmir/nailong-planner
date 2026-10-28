@@ -123,6 +123,12 @@ rather not have edited.
   rail and breadcrumb never scroll away and the month grid always uses the
   height that is left. Week/day hours and long agendas scroll inside the
   calendar panel only; the page itself never scrolls.
+- **Installable, readable offline (v0.3.0)** — add Nailong to the iPhone Home
+  Screen and it opens full-screen with no address bar, correctly inset under the
+  status bar and home indicator. With no network the installed app reopens the
+  last saved calendar and tasks read-only behind an amber offline bar; edits are
+  refused rather than queued, signing out purges the device, and a deploy offers
+  an "Update ready" reload.
 - **Nested calendars** — a root calendar owns a hue family; sub-calendars take
   the next unused shade of it (up to 7 children per root). The event dialog's
   calendar picker shows that nesting (expand a root to reveal its children, and
@@ -257,7 +263,7 @@ Historical design specs and plans (never edited):
 
 Reminders and notifications · two-way Google Calendar sync and read-only ICS
 subscriptions / export feeds · a 30-day trash bin (undo is session-only) ·
-dark mode · PWA · notes, focus and the Today page · more than two users.
+dark mode · notes, focus and the Today page · more than two users.
 
 ## Contributing
 
