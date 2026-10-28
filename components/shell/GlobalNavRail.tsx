@@ -1,5 +1,6 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
@@ -21,6 +22,7 @@ import {
   TodayIcon,
   type IconProps,
 } from "@/components/ui/icons";
+import { clearSnapshot } from "@/lib/pwa/offlineSnapshot";
 import { ROADMAP, gateLabel, type RoadmapEntry, type RoadmapId } from "@/lib/roadmap";
 import { cn } from "@/lib/utils";
 import { Brand } from "./Brand";
@@ -108,6 +110,7 @@ function RailEntry({ entry, active, onComingSoon }: EntryProps) {
 export function GlobalNavRail({ householdName, currentUser, onComingSoon }: Props) {
   const pathname = usePathname();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [signingOut, setSigningOut] = useState(false);
 
   const settings = ROADMAP.find((entry) => entry.id === "settings");
@@ -144,6 +147,12 @@ export function GlobalNavRail({ householdName, currentUser, onComingSoon }: Prop
       toast.error("Could not sign out. Try again.");
       return;
     }
+
+    // Never leave another person's read-only data (or cached pages) on this
+    // device after sign-out.
+    queryClient.clear();
+    clearSnapshot(currentUser.id);
+    navigator.serviceWorker.controller?.postMessage({ type: "CLEAR_OFFLINE" });
 
     router.replace("/login");
     router.refresh();

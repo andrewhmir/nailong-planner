@@ -57,3 +57,23 @@ test("does not register a service worker in development", async ({ page }) => {
   );
   expect(registrations).toBe(0);
 });
+test("shows the offline banner when the network drops", async ({ context, page }) => {
+  await page.goto("/");
+  await context.setOffline(true);
+  await expect(page.getByText(/Offline/)).toBeVisible();
+  await context.setOffline(false);
+  await expect(page.getByText(/Offline/)).toBeHidden();
+});
+
+test("names the missing saved view when offline with nothing saved", async ({ context, page }) => {
+  await page.evaluate(() => {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith("nailong.offline.")) {
+        localStorage.removeItem(key);
+      }
+    }
+  });
+  await context.setOffline(true);
+  await expect(page.getByText(/no saved view yet/i)).toBeVisible();
+  await context.setOffline(false);
+});

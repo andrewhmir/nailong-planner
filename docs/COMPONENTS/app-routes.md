@@ -68,6 +68,8 @@ Radii ("Canvas is nearly square"): `--radius-sm` 3px, `--radius-md` 4px, `--radi
 
 ### app/providers.tsx
 
+**Offline snapshot (v0.3.0)** — `Providers` takes `currentUserId` (passed from `app/(app)/layout.tsx`), mounts `OfflineSnapshotWriter` inside the `QueryClientProvider`, and sets `mutations.networkMode: "always"` so an offline write fails and rolls back instead of pausing. Hydration/serialization stays in `lib/pwa/offlineSnapshot.ts` (see `pwa.md`).
+
 **Purpose** — The client boundary for the signed-in app: one `QueryClient` and the global sonner `Toaster`.
 
 **Public API** — `Providers({ children })`. The client is created once through a `useState` initializer, so a re-render never discards the cache.
@@ -81,6 +83,8 @@ Radii ("Canvas is nearly square"): `--radius-sm` 3px, `--radius-md` 4px, `--radi
 **Tests** — No direct test coverage; the toaster is exercised indirectly by `tests/e2e/undo.spec.ts`.
 
 ### app/(app)/layout.tsx
+
+**Offline snapshot (v0.3.0)** — passes `currentUserId={session.user.id}` to `Providers`; that id keys the per-user offline snapshot and must not be replaced by a household-level identity.
 
 **Purpose** — The authenticated shell. Resolves the session, the membership row, the household and the member list, then renders `AppShell` inside `Providers`; anything unresolved redirects to `/login`.
 

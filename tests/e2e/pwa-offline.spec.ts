@@ -84,3 +84,48 @@ test("raises the update prompt when a worker is waiting", async ({ page }) => {
   });
   await expect(page.getByText("A new version of Nailong is ready")).toBeVisible();
 });
+
+test("restores the last saved read-only view when offline", async ({ context, page }) => {
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await page.reload();
+  await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
+  await page.waitForFunction(() =>
+    Object.keys(localStorage).some((key) => key.startsWith("nailong.offline.")),
+  );
+
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.getByText(/Offline · showing your last saved view/)).toBeVisible();
+  await expect(page.getByText("Weekly class").first()).toBeVisible();
+  await context.setOffline(false);
+});
+
+test("purges the offline snapshot and cached pages on sign-out", async ({ page }) => {
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await page.reload();
+  await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
+  await page.waitForFunction(() =>
+    Object.keys(localStorage).some((key) => key.startsWith("nailong.offline.")),
+  );
+
+  await page.getByRole("button", { name: /Account menu for/ }).click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
+  await page.waitForURL("**/login");
+
+  const leftovers = await page.evaluate(async () => {
+    const snapshotKeys = Object.keys(localStorage).filter((key) =>
+      key.startsWith("nailong.offline."),
+    );
+    const cacheNames = await caches.keys();
+    return {
+      snapshotKeys,
+      pagesCaches: cacheNames.filter((name) => name.startsWith("pages-")),
+    };
+  });
+  expect(leftovers.snapshotKeys).toEqual([]);
+  expect(leftovers.pagesCaches).toEqual([]);
+});

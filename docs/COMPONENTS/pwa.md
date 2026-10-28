@@ -157,3 +157,55 @@ reports `env()` as 0 and cannot emulate the notch or home indicator.
 | `/api/*` | never intercepted, never cached |
 | Update | waiting worker -> `nailong:sw-update-ready` -> pill/toast -> user taps -> `SKIP_WAITING` -> one reload on `controllerchange` |
 | Sign-out | `CLEAR_OFFLINE` deletes the pages cache (Task 5 pairs it with the snapshot purge) |
+### lib/pwa/offlineSnapshot.ts
+
+**Purpose** — The per-user read-only snapshot: a small, allowlisted TanStack Query dehydration kept in `localStorage` so the installed app can show the last saved calendar/tasks view without a network.
+
+**Public API** — `OFFLINE_SNAPSHOT_VERSION` (1), `SNAPSHOT_TTL_MS` (7 days), `SNAPSHOT_KEY_PREFIX` (`nailong.offline.`), `OfflineSnapshot`, `shouldPersistQuery({ queryKey })`, `serializeSnapshot(queryClient, now?)`, `saveSnapshot(userId, snapshot): boolean`, `loadSnapshot(userId, now?): OfflineSnapshot | null`, `readSnapshotMeta(userId): { savedAt } | null`, `clearSnapshot(userId?)`.
+
+**State & side effects** — Reads/writes the single storage key `nailong.offline.<userId>`. The allowlist is the four data roots `events`, `tasks`, `collections`, `preferences`, with any key containing `search` excluded; import batches and everything else are never stored. A snapshot carries `version`, `appVersion` (the `APP_VERSION` buster) and `savedAt`; it is ignored when malformed, from a different shape/app version, or older than the TTL. All storage access is `try/catch` (private mode, quota, blocked storage) and never throws.
+
+**Depends on / Used by** — `@tanstack/react-query` (`dehydrate`, `DehydratedState`), `APP_VERSION` from `lib/roadmap`. Used by `components/pwa/OfflineSnapshotWriter.tsx` (serialize/save/hydrate), `components/pwa/OfflineIndicator.tsx` (banner time) and `components/shell/GlobalNavRail.tsx` (purge on sign-out).
+
+**Debugging** — Offline launch shows the previous person's data -> the user id in the key or the sign-out purge regressed -> check `clearSnapshot` in `GlobalNavRail.signOut` and the `currentUserId` passed to `Providers`. Offline shows nothing although the app was used online -> the TTL/app-version/shape check rejected it, or the writer never ran -> inspect `nailong.offline.<userId>` in devtools. A quota error silently empties the snapshot by design -> online use is unaffected.
+
+**Tests** — `tests/unit/pwa-offline-snapshot.test.ts` (allowlist, round-trip, TTL, version/user mismatch, quota, purge); the offline production flow in `tests/e2e/pwa-offline.spec.ts`.
+
+### components/pwa/OfflineSnapshotWriter.tsx
+
+**Purpose** — Hydrates the snapshot on mount and keeps it fresh: one write ~1.5s after any query-cache change, plus a `pagehide` flush for iOS.
+
+**Public API** — `OfflineSnapshotWriter({ userId })` — renders `null`.
+
+**State & side effects** — One effect: `loadSnapshot(userId)` then `hydrate(queryClient, state)`; subscribes to `queryClient.getQueryCache()`; debounced `serializeSnapshot` -> `saveSnapshot`; `pagehide` listener writes synchronously. Cleanup clears the timer, unsubscribes and removes the listener. Hydration happens in the effect, never during render, so SSR/first paint are unchanged and the normal refetch still runs.
+
+**Depends on / Used by** — `lib/pwa/offlineSnapshot.ts`, `@tanstack/react-query` (`hydrate`, `useQueryClient`). Mounted once in `app/providers.tsx`.
+
+**Debugging** — The snapshot key never appears -> the writer is unmounted or no query ever succeeded; cached values are reverted -> something calls `queryClient.clear()` or a second writer hydrates a stale snapshot; a write storm -> the debounce was removed.
+
+**Tests** — Covered indirectly by `tests/e2e/pwa-offline.spec.ts` (waits for the key, then goes offline) and by the unit spec above.
+
+### components/pwa/OfflineIndicator.tsx
+
+**Purpose** — The amber offline bar under the breadcrumb bar: "Offline · showing your last saved view (14:02)" or "Offline · no saved view yet".
+
+**Public API** — `OfflineIndicator({ userId })`.
+
+**State & side effects** — `useSyncExternalStore` over the window `online`/`offline` events (`getServerSnapshot` reports online, so hydration cannot mismatch); reads `readSnapshotMeta(userId)` at render to label the saved time. Renders nothing while online. No timers, no storage writes.
+
+**Depends on / Used by** — `lib/pwa/offlineSnapshot.ts`. Mounted in `components/shell/AppShell.tsx` directly under `BreadcrumbBar`, on every viewport.
+
+**Debugging** — The bar does not appear when the network drops -> the `online`/`offline` listeners were dropped or the component is unmounted; the bar claims a saved view that is not on screen -> `readSnapshotMeta` and the hydrated state disagree (check the user id passed to both).
+
+**Tests** — `tests/e2e/pwa.spec.ts` (banner with and without a snapshot, dev server) and `tests/e2e/pwa-offline.spec.ts` (production, last-saved view visible offline).
+
+## Offline data protocol (v0.3.0)
+
+| Concern | Rule |
+|---|---|
+| What is stored | Dehydrated `events`, `tasks`, `collections`, `preferences` queries (successful ones only); never search results or import batches |
+| Where | `localStorage["nailong.offline.<userId>"]`, versioned and stamped with `APP_VERSION` and `savedAt` |
+| Lifetime | 7 days (`SNAPSHOT_TTL_MS`), then ignored |
+| Who can read it | Only the same user id on the same device; sign-out clears it, and the service worker pages cache is cleared too |
+| Offline writes | Refused: mutations use `networkMode: "always"` and `lib/query/request.ts` throws `OFFLINE_MESSAGE` before `fetch`, so optimistic rows roll back instead of queueing |
+| Back online | The query cache refetches normally and the banner disappears |

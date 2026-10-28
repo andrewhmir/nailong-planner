@@ -52,7 +52,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const preferences = getPreferences(db, session.user.id);
 
   return (
-    <Providers>
+    <Providers currentUserId={session.user.id}>
       <AppShell
         currentUser={{ id: currentUser.id, name: currentUser.name }}
         members={members}

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
+import { OfflineIndicator } from "@/components/pwa/OfflineIndicator";
 import { ServiceWorkerRegistrar } from "@/components/pwa/ServiceWorkerRegistrar";
 import { UpdatePill } from "@/components/pwa/UpdatePill";
 import { CollectionTree } from "@/components/sidebar/CollectionTree";
@@ -147,6 +148,8 @@ export function AppShell({
             timeFormat={preferences.timeFormat}
             onOpenSidebar={() => setSidebarOpen(true)}
           />
+
+          <OfflineIndicator userId={currentUser.id} />
 
           <div className="flex min-h-0 flex-1">
             <aside className="hidden min-h-0 w-56 shrink-0 flex-col border-r border-line bg-surface lg:flex">

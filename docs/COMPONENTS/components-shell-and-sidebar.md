@@ -23,7 +23,7 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 
 ### components/shell/AppShell.tsx
 
-**Safe areas (v0.3.0)** — the phone top bar is a `bg-rail` wrapper with `safe-pt` around the 56px row (the rail paints behind the status bar); `main` uses `safe-x` plus bottom `calc(padding + var(--safe-bottom))`; the Collections sheet uses `safe-x-4`/`safe-pb-4` and `75dvh`. All insets are 0 under Playwright, so the shell and viewport specs keep their exact geometry. It also mounts `ServiceWorkerRegistrar` (production-only SW registration and update detection) and `UpdatePill` (the phone top-bar update action); see `pwa.md`.
+**Safe areas (v0.3.0)** — the phone top bar is a `bg-rail` wrapper with `safe-pt` around the 56px row (the rail paints behind the status bar); `main` uses `safe-x` plus bottom `calc(padding + var(--safe-bottom))`; the Collections sheet uses `safe-x-4`/`safe-pb-4` and `75dvh`. All insets are 0 under Playwright, so the shell and viewport specs keep their exact geometry. It also mounts `ServiceWorkerRegistrar` (production-only SW registration and update detection), `UpdatePill` (the phone top-bar update action) and `OfflineIndicator` (the amber offline bar under the breadcrumb); see `pwa.md`.
 
 **Purpose** — The application frame for every `app/(app)` route. It renders the nav rail, breadcrumb bar, one desktop sidebar, and a phone/tablet sheet that reuses the same collection tree, inside a `h-dvh overflow-hidden` viewport lock. The landmarks name the mixed tree, not just calendars: the tree is a `nav` labelled `Collection tree`, the sheet is a `dialog` labelled `Collections`, and its controls are `Open collections` / `Close collections`. Both mini-month copies are also task-row drop targets, which is how a row dragged on `/tasks` gets its due date moved to that day.
 
@@ -104,6 +104,8 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 **Tests** — `tests/e2e/shell.spec.ts`, `tests/e2e/search.spec.ts`, `tests/e2e/viewport-fit.spec.ts`.
 
 ### components/shell/GlobalNavRail.tsx
+
+**Offline purge (v0.3.0)** — sign-out clears the QueryClient, calls `clearSnapshot(currentUser.id)` and posts `{ type: "CLEAR_OFFLINE" }` to the service worker before redirecting to `/login`, so no read-only household data survives a sign-out on the device.
 
 **Safe areas (v0.3.0)** — the rail is `w-[calc(54px+var(--safe-left))]` with `pl-[var(--safe-left)]`, so a landscape notch never covers the icons; the inset is 0 in a browser tab, so the 54px rail assertion still holds.
 
