@@ -363,6 +363,59 @@ test("the list cell files the task under another list or calendar and Ctrl+Z res
   );
 });
 
+// The person pills (top right) are the display filter for the whole tree, so
+// they must filter the tasks workspace too: hiding Partner removes their lists
+// from the LIST picker and their task (and its count) from every view, and
+// hiding Andrew removes his. Before this, the v0.2.1 picker offered every
+// writable collection no matter what the pills showed — the reported leak.
+test("the person pills hide a person's lists and tasks from the workspace", async ({ page }) => {
+  await openTasks(page);
+
+  const pills = page.getByRole("group", { name: "Cross-check calendars" });
+  const mePill = pills.getByRole("button", { name: "Andrew", exact: true });
+  const partnerPill = pills.getByRole("button", { name: "Partner", exact: true });
+  const allCount = page.getByTestId("tasks-count-all");
+
+  // Baseline: Andrew's Inbox rows, Partner's shared-list task, and the Ours task.
+  await expect(page.getByRole("checkbox", { name: "Call the plumber" })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Draft the garden plan" })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Order more coffee beans" })).toBeVisible();
+  await expect.poll(async () => Number(await allCount.innerText())).toBeGreaterThan(0);
+  const before = Number(await allCount.innerText());
+
+  // The LIST picker offers Partner's shared list while their pill is on.
+  const inboxRow = rowById(page, fixtures.tasks.inbox[0]!);
+  await inboxRow.getByRole("button", { name: "List: Inbox" }).click();
+  await expect(
+    page.getByRole("menu").getByRole("menuitemradio", { name: "Projects", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // Hide Partner: their list leaves the picker, their task leaves the list, and
+  // the All badge drops exactly that task. "Ours" keeps painting.
+  await partnerPill.click();
+  await inboxRow.getByRole("button", { name: "List: Inbox" }).click();
+  await expect(
+    page.getByRole("menu").getByRole("menuitemradio", { name: "Projects", exact: true }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("checkbox", { name: "Draft the garden plan" })).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: "Order more coffee beans" })).toBeVisible();
+  await expect.poll(async () => Number(await allCount.innerText())).toBe(before - 1);
+
+  // The same rule in the other direction: hiding Andrew hides his own rows.
+  await mePill.click();
+  await expect(page.getByRole("checkbox", { name: "Call the plumber" })).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: "Order more coffee beans" })).toBeVisible();
+
+  // Turning the pills back on restores exactly what they hid.
+  await mePill.click();
+  await partnerPill.click();
+  await expect(page.getByRole("checkbox", { name: "Call the plumber" })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Draft the garden plan" })).toBeVisible();
+  await expect.poll(async () => Number(await allCount.innerText())).toBe(before);
+});
+
 // The Filter menu rebuilds the sidebar tree: picking a calendar includes its
 // sub-calendars, picking a sub-calendar narrows to itself, and Clear filters
 // resets the projection. The tasks are created through the API so no seeded row

@@ -480,6 +480,54 @@ describe("listTasks", () => {
     }
   });
 
+  it("omits the collections the client is hiding and recounts without them", async () => {
+    const seeded = await makeSeededDb();
+    const { db, close, ctxA } = seeded;
+    const { shared } = makeLists(seeded);
+    try {
+      const kept = createTask(db, ctxA, { title: "Buy milk" });
+      const hiddenRoot = createTask(db, ctxA, { title: "Water plants", collectionId: shared.id });
+      const child = createCollection(db, ctxA, {
+        name: "Weekend",
+        parentId: shared.id,
+        kind: "list",
+      });
+      const hiddenChild = createTask(db, ctxA, { title: "Mow the lawn", collectionId: child.id });
+
+      const all = listTasks(db, ctxA, filterInput({ view: "all" }));
+      expect(ids(all.tasks).sort()).toEqual([kept.id, hiddenChild.id, hiddenRoot.id].sort());
+      expect(all.counts).toEqual({ all: 3, today: 0, week: 0, someday: 3, overdue: 0 });
+
+      // Hiding the person pill's collections must drop their rows *and* their
+      // counts: the tab badges have to match the painted list.
+      const excluded = listTasks(
+        db,
+        ctxA,
+        filterInput({ view: "all", excludeCollectionIds: [shared.id, child.id] }),
+      );
+      expect(ids(excluded.tasks)).toEqual([kept.id]);
+      expect(excluded.counts).toEqual({ all: 1, today: 0, week: 0, someday: 1, overdue: 0 });
+
+      // Unknown ids and an empty list change nothing.
+      for (const excludeCollectionIds of [["nope"], []]) {
+        const unchanged = listTasks(db, ctxA, filterInput({ view: "all", excludeCollectionIds }));
+        expect(ids(unchanged.tasks).sort()).toEqual(all.tasks.map((row) => row.id).sort());
+        expect(unchanged.counts).toEqual(all.counts);
+      }
+
+      // A duplicated id is one exclusion, not a double subtraction.
+      const duplicated = listTasks(
+        db,
+        ctxA,
+        filterInput({ view: "all", excludeCollectionIds: [shared.id, child.id, shared.id] }),
+      );
+      expect(ids(duplicated.tasks)).toEqual([kept.id]);
+      expect(duplicated.counts).toEqual(excluded.counts);
+    } finally {
+      close();
+    }
+  });
+
   it("lets the partner read a view-only list's tasks but never write them", async () => {
     const seeded = await makeSeededDb();
     const { db, close, ctxA, ctxB } = seeded;
@@ -1266,5 +1314,18 @@ describe("listTasksQuerySchema includeClosed", () => {
     expect(listTasksQuerySchema.safeParse({ includeClosed: "maybe" }).success).toBe(false);
     expect(listTasksQuerySchema.safeParse({ includeClosed: "0" }).success).toBe(false);
     expect(listTasksQuerySchema.safeParse({ includeClosed: true }).success).toBe(false);
+  });
+});
+
+describe("listTasksQuerySchema exclude", () => {
+  it("splits, trims and de-duplicates the hidden collection ids", () => {
+    expect(listTasksQuerySchema.parse({ exclude: " a , b , ,a" }).exclude).toEqual(["a", "b"]);
+    expect(listTasksQuerySchema.parse({ exclude: "" }).exclude).toEqual([]);
+    expect(listTasksQuerySchema.parse({}).exclude).toBeUndefined();
+  });
+
+  it("rejects a list too long to be a display filter", () => {
+    const tooMany = Array.from({ length: 201 }, (_, index) => `id-${index}`).join(",");
+    expect(listTasksQuerySchema.safeParse({ exclude: tooMany }).success).toBe(false);
   });
 });

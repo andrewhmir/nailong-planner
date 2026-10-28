@@ -93,6 +93,14 @@ export interface ListTasksInput {
    * active-only either way.
    */
   includeClosed?: boolean;
+  /**
+   * Collection ids the viewer is not drawing right now (the sidebar's person
+   * pills, per-collection checkboxes or "display only this calendar"). Their
+   * task rows are omitted **and** left out of `counts`, so the tab badges match
+   * the painted list. A display filter only: every id still resolved through
+   * `resolveVisibleCollections`, and an id that no longer exists is a no-op.
+   */
+  excludeCollectionIds?: readonly string[];
   timezone: string;
   weekStartsOn: 0 | 1;
 }
@@ -243,13 +251,15 @@ function countActive(rows: TaskRow[], bucketContext: BucketContext, due: TaskDue
 /**
  * Every task in a visible collection, bucketed with `bucketOf`. The
  * `collectionId` and `view` filters only narrow `tasks`: `counts` always covers
- * all visible active tasks (`all` included), because the rail badges must not
- * change when the user narrows a list. Done and dropped rows are absent by
- * default; with `includeClosed` they join the read set and the `view` filter
- * buckets them with `bucketOfIncludingClosed`, so a finished task dated today
- * still lands in Today. A task dated beyond this week has no bucket, so only
- * `"all"` shows it. Reading tasks never creates the caller's Inbox: the Inbox is
- * an ordinary list as far as the views are concerned.
+ * every visible active task the client is drawing (`all` included), because the
+ * rail badges must not change when the user narrows a list. Rows in a collection
+ * the client is hiding via `excludeCollectionIds` are dropped from both the list
+ * and the counts, so the tab badges cannot count rows the workspace never paints.
+ * Done and dropped rows are absent by default; with `includeClosed` they join the
+ * read set and the `view` filter buckets them with `bucketOfIncludingClosed`, so
+ * a finished task dated today still lands in Today. A task dated beyond this week
+ * has no bucket, so only `"all"` shows it. Reading tasks never creates the
+ * caller's Inbox: the Inbox is an ordinary list as far as the views are concerned.
  */
 export function listTasks(
   db: Database,
@@ -268,11 +278,19 @@ export function listTasks(
   const includeClosed = input.includeClosed === true;
   const candidates =
     visibleIds.length === 0 ? [] : readTasks(db, ctx, readStatuses(includeClosed), visibleIds);
-  const counts = countActive(candidates, bucketContext, due);
+  // The person pills are a display filter, so the counts and the rows below must
+  // be computed from the same painted set.
+  const excluded =
+    input.excludeCollectionIds && input.excludeCollectionIds.length > 0
+      ? new Set(input.excludeCollectionIds)
+      : null;
+  const drawn =
+    excluded === null ? candidates : candidates.filter((row) => !excluded.has(row.collectionId));
+  const counts = countActive(drawn, bucketContext, due);
 
   const view = input.view ?? "all";
   const bucketOfRow = includeClosed ? bucketOfIncludingClosed : bucketOf;
-  const rows = candidates
+  const rows = drawn
     .filter((row) => input.collectionId === undefined || row.collectionId === input.collectionId)
     .filter((row) => view === "all" || bucketOfRow(row, bucketContext) === view)
     .sort(

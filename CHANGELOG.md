@@ -32,6 +32,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   mini month (or a day cell) still sets its due date. The `?task=<id>` deep link
   remains for shareable links.
 
+### Fixed
+
+- **The person pills now filter tasks, not just calendars** — untoggling a
+  person (Ours / you / your partner), an individual collection, or entering
+  "display only this calendar" now hides their lists and tasks in the `/tasks`
+  workspace exactly as it hides their calendars in the sidebar and grid: the
+  LIST picker, the overflow move targets and the toolbar's filter tree stop
+  offering them, their rows leave the list, and the scope counts drop with them
+  (`GET /api/tasks?exclude=`). Before this, the v0.2.1 list picker offered every
+  writable collection no matter what the pills showed, so a person you had
+  switched off still appeared there — the reported leak. Turning the pill back
+  on restores exactly what it hid.
+
 ## [0.2.0] - 2026-10-26
 
 ### Added — tasks and triage

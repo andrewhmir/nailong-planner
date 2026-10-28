@@ -33,3 +33,30 @@ export function visibleCollectionIds(
   }
   return ids;
 }
+
+/**
+ * The exact complement of `visibleCollectionIds`: every root and child the
+ * person pills, a per-collection checkbox or "display only this calendar" are
+ * currently hiding, sorted for a stable query key.
+ *
+ * The tasks workspace sends these ids to `GET /api/tasks`, which omits their
+ * rows *and* their counts — otherwise the tab badges would disagree with the
+ * painted list. It is a display filter built from the ids the server already
+ * returned, never a permission, so an id that no longer exists is harmless.
+ */
+export function hiddenCollectionIds(
+  roots: CollectionNode[],
+  state: VisibilityState,
+  userId: string,
+): string[] {
+  const visible = visibleCollectionIds(roots, state, userId);
+  const hidden: string[] = [];
+  for (const root of roots) {
+    for (const collection of [root, ...root.children]) {
+      if (!visible.has(collection.id)) {
+        hidden.push(collection.id);
+      }
+    }
+  }
+  return hidden.sort();
+}

@@ -83,6 +83,10 @@ export const taskViewSchema = z.enum([...TASK_BUCKETS, "all"]);
  * `includeClosed` arrives as the literal query-string `"true"`/`"false"` and is
  * mapped to a boolean here. It must stay an `enum` transform: `z.coerce.boolean()`
  * would make `Boolean("false")` true.
+ * `exclude` is the display filter behind the person pills: a comma-separated
+ * collection-id list the client is not drawing, so their task rows and counts
+ * are omitted. It is parsed here (split/trim/de-dupe) so the service only ever
+ * sees a clean array.
  */
 export const listTasksQuerySchema = z.object({
   view: taskViewSchema.optional(),
@@ -91,6 +95,18 @@ export const listTasksQuerySchema = z.object({
     .enum(["true", "false"])
     .transform((value) => value === "true")
     .optional(),
+  exclude: z
+    .string()
+    .max(4000)
+    .optional()
+    .transform((value) =>
+      value === undefined
+        ? undefined
+        : [...new Set(value.split(",").map((id) => id.trim()).filter((id) => id.length > 0))],
+    )
+    .refine((ids) => ids === undefined || ids.length <= 200, {
+      message: "Hide at most 200 collections.",
+    }),
 });
 
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;

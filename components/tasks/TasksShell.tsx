@@ -1,8 +1,9 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useVisibilityApi } from "@/components/shell/VisibilityProvider";
 import { Button } from "@/components/ui/button";
 import type { TaskPriority, TaskStatus } from "@/lib/db/schema";
 import { TASK_SCOPES, endOfWeek, localToday, type TaskScope } from "@/lib/domain/tasks";
@@ -26,6 +27,7 @@ import { pushUndo } from "@/lib/ui/undo";
 import { undoToast } from "@/lib/ui/undoToast";
 import { resolveSomedayTriage, useTaskShortcuts } from "@/lib/ui/useTaskShortcuts";
 import { useUndoHotkey } from "@/lib/ui/useUndoHotkey";
+import { hiddenCollectionIds } from "@/lib/ui/visibleCollections";
 import type { UpdateTaskInput } from "@/lib/validation/tasks";
 import { TaskBoard } from "./TaskBoard";
 import { TaskCaptureRow } from "./TaskCaptureRow";
@@ -175,8 +177,22 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
   // The server-side `collectionId` filter is deliberately not used here: the
   // toolbar's selection is a subtree (a calendar includes its sub-calendars),
   // so the projection below filters client-side against the resolved set.
-  const tasksQuery = useTasks(view, undefined, state.closed);
+  const visibility = useVisibilityApi();
   const collectionsQuery = useCollections();
+  // The person pills and per-collection checkboxes govern the tasks workspace
+  // exactly as they govern the sidebar: a hidden person's lists leave the LIST
+  // picker and the filter tree, and their task rows and badges leave the views.
+  // `hiddenCollectionIds` is the exact complement of the set the sidebar draws,
+  // so the two surfaces cannot disagree about what "hidden" means.
+  const hiddenIds = useMemo(
+    () =>
+      collectionsQuery.data === undefined
+        ? []
+        : hiddenCollectionIds(collectionsQuery.data, visibility.state, currentUserId),
+    [collectionsQuery.data, visibility.state, currentUserId],
+  );
+  const hiddenIdSet = useMemo(() => new Set(hiddenIds), [hiddenIds]);
+  const tasksQuery = useTasks(view, undefined, state.closed, hiddenIds);
   const updateTask = useUpdateTask();
   const createTask = useCreateTask();
   const deleteTask = useDeleteTask();
@@ -414,17 +430,19 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
     }
   }, [editorTask, tasksQuery.isPending, selectedTaskId, visibleRows]);
 
-  // Every writable collection — calendars and lists alike — labelled by its
-  // parent when nested: the inline list picker's menu, the overflow menu's move
-  // targets and the toolbar's filter tree all read this one array. A task may be
-  // filed under a calendar (the same subject its events use) or a list. Colours
-  // are folded from the root because a sub-collection stores `hueFamily: null`;
-  // the server stays authoritative, so a stale tree still gets a 403.
+  // Every writable collection the viewer is currently drawing — calendars and
+  // lists alike — labelled by its parent when nested: the inline list picker's
+  // menu, the overflow menu's move targets and the toolbar's filter tree all
+  // read this one array. A task may be filed under a calendar (the same subject
+  // its events use) or a list. Colours are folded from the root because a
+  // sub-collection stores `hueFamily: null`. Collections the person pills are
+  // hiding are left out, so a hidden person's lists cannot be offered as a
+  // target; the server stays authoritative, so a stale tree still gets a 403.
   const lists = useMemo<WritableList[]>(() => {
     const viewer = { userId: currentUserId, householdId: "" };
     const targets: WritableList[] = [];
     for (const root of collectionsQuery.data ?? []) {
-      if (canWriteCollection(viewer, foldCollectionPermission(root))) {
+      if (!hiddenIdSet.has(root.id) && canWriteCollection(viewer, foldCollectionPermission(root))) {
         targets.push({
           id: root.id,
           name: root.name,
@@ -436,7 +454,10 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
         });
       }
       for (const child of root.children) {
-        if (canWriteCollection(viewer, foldCollectionPermission(child, root))) {
+        if (
+          !hiddenIdSet.has(child.id) &&
+          canWriteCollection(viewer, foldCollectionPermission(child, root))
+        ) {
           targets.push({
             id: child.id,
             name: `${root.name} / ${child.name}`,
@@ -450,7 +471,7 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
       }
     }
     return targets;
-  }, [collectionsQuery.data, currentUserId]);
+  }, [collectionsQuery.data, currentUserId, hiddenIdSet]);
 
   /**
    * Write the next toolbar state to both React and the URL. `replace`, never
@@ -459,15 +480,33 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
    * and drops default-valued keys; `mergeTaskScopeParams` then writes a real
    * scope and deletes `view` for All.
    */
-  function updateState(next: TaskViewState): void {
-    setState(next);
-    const params = mergeTaskScopeParams(
-      mergeTaskViewParams(new URLSearchParams(searchParams.toString()), next),
-      view,
-    );
-    const query = params.toString();
-    router.replace(query.length > 0 ? `/tasks?${query}` : "/tasks");
-  }
+  const updateState = useCallback(
+    (next: TaskViewState): void => {
+      setState(next);
+      const params = mergeTaskScopeParams(
+        mergeTaskViewParams(new URLSearchParams(searchParams.toString()), next),
+        view,
+      );
+      const query = params.toString();
+      router.replace(query.length > 0 ? `/tasks?${query}` : "/tasks");
+    },
+    [router, searchParams, view],
+  );
+
+  // A toolbar list filter whose collection became hidden (its person pill was
+  // switched off) would paint an empty list while the filter chip sits in a menu
+  // that no longer offers the item. Drop the filter instead of hiding the cause;
+  // the tasks read has already excluded the collection, so this is URL hygiene
+  // rather than a second source of truth. The adjustment is bounded: the next
+  // render sees `collectionId === null` and the effect returns, so this is the
+  // same one-shot reconciliation the selection-coherence effect performs.
+  useEffect(() => {
+    if (state.collectionId === null || !hiddenIdSet.has(state.collectionId)) {
+      return;
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- bounded one-shot reconciliation, see above
+    updateState({ ...state, collectionId: null });
+  }, [hiddenIdSet, state, updateState]);
 
   /** Remove the one-shot `?task=` while keeping every other URL param. */
   function clearTaskParam(): void {

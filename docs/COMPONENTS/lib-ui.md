@@ -152,23 +152,24 @@ calendar still draws, or an undo action does nothing.
 
 ### lib/ui/visibleCollections.ts
 
-**Purpose** — The single implementation of "which collection ids is the grid drawing", shared by the main grid and the sidebar mini-month so they cannot disagree.
+**Purpose** — The single implementation of "which collection ids is the grid drawing", shared by the main grid and the sidebar mini-month so they cannot disagree — plus its exact complement, which the tasks workspace sends to `GET /api/tasks` so the person pills filter tasks as well as calendars.
 
-**Public API** — `visibleCollectionIds(roots: CollectionNode[], state: VisibilityState, userId: string): Set<string>`.
+**Public API** — `visibleCollectionIds(roots: CollectionNode[], state: VisibilityState, userId: string): Set<string>` and `hiddenCollectionIds(roots: CollectionNode[], state: VisibilityState, userId: string): string[]` (sorted; the complement of the drawn set, including every child of a hidden root).
 
-**Derivation rules** — When `state.only !== null` it returns `new Set([state.only])` immediately: exact, and deliberately bypassing the branch pruning below so a sub-calendar can be isolated while its parent is filtered out. Otherwise it walks roots in order: a root that fails `isCollectionVisible(state, root, userId)` is skipped **together with all of its children** (the loop `continue`s), and each child is then tested with `isCollectionVisible(state, child, userId, root)` — the root is passed so the child's pill follows the root's owner rather than a stale child row. The result is a `Set` of ids only — never collection rows — and it is rebuilt on every call. The function never reads `kind`: a list id contributes and is pruned exactly like a calendar id, and only the consumers that draw events care that a list has none.
+**Derivation rules** — When `state.only !== null` it returns `new Set([state.only])` immediately: exact, and deliberately bypassing the branch pruning below so a sub-calendar can be isolated while its parent is filtered out. Otherwise it walks roots in order: a root that fails `isCollectionVisible(state, root, userId)` is skipped **together with all of its children** (the loop `continue`s), and each child is then tested with `isCollectionVisible(state, child, userId, root)` — the root is passed so the child's pill follows the root's owner rather than a stale child row. The result is a `Set` of ids only — never collection rows — and it is rebuilt on every call. The function never reads `kind`: a list id contributes and is pruned exactly like a calendar id, and only the consumers that draw events care that a list has none. `hiddenCollectionIds` flattens `[root, ...root.children]` in that order and keeps the ids the visible set does not contain, then sorts them so the resulting query string (and TanStack key) is stable across renders.
 
-**State & side effects** — None. Pure over its arguments.
+**State & side effects** — None. Both are pure over their arguments.
 
-**Depends on / Used by** — `CollectionNode` from `lib/services/collections`; `isCollectionVisible`, `VisibilityState` from `./visibility`. Called by `components/calendar/CalendarShell.tsx` (memoised over `collections`, `currentUserId`, `visibility.state`; its result filters the fetched events by `collectionId`) and `components/sidebar/SidebarMiniMonth.tsx`.
+**Depends on / Used by** — `CollectionNode` from `lib/services/collections`; `isCollectionVisible`, `VisibilityState` from `./visibility`. `visibleCollectionIds` is called by `components/calendar/CalendarShell.tsx` (memoised over `collections`, `currentUserId`, `visibility.state`; its result filters the fetched events by `collectionId`) and `components/sidebar/SidebarMiniMonth.tsx`. `hiddenCollectionIds` is called by `components/tasks/TasksShell.tsx`, which passes the result to `useTasks` (and filters its `lists` picker projections by the same set).
 
 **Debugging**
 - The grid is empty while a calendar is ticked -> `state.only` is set to a different id -> check `visibility.state.only`.
 - A list branch stays drawn when its root is unticked -> the caller filtered by hand instead of using the root/child pair here -> call this function with the whole mixed tree.
 - Grid and mini-month disagree -> both call this function, so the difference is in the arguments (stale provider state, or a mini-month built from a different calendar list) -> log `roots.length` and `state` at both sites.
 - A child shows while its parent's checkbox is off -> the root was filtered but the child test was reached, which only happens when you call `isCollectionVisible` directly instead of going through this function -> check the caller.
+- A hidden person's tasks still paint, or the tab badge counts them -> `hiddenCollectionIds` was not passed to `useTasks`, or the two calls saw different trees (the set must come from the same `["collections"]` payload the sidebar draws) -> check `TasksShell`'s `hiddenIds` memo and the `useTasks` fourth argument.
 
-**Tests** — `tests/unit/visibleCollections.test.ts` (mixed calendar/list trees: list branches prune and isolate like calendar ones); `tests/e2e/sidebar.spec.ts` and `tests/e2e/only-this-calendar.spec.ts` cover the rendered result.
+**Tests** — `tests/unit/visibleCollections.test.ts` (mixed calendar/list trees: list branches prune and isolate like calendar ones; `hiddenCollectionIds` pill/checkbox/`only` complements and the empty tree); `tests/e2e/sidebar.spec.ts`, `tests/e2e/only-this-calendar.spec.ts` and `tests/e2e/tasks.spec.ts` cover the rendered result.
 
 ## Sidebar folding
 

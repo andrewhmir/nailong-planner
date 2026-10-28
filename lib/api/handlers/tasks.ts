@@ -21,9 +21,10 @@ import {
 import { fieldErrors, guarded, readJson } from "./support";
 
 /**
- * `GET /api/tasks` reads three query params, so absent ones become
+ * `GET /api/tasks` reads four query params, so absent ones become
  * `undefined` for the schema. Zod failures travel through `fieldErrors` as a
- * `VALIDATION` 400 `fields.view` / `fields.collectionId` / `fields.includeClosed`.
+ * `VALIDATION` 400 `fields.view` / `fields.collectionId` / `fields.includeClosed`
+ * / `fields.exclude`.
  */
 function parseListQuery(request: Request): ListTasksQuery {
   const { searchParams } = new URL(request.url);
@@ -31,6 +32,7 @@ function parseListQuery(request: Request): ListTasksQuery {
     view: searchParams.get("view") ?? undefined,
     collectionId: searchParams.get("collectionId") ?? undefined,
     includeClosed: searchParams.get("includeClosed") ?? undefined,
+    exclude: searchParams.get("exclude") ?? undefined,
   });
   if (!parsed.success) {
     throw fieldErrors(parsed.error);
@@ -40,11 +42,14 @@ function parseListQuery(request: Request): ListTasksQuery {
 
 export const listTasksHandler = guarded(
   (db: Database, ctx: ViewerContext, request: Request): Response => {
-    const query = parseListQuery(request);
+    const { exclude, ...query } = parseListQuery(request);
     const household = getHousehold(db, ctx.householdId);
     return NextResponse.json(
       listTasks(db, ctx, {
         ...query,
+        // The wire name is the display filter's; the service names the ids it
+        // omits, so the two vocabularies stay honest.
+        excludeCollectionIds: exclude,
         timezone: household.timezone,
         // The column is a plain integer; the bucket maths only knows 0 or 1.
         weekStartsOn: household.weekStartsOn === 1 ? 1 : 0,

@@ -96,6 +96,34 @@ describe("task API", () => {
     }
   });
 
+  it("omits the collections the client is hiding from rows and counts", async () => {
+    const { db, close, ctxA, shared } = await setup();
+    try {
+      const inboxTask = createTask(db, ctxA, { title: "Buy milk" });
+      const sharedTask = createTask(db, ctxA, { collectionId: shared.id, title: "Water plants" });
+
+      const excluded = await body<{ tasks: TaskView[]; counts: TaskCounts }>(
+        await listTasksHandler(db, ctxA, jsonRequest(`/api/tasks?exclude=${shared.id}`, "GET")),
+      );
+      expect(excluded.tasks.map((task) => task.id)).toEqual([inboxTask.id]);
+      expect(excluded.counts).toEqual({ all: 1, today: 0, week: 0, someday: 1, overdue: 0 });
+
+      // An absent/empty `exclude` is the unfiltered read, and an unknown id is a
+      // harmless no-op: the client may race a collection that was just deleted.
+      for (const url of ["/api/tasks", "/api/tasks?exclude=", "/api/tasks?exclude=gone"]) {
+        const payload = await body<{ tasks: TaskView[]; counts: TaskCounts }>(
+          await listTasksHandler(db, ctxA, jsonRequest(url, "GET")),
+        );
+        expect(payload.tasks.map((task) => task.id).sort()).toEqual(
+          [inboxTask.id, sharedTask.id].sort(),
+        );
+        expect(payload.counts).toEqual({ all: 2, today: 0, week: 0, someday: 2, overdue: 0 });
+      }
+    } finally {
+      close();
+    }
+  });
+
   it("rejects an unknown or retired view with a field error", async () => {
     const { db, close, ctxA } = await setup();
     try {

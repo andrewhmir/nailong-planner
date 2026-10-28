@@ -271,9 +271,10 @@ The request pipeline in one line:
 
 - Query keys: `["collections"]`, `["events", from, to]`,
   `["events", "search", normalized]`, `["preferences"]`,
-  `["tasks", view ?? "all", collectionId ?? null, "open" | "closed"]` (the
-  `/tasks` page leaves `collectionId` null: its calendar/list filter is
-  subtree-aware and applied client-side).
+  `["tasks", view ?? "all", collectionId ?? null, "open" | "closed", excluded]`
+  (the `/tasks` page leaves `collectionId` null: its calendar/list filter is
+  subtree-aware and applied client-side; `excluded` is the sorted
+  person-pill exclusion list, `null` when nothing is hidden).
 - Event mutations work on the `["events"]` **prefix**, so optimistic
   `temp-<uuid>` rows also appear in search results and search refetches after
   every event mutation. Rollback is wholesale (`snapshotEvents` /
@@ -317,6 +318,7 @@ any wrapper in the shell/calendar tree.
 | Undo toast does nothing | the action was already undone (second click), dropped by the 20-action cap, never pushed, or the mutation failed and already rolled back; the stack is session-only | `lib/ui/undo.ts` `undoAction`, `lib/ui/undoToast.ts` |
 | Cannot edit a calendar/event | collection `visibility = 'view_only'` or `'private'` and the viewer is not the owner; server re-checks on write | `lib/services/permissions.ts`, `lib/services/events.ts` |
 | The partner can see a private collection or its events | a read path filtered the raw `visibility` column (child rows store `shared`) or skipped the resolver | `lib/services/collections.ts` `resolveVisibleCollections`/`getCollectionAccess`; `lib/services/events.ts` `getEvent`/`listEvents`; `lib/services/search.ts` |
+| A person you untoggled in the pills still offers their lists in the tasks LIST picker, or their tasks still paint / count on `/tasks` | the tasks workspace never read the visibility state, or it derived the hidden set from a different tree than the sidebar | `components/tasks/TasksShell.tsx` (`hiddenIds`, the `lists` memo), `lib/ui/visibleCollections.ts` `hiddenCollectionIds`, `useTasks`' fourth argument → `GET /api/tasks?exclude=` |
 | A private write returns 404 where 403 was expected | intended: `assertWritable` hides a private-not-owned row's existence | `lib/services/permissions.ts` `assertWritable` |
 | An `Inbox` list appears in every tree after loading | `GET /api/collections` lazily calls `ensureInbox`; each member gets their own private list | `lib/services/collections.ts` `ensureInbox`; `lib/api/handlers/collections.ts` |
 | Calendar row/checkbox does nothing | parent checkbox or `only` mode overriding it | `lib/ui/visibility.ts` `isCollectionVisible` |

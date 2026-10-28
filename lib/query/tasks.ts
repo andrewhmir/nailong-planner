@@ -30,17 +30,31 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 /**
  * Every task the viewer may see for a scope (or one list), plus the rail counts.
  * `view` defaults to `"all"` (the bare `/tasks` and the calendar grid);
- * `includeClosed` opts into `done`/`dropped` rows. The key always carries the
- * effective values, so an omitted filter and `"all"` share one cache entry and
+ * `includeClosed` opts into `done`/`dropped` rows. `excludeCollectionIds` is the
+ * display filter behind the person pills: the collection ids the workspace is
+ * not drawing, whose rows and counts the server omits. The key always carries
+ * the effective values (including the sorted exclusion list, and `null` when
+ * nothing is hidden), so an omitted filter and `"all"` share one cache entry and
  * the open and closed-row variants never overwrite each other.
  */
 export function useTasks(
   view?: TaskScope,
   collectionId?: string,
   includeClosed?: boolean,
+  excludeCollectionIds?: readonly string[],
 ) {
+  const excluded =
+    excludeCollectionIds && excludeCollectionIds.length > 0
+      ? [...excludeCollectionIds].sort().join(",")
+      : null;
   return useQuery({
-    queryKey: ["tasks", view ?? "all", collectionId ?? null, includeClosed ? "closed" : "open"],
+    queryKey: [
+      "tasks",
+      view ?? "all",
+      collectionId ?? null,
+      includeClosed ? "closed" : "open",
+      excluded,
+    ],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (view !== undefined) {
@@ -51,6 +65,9 @@ export function useTasks(
       }
       if (includeClosed) {
         params.set("includeClosed", "true");
+      }
+      if (excluded !== null) {
+        params.set("exclude", excluded);
       }
       const query = params.toString();
       return requestJson<TasksCacheData>(`/api/tasks${query ? `?${query}` : ""}`);

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CollectionRow } from "@/lib/db/schema";
 import type { CollectionNode } from "@/lib/services/collections";
 import { DEFAULT_VISIBILITY, type VisibilityState } from "@/lib/ui/visibility";
-import { visibleCollectionIds } from "@/lib/ui/visibleCollections";
+import { hiddenCollectionIds, visibleCollectionIds } from "@/lib/ui/visibleCollections";
 
 const viewer = "user-a";
 
@@ -129,5 +129,55 @@ describe("visibleCollectionIds", () => {
       "school",
       "stale-math",
     ]);
+  });
+});
+
+/**
+ * The tasks workspace asks the server to omit these ids, so the pill/checkbox
+ * state reaches `/api/tasks` as a plain collection-id list. It must be the exact
+ * complement of the drawn set: a stale extra id would hide rows the sidebar
+ * still shows, and a missing id would leak a hidden person's tasks and counts.
+ */
+describe("hiddenCollectionIds", () => {
+  it("is empty when every root and child is drawn", () => {
+    expect(hiddenCollectionIds(mixedRoots, DEFAULT_VISIBILITY, viewer)).toEqual([]);
+  });
+
+  it("lists every id the person pills hide, in stable sorted order", () => {
+    const meHidden: VisibilityState = {
+      ...DEFAULT_VISIBILITY,
+      groups: { ours: true, me: false, partner: true },
+    };
+
+    // "Ours" stays drawn; every owner-tagged root (and its child) is hidden.
+    expect(hiddenCollectionIds(mixedRoots, meHidden, viewer)).toEqual([
+      "client-list",
+      "inbox",
+      "math",
+      "school",
+      "work-list",
+    ]);
+  });
+
+  it("hides a root's whole branch when its checkbox is off", () => {
+    const workHidden: VisibilityState = {
+      ...DEFAULT_VISIBILITY,
+      collections: { "work-list": false },
+    };
+
+    expect(hiddenCollectionIds(mixedRoots, workHidden, viewer)).toEqual([
+      "client-list",
+      "work-list",
+    ]);
+  });
+
+  it("hides everything but the isolated collection in only mode", () => {
+    const onlyMath: VisibilityState = { ...DEFAULT_VISIBILITY, only: "math" };
+
+    expect(hiddenCollectionIds(roots, onlyMath, viewer)).toEqual(["household", "school"]);
+  });
+
+  it("returns ids for an empty tree without throwing", () => {
+    expect(hiddenCollectionIds([], DEFAULT_VISIBILITY, viewer)).toEqual([]);
   });
 });
