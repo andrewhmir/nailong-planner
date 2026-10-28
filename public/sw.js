@@ -116,6 +116,22 @@ self.addEventListener("fetch", (event) => {
 });
 
 self.addEventListener("message", (event) => {
+  // Only pages of this origin may drive the update/clear protocol. The SW scope
+  // is already same-origin, but CodeQL (and defence in depth) wants the message
+  // handler to verify the sender explicitly.
+  if (event.origin && event.origin !== self.location.origin) {
+    return;
+  }
+  const sourceUrl = event.source && "url" in event.source ? event.source.url : "";
+  if (sourceUrl) {
+    try {
+      if (new URL(sourceUrl).origin !== self.location.origin) {
+        return;
+      }
+    } catch {
+      return;
+    }
+  }
   const data = event.data || {};
   if (data.type === "SKIP_WAITING") {
     self.skipWaiting();
