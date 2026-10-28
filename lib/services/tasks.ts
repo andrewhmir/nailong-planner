@@ -32,17 +32,17 @@ import {
   ensureInbox,
   getCollectionAccess,
   resolveVisibleCollections,
-  type CollectionAccess,
 } from "./collections";
 import type { ViewerContext } from "./permissions";
 
 /**
  * Task reads, writes and derived views. A task is only visible while the
  * collection that holds it is visible: every entry point resolves permissions
- * through `lib/services/collections.ts` (`resolveVisibleCollections` for lists,
- * `getCollectionAccess` for one id) and never re-implements the private
- * predicate. Views are derived in JavaScript with `lib/domain/tasks.ts`, so the
- * bucket rules live in exactly one place.
+ * through `lib/services/collections.ts` (`resolveVisibleCollections` for the
+ * tree, `getCollectionAccess` for one id) and never re-implements the private
+ * predicate. A task may live in a calendar or a list; views are derived in
+ * JavaScript with `lib/domain/tasks.ts`, so the bucket rules live in exactly
+ * one place.
  */
 
 export interface ChecklistItemView {
@@ -320,19 +320,9 @@ function nextSortOrder(db: Database, collectionId: string): number {
 }
 
 /**
- * A task lives only in a `kind: "list"` collection; a calendar holds events.
- * Runs after the write check, so a private or view-only calendar keeps
- * answering 404/403 instead of revealing its kind.
- */
-function assertTaskList(access: CollectionAccess): void {
-  if (access.collection.kind !== "list") {
-    throw new AppError("VALIDATION", "Tasks live in lists.", 400);
-  }
-}
-
-/**
- * Captures into the caller's Inbox unless an explicit collection is given. The
- * target must be a list, so a calendar is a `VALIDATION` 400.
+ * Captures into the caller's Inbox unless an explicit collection is given. Any
+ * writable collection is a valid task home — a calendar and a list are both
+ * accepted, so a task can be filed under the same subject the calendar uses.
  *
  * `status` may only arrive as one of the two active states (`createTaskSchema`
  * rejects `done`/`dropped`), so a create never needs audit stamps: both
@@ -346,7 +336,6 @@ export function createTask(
   const collectionId = input.collectionId ?? ensureInbox(db, ctx).id;
   const access = getCollectionAccess(db, ctx, collectionId);
   assertCollectionWritable(ctx, access);
-  assertTaskList(access);
 
   const dueOn = input.dueOn ?? null;
   const dueTime = input.dueTime ?? null;
@@ -400,8 +389,9 @@ function replaceChecklist(
 
 /**
  * Patches only the whitelisted columns. A `collectionId` move needs write
- * access on both ends, must target a list, and appends the task at the end of
- * that list. `status` owns the audit stamps, and only a real transition moves
+ * access on both ends, may target any collection (calendar or list), and appends
+ * the task at the end of the target's order.
+ * `status` owns the audit stamps, and only a real transition moves
  * them: done sets `completedAt`, dropped sets `droppedAt`, open clears both,
  * switching between done and dropped clears the other stamp, and a PATCH that
  * echoes the stored status leaves the row (and its history) untouched. A
@@ -419,7 +409,6 @@ export function updateTask(
   if (input.collectionId !== undefined && input.collectionId !== row.collectionId) {
     const targetAccess = getCollectionAccess(db, ctx, input.collectionId);
     assertCollectionWritable(ctx, targetAccess);
-    assertTaskList(targetAccess);
   }
 
   const now = Date.now();
@@ -499,8 +488,8 @@ export function deleteTask(db: Database, ctx: ViewerContext, id: string): void {
 }
 
 /**
- * Rewrites the manual order of a list (a calendar is not a task home and
- * answers `VALIDATION` 400 "Tasks live in lists."). The payload must be exactly
+ * Rewrites the manual order of one collection (any writable collection — a
+ * calendar can hold tasks too). The payload must be exactly
  * the collection's open tasks — same set, no duplicates — so a stale client
  * cannot silently drop a task that another session created; the caller then
  * re-fetches instead of guessing. Returns the reordered views.
@@ -512,7 +501,6 @@ export function reorderTasks(
 ): TaskView[] {
   const access = getCollectionAccess(db, ctx, input.collectionId);
   assertCollectionWritable(ctx, access);
-  assertTaskList(access);
 
   const active = db
     .select()

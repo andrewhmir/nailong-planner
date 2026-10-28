@@ -391,18 +391,16 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
     }
   }, [editorTask, tasksQuery.isPending, selectedTaskId, visibleRows]);
 
-  // Every writable list, labelled by its parent when nested: the inline list
-  // picker's menu, the overflow menu's move targets and the toolbar's list
-  // filter all read this one array. Colours are folded from the root because a
-  // sub-list stores `hueFamily: null`; the server stays authoritative, so a
-  // stale tree still gets a 403.
+  // Every writable collection — calendars and lists alike — labelled by its
+  // parent when nested: the inline list picker's menu, the overflow menu's move
+  // targets and the toolbar's list filter all read this one array. A task may be
+  // filed under a calendar (the same subject its events use) or a list. Colours
+  // are folded from the root because a sub-collection stores `hueFamily: null`;
+  // the server stays authoritative, so a stale tree still gets a 403.
   const lists = useMemo<WritableList[]>(() => {
     const viewer = { userId: currentUserId, householdId: "" };
     const targets: WritableList[] = [];
     for (const root of collectionsQuery.data ?? []) {
-      if (root.kind !== "list") {
-        continue;
-      }
       if (canWriteCollection(viewer, foldCollectionPermission(root))) {
         targets.push({
           id: root.id,
@@ -412,9 +410,6 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
         });
       }
       for (const child of root.children) {
-        if (child.kind !== "list") {
-          continue;
-        }
         if (canWriteCollection(viewer, foldCollectionPermission(child, root))) {
           targets.push({
             id: child.id,

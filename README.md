@@ -94,7 +94,11 @@ rather not have edited.
   `3` to clear the due date and time, `4` to move to another list, `x` to
   complete, `Enter` to open the panel, `z` to undo). Lists sit in the same nested
   tree as calendars and can be private, shared or view-only, with the same
-  two-person rules; a task with a due date shows on the calendar as a read-only
+  two-person rules. A task can be filed under a calendar or sub-calendar as well
+  as a list — the LIST picker on its row offers the sidebar's whole tree — so it
+  lives under the same subject its events use; it never becomes an event, only
+  the read-only due-date chip on the grid. A task with a due date shows on the
+  calendar as a read-only
   chip, and dragging a row onto the sidebar mini month sets its due date to that
   day.
 - **Google-Calendar-shaped daily loops** — a day/slot click, a range drag or

@@ -320,7 +320,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 | `1` | `bucket` 1 | `dueOn = localToday(timezone)`; the stored `dueTime` is left alone. |
 | `2` | `bucket` 2 | `dueOn = endOfWeek(today, weekStartsOn)`; on the household week's last day this equals today, so the task appears in Today (D6). |
 | `3` | `bucket` 3 | Dated task: clears `dueOn` **and** `dueTime` in one PATCH, so it drops back to Someday. Already-undated task: toasts `Already in Someday` (no PATCH). |
-| `4` | `next-list` | Cycles through the viewer's writable `kind="list"` collections; the shell toasts when there is no other list. |
+| `4` | `next-list` | Cycles through the viewer's writable collections (calendars and lists); the shell toasts when there is no other collection. |
 | `x` | `complete` | PATCHes `status: "done"`. |
 | `Enter` | `open` | Calls the shell's `openTask`, which opens `TaskPanel` for the selection. |
 | `?` | `help` | Opens `TaskShortcutHelpDialog`. |

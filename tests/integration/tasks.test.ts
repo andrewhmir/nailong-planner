@@ -248,18 +248,20 @@ describe("createTask", () => {
     }
   });
 
-  it("refuses a calendar as a task home", async () => {
+  it("files a task under a calendar", async () => {
     const seeded = await makeSeededDb();
     const { db, close, ctxA } = seeded;
     const { calendar } = makeLists(seeded);
     try {
-      expectAppError(
-        () => createTask(db, ctxA, { title: "Not an event", collectionId: calendar.id }),
-        "VALIDATION",
-        400,
-        "Tasks live in lists.",
-      );
-      expect(db.select().from(task).all()).toEqual([]);
+      // A calendar is a valid task home: the household files a task under the
+      // subject its events use. It stays a task row, never an event.
+      const created = createTask(db, ctxA, { title: "School run", collectionId: calendar.id });
+      expect(created.collectionId).toBe(calendar.id);
+      expect(created.collection.kind).toBe("calendar");
+      expect(getTask(db, ctxA, created.id).collection.kind).toBe("calendar");
+      expect(
+        ids(listTasks(db, ctxA, filterInput({ view: "all", collectionId: calendar.id })).tasks),
+      ).toEqual([created.id]);
     } finally {
       close();
     }
@@ -643,20 +645,18 @@ describe("updateTask", () => {
     }
   });
 
-  it("refuses a move into a calendar", async () => {
+  it("moves a task into a calendar", async () => {
     const seeded = await makeSeededDb();
     const { db, close, ctxA } = seeded;
     const { shared, calendar } = makeLists(seeded);
     try {
-      const created = createTask(db, ctxA, { title: "Stay put", collectionId: shared.id });
+      const created = createTask(db, ctxA, { title: "Move me", collectionId: shared.id });
 
-      expectAppError(
-        () => updateTask(db, ctxA, created.id, { collectionId: calendar.id }),
-        "VALIDATION",
-        400,
-        "Tasks live in lists.",
-      );
-      expect(getTask(db, ctxA, created.id).collectionId).toBe(shared.id);
+      const moved = updateTask(db, ctxA, created.id, { collectionId: calendar.id });
+      expect(moved.collectionId).toBe(calendar.id);
+      expect(moved.collection.id).toBe(calendar.id);
+      expect(moved.collection.kind).toBe("calendar");
+      expect(getTask(db, ctxA, created.id).collectionId).toBe(calendar.id);
     } finally {
       close();
     }
@@ -883,17 +883,20 @@ describe("reorderTasks", () => {
     }
   });
 
-  it("refuses to reorder a calendar", async () => {
+  it("reorders the tasks filed under a calendar", async () => {
     const seeded = await makeSeededDb();
     const { db, close, ctxA } = seeded;
     const { calendar } = makeLists(seeded);
     try {
-      expectAppError(
-        () => reorderTasks(db, ctxA, { collectionId: calendar.id, orderedIds: ["not-a-task"] }),
-        "VALIDATION",
-        400,
-        "Tasks live in lists.",
-      );
+      const first = createTask(db, ctxA, { title: "First", collectionId: calendar.id });
+      const second = createTask(db, ctxA, { title: "Second", collectionId: calendar.id });
+
+      const reordered = reorderTasks(db, ctxA, {
+        collectionId: calendar.id,
+        orderedIds: [second.id, first.id],
+      });
+      expect(ids(reordered)).toEqual([second.id, first.id]);
+      expect(reordered.map((row) => row.sortOrder)).toEqual([0, 1]);
     } finally {
       close();
     }

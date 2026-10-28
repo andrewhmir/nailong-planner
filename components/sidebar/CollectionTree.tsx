@@ -263,7 +263,9 @@ export function CollectionTree({
   }
 
   const deleteNoun = pendingDelete?.kind === "list" ? "list" : "calendar";
-  const deleteItems = deleteNoun === "list" ? "tasks" : "events";
+  // A calendar can hold tasks too (tasks live in calendars as well as lists), so
+  // its delete copy names both payloads instead of promising only events.
+  const deleteItems = deleteNoun === "list" ? "tasks" : "events and tasks";
 
   return (
     <div className="flex w-full min-w-0 flex-col pb-6">

@@ -310,11 +310,12 @@ test("changing a row's priority shows the flag and survives a reload", async ({ 
 });
 
 // The List cell is the inline picker now: it opens the LIST menu of writable
-// lists with the task's current one checked, files the task under another list
-// through the same optimistic move the overflow menu uses, and `Ctrl+Z` restores
-// the source list. Lists are the same `kind="list"` collections the calendar
-// sidebar shows — never calendars.
-test("the list cell files the task under another list and Ctrl+Z restores it", async ({ page }) => {
+// collections with the task's current one checked, files the task under another
+// one through the same optimistic move the overflow menu uses, and `Ctrl+Z`
+// restores the source. The menu is the calendar sidebar's tree — lists AND
+// calendars/sub-calendars — because a task can be filed under the same subject
+// its events use without becoming an event.
+test("the list cell files the task under another list or calendar and Ctrl+Z restores it", async ({ page }) => {
   const title = `E2E picker ${stamp()}`;
   const task = await createTask(page, {
     title,
@@ -338,6 +339,21 @@ test("the list cell files the task under another list and Ctrl+Z restores it", a
   await expect(row.getByRole("button", { name: "List: Errands" })).toBeVisible();
   await expect.poll(async () => (await apiTask(page, task.id)).collectionId).toBe(
     fixtures.collections.errands,
+  );
+
+  await page.keyboard.press("Control+z");
+  await expect(row.getByRole("button", { name: "List: Inbox" })).toBeVisible();
+  await expect.poll(async () => (await apiTask(page, task.id)).collectionId).toBe(
+    fixtures.collections.andrewInbox,
+  );
+
+  // The same menu lists the calendars and sub-calendars; the task is filed
+  // under "School / Math" and is still a task, not an event.
+  await row.getByRole("button", { name: "List: Inbox" }).click();
+  await page.getByRole("menu").getByRole("menuitemradio", { name: "School / Math", exact: true }).click();
+  await expect(row.getByRole("button", { name: "List: Math" })).toBeVisible();
+  await expect.poll(async () => (await apiTask(page, task.id)).collectionId).toBe(
+    fixtures.calendars.math,
   );
 
   await page.keyboard.press("Control+z");

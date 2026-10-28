@@ -19,9 +19,10 @@ interface Props {
   /** The task's current list; its summary is the dot fallback when the list is not writable. */
   current: TaskView["collection"];
   /**
-   * Every writable list, the current one included. It is the same set the
-   * calendar sidebar shows (roots and sub-lists, labelled `Parent / Child`), so
-   * a task can be filed under the subject it belongs to.
+   * Every writable collection the task may be filed under, the current one
+   * included: calendars and lists alike, in the same tree order the calendar
+   * sidebar shows (roots first, then their sub-collections). Colours are folded
+   * from each root.
    */
   lists: WritableList[];
   /** Move the task to one list. Picking the current one is a no-op by contract. */
@@ -41,8 +42,14 @@ interface Props {
 /**
  * The inline list picker: the task's list renders as a trigger (dot + name, the
  * same anatomy the row already had), and clicking it opens a **LIST** menu of
- * every writable list — the current one checked, so it reads as "where this
- * falls under", not just "move somewhere else".
+ * every writable collection — the same calendars, sub-calendars, lists and
+ * sub-lists the calendar sidebar shows — with the task's current one checked, so
+ * it reads as "where this falls under", not just "move somewhere else".
+ *
+ * A calendar is a valid task home on purpose: the household files a task under
+ * the subject its events use (School / Math, Work / On-call). Filing a task does
+ * **not** turn it into an event — a task is always a `task` row and only ever
+ * shows on the grid as the read-only due-date chip it already had.
  *
  * It is a `DropdownMenu` rather than a bespoke popover so Radix owns the
  * keyboard contract the workspace already relies on: arrow keys/typeahead move
@@ -89,7 +96,7 @@ export function TaskListPicker({
         <span className={cn("min-w-0 truncate", nameClassName)}>{current.name}</span>
         {showChevron ? <ChevronDownIcon size={12} className="shrink-0" /> : null}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
+      <DropdownMenuContent align="start" className="max-h-[min(70vh,420px)] overflow-y-auto">
         <DropdownMenuLabel>
           <span className="text-[11px] font-medium uppercase tracking-wide text-ink-mute">List</span>
         </DropdownMenuLabel>
