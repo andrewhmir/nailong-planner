@@ -144,7 +144,7 @@ export function SearchBox({ timezone, timeFormat, inline = false, autoFocus = fa
           }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          className={`${inline ? "w-full" : "w-40 xl:w-56"} bg-transparent text-sm text-ink outline-none placeholder:text-placeholder [&::-webkit-search-cancel-button]:hidden`}
+          className={`${inline ? "w-full" : "w-40 xl:w-56"} bg-transparent text-base text-ink outline-none placeholder:text-placeholder [&::-webkit-search-cancel-button]:hidden`}
         />
         {query.length === 0 ? (
           <kbd

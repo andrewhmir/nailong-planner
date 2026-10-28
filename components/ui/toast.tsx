@@ -6,6 +6,8 @@ import type { ToasterProps } from "sonner";
 // modifiers are what let the Canvas flash metrics actually render.
 export const TOASTER_PROPS: ToasterProps = {
   position: "top-center",
+  // Keep toasts below the installed app's status bar (0 in a browser tab).
+  offset: "calc(12px + env(safe-area-inset-top))",
   closeButton: true,
   toastOptions: {
     classNames: {

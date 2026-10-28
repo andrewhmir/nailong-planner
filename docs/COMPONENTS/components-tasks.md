@@ -325,6 +325,8 @@ Both drafts re-seed from the task snapshot whenever their field is **not** focus
 
 ### components/tasks/TaskCaptureRow.tsx
 
+**iOS zoom (v0.3.0)** — the capture input is `text-base` (16px; the row keeps its 28px height and 44px coarse-pointer variant) so iOS Safari does not zoom the installed app on focus.
+
 **Purpose** — The ClickUp-style add-task row above the list, and one per active board column: one input, `Enter` captures into the Inbox (or the supplied list and status), `Shift+Enter` also sets its due date to the household's today. Replaces the deleted `TaskCaptureBar`; the default id and test id stay `task-capture`.
 
 **Public API** — `export function TaskCaptureRow(props: { timezone: string; collectionId?: string; status?: TaskStatus; placeholder?: string; ariaLabel?: string; inputId?: string; onCaptured?: (task: TaskView) => void })`. `timezone` drives `localToday`; `collectionId` files the task in that list; `status` is the board column's status and is sent **in the create body** (only `open`/`in_progress` are accepted; any closed value is ignored); `ariaLabel` is the `sr-only` label (`Add a task` by default; the board passes `Add a task to <Status>` so its per-column inputs are distinguishable); `inputId` defaults to `"task-capture"` and is the DOM id, the test id and the label target — the board passes `task-capture-<status>` so its columns do not duplicate the globals.

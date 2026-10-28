@@ -152,7 +152,7 @@ export function GlobalNavRail({ householdName, currentUser, onComingSoon }: Prop
   return (
     <nav
       aria-label="Primary navigation"
-      className="hidden w-[54px] shrink-0 flex-col items-center bg-rail py-2 md:flex"
+      className="hidden w-[calc(54px_+_var(--safe-left))] shrink-0 flex-col items-center bg-rail py-2 pl-[var(--safe-left)] md:flex"
     >
       <Link
         href="/"

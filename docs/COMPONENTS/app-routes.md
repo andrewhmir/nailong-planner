@@ -31,6 +31,8 @@ Everything the Next.js App Router exposes: the root layout and the global styles
 
 ### app/globals.css
 
+**Safe-area utilities (v0.3.0)** — `:root` publishes `--safe-top/right/bottom/left` from `env(safe-area-inset-*)` and `--app-pad-x` (0.75rem, 1.5rem from `sm`); `@layer utilities` adds `.safe-pt`, `.safe-pb`, `.safe-x`, `.safe-x-4`, `.safe-x-6`, `.safe-pb-4` and `.safe-pb-6`. `html` and `body` set `overscroll-behavior: none`. Every value is 0 in a normal browser tab, so the locked viewport contract and its measurements are unchanged.
+
 **Purpose** — The styling source of truth. `@import "tailwindcss"` plus one `@theme` block; each custom property becomes a Tailwind utility (`bg-surface`, `text-ink`, `border-field`, `rounded-card`, `shadow-dialog`), so changing a token here changes every screen. It also declares the one custom utility, `task-row-cols`: the seven-track `/tasks` list template (checkbox 2.75rem · title `minmax(0, 1fr)` · list 7rem · status 6rem · priority 5.5rem · due date 9.5rem · menu 2.75rem) consumed by `components/tasks/TaskRow.tsx` as `md:task-row-cols` and by `TaskList.tsx`'s column header as `task-row-cols`, so the header and every row share one source for the columns. The two 44px end tracks exist so the coarse-pointer (touch) targets fit without a second layout.
 
 **Tokens** — Surfaces: `--color-paper`/`--color-surface`/`--color-card` `#ffffff`, `--color-well` `#f2f4f4`, `--color-line` `#e8eaec`, `--color-line-strong` `#d7dade`, `--color-field` `#8d959f`, `--color-ink` `#273540`, `--color-ink-soft` `#586874`, `--color-ink-mute` `#6a7883`, `--color-placeholder` `#9ea6ad`.
@@ -153,6 +155,8 @@ Radii ("Canvas is nearly square"): `--radius-sm` 3px, `--radius-md` 4px, `--radi
 **Tests** — `tests/e2e/import.spec.ts`.
 
 ### app/login/page.tsx
+
+**Safe areas (v0.3.0)** — `main` is `min-h-dvh`, takes `safe-x-4` and pads top/bottom by `calc(3rem + env(safe-area-inset-*))`, so the one route outside the app shell never overflows an installed phone or hides the form under the notch/home indicator.
 
 **Purpose** — The only public page. Sends an already-signed-in visitor to `/`, otherwise renders the brand tile and `LoginForm` on a full-height rail-colored background.
 

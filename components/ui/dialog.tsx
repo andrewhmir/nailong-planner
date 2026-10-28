@@ -27,7 +27,7 @@ export function DialogContent({
       <DialogPrimitive.Overlay data-testid="dialog-overlay" className="fixed inset-0 z-40 bg-scrim" />
       <DialogPrimitive.Content
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 max-h-[90dvh] w-[min(28rem,92vw)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto overscroll-contain rounded-md bg-surface p-6 shadow-dialog outline-none",
+          "fixed left-1/2 top-1/2 z-50 max-h-[calc(100dvh_-_var(--safe-top)_-_var(--safe-bottom)_-_1rem)] w-[min(28rem,92vw)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto overscroll-contain rounded-md bg-surface pt-6 safe-x-6 safe-pb-6 shadow-dialog outline-none",
           sheet &&
             "max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:left-0 max-md:max-h-[92dvh] max-md:w-full max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-b-none",
         )}

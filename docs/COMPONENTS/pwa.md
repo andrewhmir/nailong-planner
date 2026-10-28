@@ -59,3 +59,22 @@ Generated once from `app/icon.png` (the 256 px mascot) with the PowerShell
 high-quality upscale, maskable = white 512 canvas with the mascot drawn at
 410 px centred (inside the 80% safe zone). Committed binaries; no build step and
 no image dependency.
+
+## Safe-area layout (v0.3.0)
+
+`viewportFit: "cover"` in `app/layout.tsx` makes `env(safe-area-inset-*)` non-zero in the
+installed app; every painted edge consumes the utilities defined in `app/globals.css`. All
+values are 0 in a normal browser tab, so the frozen viewport contract cannot shift.
+
+| Surface | Class / rule |
+|---|---|
+| Phone top bar | `safe-pt` wrapper around the 56px row; the rail paints behind the status bar |
+| Desktop rail (also landscape phones at `md`) | `w-[calc(54px+var(--safe-left))]` + `pl-[var(--safe-left)]` |
+| Breadcrumb bar, `main` | `safe-x` (plus bottom `calc(padding + var(--safe-bottom))` on `main`) |
+| Collections sheet | `safe-x-4`, `safe-pb-4`, `75dvh` |
+| Centred dialog / sheet dialog | `safe-x-6`, `safe-pb-6`, max-height minus the top/bottom insets |
+| Toaster | offset `calc(12px + env(safe-area-inset-top))` |
+| Login page | `min-h-dvh`, `safe-x-4`, top/bottom `calc(3rem + inset)` |
+
+The manual iPhone checklist (spec §11.4) is the only coverage for real insets: Playwright
+reports `env()` as 0 and cannot emulate the notch or home indicator.

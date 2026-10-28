@@ -14,7 +14,7 @@ export default async function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-rail px-4 py-12">
+    <main className="safe-x-4 flex min-h-dvh flex-col items-center justify-center gap-6 bg-rail pt-[calc(3rem_+_var(--safe-top))] pb-[calc(3rem_+_var(--safe-bottom))]">
       <Brand name="Nailong Planner" />
 
       <div className="w-full max-w-[400px] rounded-md bg-surface p-8 shadow-dialog">

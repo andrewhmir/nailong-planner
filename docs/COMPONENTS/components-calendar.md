@@ -186,6 +186,8 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 
 ### components/calendar/TimeField.tsx
 
+**iOS zoom (v0.3.0)** — the typed-time input is `text-base` (16px) so iOS Safari does not zoom the installed app on focus.
+
 **Purpose** — The calendar's time control, shared by the event dialog and the task due chip: a field-styled button that opens a quick-pick list of 15-minute rows grouped by part of day, plus a typed field for a minute in between. It replaces `<input type="time">`, whose browser spinner ignores the household's 12/24-hour preference. `value: null` renders an explicit empty state, which lets the same control pick an *optional* time.
 
 **Public API** — `export function TimeField(props: Props)`. Props: `id: string`, `value: string | null` (`HH:MM` in the household zone; `null` = no time chosen), `onChange(time: string)`, `timeFormat: TimeFormat`, `timezone: string` (used only to mark the row containing "now"), `label: string` (accessible name), `placeholder?: string` (default "No time"; shown in the trigger while `value` is null), `disabled?: boolean` (disables the trigger; the due chip uses it while no date exists), `onClear?: () => void` (renders a "Clear time" button in the picker footer when supplied and `value` is non-null; it calls the callback and closes the picker). Module constants: `SLOTS = timeSlots()` (96 rows), `BANDS` (Morning 00:00–11:45, Afternoon 12:00–16:45, Evening 17:00–20:45, Night 21:00–23:45), `BANDS_WITH_SLOTS`, `TRIGGER`, `SURFACE`. Test ids: `time-field-trigger`, `time-field-popover`, `time-field-selected` (on the selected row), `time-field-clear` (the new clear action). The listbox is labelled `label` + " quick pick" (for example "Start time quick pick"); the trigger's accessible name is `label` alone while empty (for example "Due time for Take out the recycling") and `label: <formatWallTime(value, timeFormat)>` once set.
@@ -318,6 +320,8 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 ## Search
 
 ### components/calendar/SearchBox.tsx
+
+**iOS zoom (v0.3.0)** — the input is `text-base` (16px); a smaller font makes iOS Safari zoom the whole installed app when the field is focused.
 
 **Purpose** — Header combobox over the household event search. It debounces the query, exposes the results list, and navigates by pushing `/?date=…&event=…` so the shell owns the deep link.
 

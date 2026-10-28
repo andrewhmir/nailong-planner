@@ -23,6 +23,8 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 
 ### components/shell/AppShell.tsx
 
+**Safe areas (v0.3.0)** — the phone top bar is a `bg-rail` wrapper with `safe-pt` around the 56px row (the rail paints behind the status bar); `main` uses `safe-x` plus bottom `calc(padding + var(--safe-bottom))`; the Collections sheet uses `safe-x-4`/`safe-pb-4` and `75dvh`. All insets are 0 under Playwright, so the shell and viewport specs keep their exact geometry.
+
 **Purpose** — The application frame for every `app/(app)` route. It renders the nav rail, breadcrumb bar, one desktop sidebar, and a phone/tablet sheet that reuses the same collection tree, inside a `h-dvh overflow-hidden` viewport lock. The landmarks name the mixed tree, not just calendars: the tree is a `nav` labelled `Collection tree`, the sheet is a `dialog` labelled `Collections`, and its controls are `Open collections` / `Close collections`. Both mini-month copies are also task-row drop targets, which is how a row dragged on `/tasks` gets its due date moved to that day.
 
 **Public API** — `export interface MemberSummary { id: string; name: string; isSelf: boolean }`; `export function AppShell(props: Props)`. Props: `currentUser: { id; name }`, `members: MemberSummary[]`, `householdName: string`, `timezone: string`, `preferences: UserPreferences` (the server snapshot read by `app/(app)/layout.tsx`; `timeFormat` for the header and the initial data for `GlobalCapture` come from it), `children: React.ReactNode`. Route labels live in module scope: `ROUTE_CRUMBS`, built from `LIVE_ENTRIES` in `lib/roadmap.ts`, and `FALLBACK_CRUMB = "Calendar"`.
@@ -84,6 +86,8 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 
 ### components/shell/BreadcrumbBar.tsx
 
+**Safe areas (v0.3.0)** — the 72px header takes its horizontal padding from `safe-x` (0.75rem on phones, 1.5rem from `sm`, plus the landscape insets).
+
 **Purpose** — The 72 px header: household name, a chevron and the current route crumb, plus search (inline on wide screens, dialog below `lg`) and the person pills.
 
 **Public API** — `export function BreadcrumbBar(props: Props)`. Props: `householdName`, `crumb`, `visibility: VisibilityApi`, `me`, `partner`, `timezone`, `timeFormat: TimeFormat`, `onOpenSidebar()`. Renders `data-testid="breadcrumb-household"` and `data-testid="breadcrumb-crumb"`.
@@ -100,6 +104,8 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 **Tests** — `tests/e2e/shell.spec.ts`, `tests/e2e/search.spec.ts`, `tests/e2e/viewport-fit.spec.ts`.
 
 ### components/shell/GlobalNavRail.tsx
+
+**Safe areas (v0.3.0)** — the rail is `w-[calc(54px+var(--safe-left))]` with `pl-[var(--safe-left)]`, so a landscape notch never covers the icons; the inset is 0 in a browser tab, so the 54px rail assertion still holds.
 
 **Purpose** — The dark 54 px rail on `md` and up: household logomark, the live destinations from the roadmap, greyed-out planned destinations, Settings pinned above the account menu, and an account menu that signs out.
 

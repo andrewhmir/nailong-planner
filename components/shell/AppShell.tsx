@@ -111,18 +111,21 @@ export function AppShell({
         />
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {/* Phone: the rail becomes a 56px dark top bar. */}
-          <div className="flex h-14 shrink-0 items-center gap-2 bg-rail px-3 text-white md:hidden">
-            <Brand name="Nailong Planner" showName />
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Open collections"
-              onClick={() => setSidebarOpen(true)}
-              className="ml-auto shrink-0 text-white hover:bg-rail-hover focus-visible:outline-white"
-            >
-              <MenuIcon size={20} />
-            </Button>
+          {/* Phone: the rail becomes a 56px dark top bar. The safe-pt wrapper lets
+              the rail paint behind the status bar while the contents stay 56px. */}
+          <div className="shrink-0 bg-rail text-white md:hidden">
+            <div className="safe-pt safe-x flex h-14 items-center gap-2">
+              <Brand name="Nailong Planner" showName />
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Open collections"
+                onClick={() => setSidebarOpen(true)}
+                className="ml-auto shrink-0 text-white hover:bg-rail-hover focus-visible:outline-white"
+              >
+                <MenuIcon size={20} />
+              </Button>
+            </div>
           </div>
 
           {/* The shell's page heading for routes whose page does not render one.
@@ -159,7 +162,7 @@ export function AppShell({
               </nav>
             </aside>
 
-            <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-contain bg-surface p-3 sm:p-6">
+            <main className="safe-x flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-contain bg-surface py-3 pb-[calc(0.75rem_+_var(--safe-bottom))] sm:py-6 sm:pb-[calc(1.5rem_+_var(--safe-bottom))]">
               {children}
             </main>
           </div>
@@ -176,7 +179,7 @@ export function AppShell({
             <div
               role="dialog"
               aria-label="Collections"
-              className="absolute inset-x-0 bottom-0 flex max-h-[75vh] flex-col overflow-y-auto rounded-t-md border border-line bg-surface p-4 shadow-dialog md:inset-y-[72px] md:right-auto md:w-56 md:rounded-md md:border-r md:shadow-menu"
+              className="absolute inset-x-0 bottom-0 flex max-h-[75dvh] flex-col overflow-y-auto rounded-t-md border border-line bg-surface pt-4 safe-x-4 safe-pb-4 shadow-dialog md:inset-y-[72px] md:right-auto md:w-56 md:rounded-md md:border-r md:shadow-menu"
             >
               <div className="flex items-center justify-between">
                 <span className="px-2 text-sm font-bold text-ink">Go to</span>
