@@ -72,7 +72,7 @@ rather not have edited.
 ## Features
 
 - **A roadmap in the rail** — Calendar and Tasks are live; Today
-  (`Coming in v0.3.0`), Notes and Focus sit greyed in the nav rail. Each opens a
+  (`Coming in v0.4.0`), Notes and Focus sit greyed in the nav rail. Each opens a
   short "what's coming" panel naming its release and what it will do, so the
   roadmap is part of the app instead of a document nobody reads. Only the next
   version is ever promised; everything after it says `Planned`.
@@ -259,7 +259,7 @@ Historical design specs and plans (never edited):
 - Implementation plan: [`docs/superpowers/plans/2026-10-19-nailong-planner-v0.1.0.md`](docs/superpowers/plans/2026-10-19-nailong-planner-v0.1.0.md)
 - Operations, backups, recovery: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 
-## Out of scope for v0.2.1
+## Out of scope for v0.3.0
 
 Reminders and notifications · two-way Google Calendar sync and read-only ICS
 subscriptions / export feeds · a 30-day trash bin (undo is session-only) ·

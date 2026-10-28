@@ -166,7 +166,7 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 
 ### lib/query/collections.ts
 
-**Offline writes (v0.3.0)** — every request goes through lib/query/request.ts; while offline a mutation throws OFFLINE_MESSAGE before etch (see that section).
+**Offline writes (v0.3.0)** — every request goes through lib/query/request.ts; while offline a mutation throws OFFLINE_MESSAGE before `fetch (see that section).
 
 **Purpose** — Fetches the household calendar tree and exposes create/update/delete calendar mutations.
 
@@ -185,7 +185,7 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 
 ### lib/query/events.ts
 
-**Offline writes (v0.3.0)** — every request goes through lib/query/request.ts; while offline a mutation throws OFFLINE_MESSAGE before etch (see that section).
+**Offline writes (v0.3.0)** — every request goes through lib/query/request.ts; while offline a mutation throws OFFLINE_MESSAGE before `fetch (see that section).
 
 **Purpose** — Range query for the visible grid window and the three event mutations, each with an optimistic cache write over every cached `["events"]` range plus a snapshot rollback.
 
@@ -261,7 +261,7 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 **Tests** — `tests/unit/query-request.test.ts` (offline refusal without fetch, success body, API envelope) plus the existing cache specs.
 ### lib/query/preferences.ts
 
-**Offline writes (v0.3.0)** — every request goes through lib/query/request.ts; while offline a mutation throws OFFLINE_MESSAGE before etch (see that section).
+**Offline writes (v0.3.0)** — every request goes through lib/query/request.ts; while offline a mutation throws OFFLINE_MESSAGE before `fetch (see that section).
 
 **Purpose** — Reads the signed-in user's calendar preferences (seeded from the server render so first paint is correct) and patches them with an out-of-order-safe optimistic update.
 
@@ -283,7 +283,7 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 
 ### lib/query/search.ts
 
-**Offline writes (v0.3.0)** — every request goes through lib/query/request.ts; while offline a mutation throws OFFLINE_MESSAGE before etch (see that section).
+**Offline writes (v0.3.0)** — every request goes through lib/query/request.ts; while offline a mutation throws OFFLINE_MESSAGE before `fetch (see that section).
 
 **Purpose** — Title/description event search for the header search box, plus a helper that decides which date the grid should open at when a result is clicked.
 
@@ -303,7 +303,7 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 
 ### lib/query/tasks.ts
 
-**Offline writes (v0.3.0)** — every request goes through lib/query/request.ts; while offline a mutation throws OFFLINE_MESSAGE before etch (see that section).
+**Offline writes (v0.3.0)** — every request goes through lib/query/request.ts; while offline a mutation throws OFFLINE_MESSAGE before `fetch (see that section).
 
 **Purpose** — The Tasks data layer: one query for a task view (or one list) with the rail counts, one counts-only query the sidebar can enable per route, plus create/update/delete/reorder mutations. Only the update mutation writes the cache optimistically; every mutation invalidates the `["tasks"]` prefix on settle, which also refreshes the counts query.
 
