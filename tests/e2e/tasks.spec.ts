@@ -363,6 +363,66 @@ test("the list cell files the task under another list or calendar and Ctrl+Z res
   );
 });
 
+// The Filter menu rebuilds the sidebar tree: picking a calendar includes its
+// sub-calendars, picking a sub-calendar narrows to itself, and Clear filters
+// resets the projection. The tasks are created through the API so no seeded row
+// can make a title ambiguous.
+test("the calendar filter includes sub-calendars and narrows to one", async ({ page }) => {
+  const base = stamp();
+  const school = await createTask(page, {
+    title: `E2E filter school ${base}`,
+    collectionId: fixtures.calendars.school,
+  });
+  const math = await createTask(page, {
+    title: `E2E filter math ${base}`,
+    collectionId: fixtures.calendars.math,
+  });
+  const work = await createTask(page, {
+    title: `E2E filter work ${base}`,
+    collectionId: fixtures.calendars.work,
+  });
+  await openTasks(page);
+
+  await expect(rowById(page, school.id)).toBeVisible();
+  await expect(rowById(page, math.id)).toBeVisible();
+  await expect(rowById(page, work.id)).toBeVisible();
+
+  const filterTrigger = page
+    .getByRole("group", { name: "Task view controls" })
+    .getByRole("button", { name: /^Filter/ });
+  // A filter change re-renders the page (the URL is replaced), which can close
+  // the menu; reopening keeps each step independent of that timing.
+  const openFilter = async () => {
+    const menu = page.getByRole("menu");
+    if (!(await menu.isVisible())) {
+      await filterTrigger.click();
+    }
+    return menu;
+  };
+
+  await filterTrigger.click();
+  await (await openFilter())
+    .getByRole("menuitemcheckbox", { name: "School", exact: true })
+    .click();
+
+  // A calendar filter covers its sub-calendars and not the other calendars.
+  await expect(rowById(page, school.id)).toBeVisible();
+  await expect(rowById(page, math.id)).toBeVisible();
+  await expect(rowById(page, work.id)).toHaveCount(0);
+
+  // A sub-calendar filters to just its own tasks.
+  await (await openFilter())
+    .getByRole("menuitemcheckbox", { name: "Math", exact: true })
+    .click();
+  await expect(rowById(page, school.id)).toHaveCount(0);
+  await expect(rowById(page, math.id)).toBeVisible();
+  await expect(rowById(page, work.id)).toHaveCount(0);
+
+  await (await openFilter()).getByRole("menuitem", { name: "Clear filters" }).click();
+  await expect(rowById(page, school.id)).toBeVisible();
+  await expect(rowById(page, work.id)).toBeVisible();
+});
+
 // The toolbar's Group/Sort/Hide-closed controls: grouping really reorders the
 // sections, sort=due reorders within the view, and the Done filter pulls in the
 // closed rows by turning "show closed" on for the user.

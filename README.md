@@ -89,6 +89,9 @@ rather not have edited.
   slide-over for the title, notes and checklist. Lists in the sidebar show their
   active-task counts while you are on `/tasks` (Ruling 23 — the count query is
   route-gated so the calendar never pays for it) and carry a one-click quick add.
+  The Filter menu groups your Calendar and List tree: picking a calendar narrows
+  to it **and its sub-calendars**, picking a sub-calendar narrows to that one,
+  and the choice lives in `?list=` so a filtered view is shareable.
   The keyboard does the rest
   (`j`/`k` to move, `1`/`2` to set the due date to today / the end of this week,
   `3` to clear the due date and time, `4` to move to another list, `x` to

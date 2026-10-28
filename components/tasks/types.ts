@@ -1,4 +1,4 @@
-import type { TaskPriority, TaskStatus } from "@/lib/db/schema";
+import type { CollectionKind, TaskPriority, TaskStatus } from "@/lib/db/schema";
 
 /**
  * The callbacks every task surface (row, board card, slide-over panel) uses to
@@ -31,12 +31,19 @@ export interface TaskActions {
 }
 
 /**
- * A list a task may be filed under (moved to, or filtered by): its id, the
- * display name (parent-prefixed for a sub-list) and the colour its dot needs.
+ * A collection a task may be filed under (moved to, or filtered by): its id,
+ * display names, kind, tree position and the colour its dot needs.
  */
 export interface WritableList {
   id: string;
+  /** Display name, parent-prefixed for a sub-collection (`School / Math`). */
   name: string;
+  /** The collection's own name (`Math`), for tree menus that show the parent. */
+  label: string;
+  /** What the collection holds; the toolbar's filter groups by it. */
+  kind: CollectionKind;
+  /** The root's id for a sub-collection; `null` for a root. */
+  rootId: string | null;
   /** The root's palette family; `null` for an uncoloured list such as the Inbox. */
   hueFamily: string | null;
   /** The shade inside that family. */

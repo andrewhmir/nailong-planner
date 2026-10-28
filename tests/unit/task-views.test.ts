@@ -29,6 +29,8 @@ interface FixtureTask extends GroupableTask {
 
 const WORK = { id: "list-work", name: "Work" };
 const HOME = { id: "list-home", name: "Home" };
+const ROOT = { id: "calendar-school", name: "School" };
+const CHILD = { id: "calendar-math", name: "School / Math" };
 
 function make(overrides: Partial<FixtureTask> = {}): FixtureTask {
   return {
@@ -243,26 +245,48 @@ describe("filterTasks", () => {
     make({ id: "home", status: "open", priority: "high", collectionId: HOME.id, collection: HOME }),
   ];
 
-  it("intersects the status set, the priority set and the collection id", () => {
-    const filters: TaskFilters = { status: ["open"], priority: ["high"], collectionId: WORK.id };
+  it("intersects the status set, the priority set and the collection set", () => {
+    const filters: TaskFilters = {
+      status: ["open"],
+      priority: ["high"],
+      collectionIds: new Set([WORK.id]),
+    };
 
     expect(ids(filterTasks(rows, filters))).toEqual(["match"]);
   });
 
-  it("treats an empty list or a null collection as no constraint", () => {
-    expect(ids(filterTasks(rows, { status: [], priority: [], collectionId: null }))).toEqual([
+  it("matches every collection in the resolved subtree (a calendar includes its children)", () => {
+    // The caller resolves a root selection to `{root} ∪ children`; the filter
+    // itself only asks set membership, so a child id alone narrows to it.
+    const rows = [
+      make({ id: "school", collectionId: ROOT.id, collection: ROOT }),
+      make({ id: "math", collectionId: CHILD.id, collection: CHILD }),
+      make({ id: "work", collectionId: WORK.id, collection: WORK }),
+    ];
+
+    expect(
+      ids(filterTasks(rows, { status: [], priority: [], collectionIds: new Set([ROOT.id, CHILD.id]) })),
+    ).toEqual(["school", "math"]);
+    expect(
+      ids(filterTasks(rows, { status: [], priority: [], collectionIds: new Set([CHILD.id]) })),
+    ).toEqual(["math"]);
+  });
+
+  it("treats an empty list and a null or empty collection set as no constraint", () => {
+    expect(ids(filterTasks(rows, { status: [], priority: [], collectionIds: null }))).toEqual([
       "match",
       "done",
       "normal",
       "home",
     ]);
-    expect(ids(filterTasks(rows, { status: [], priority: ["high"], collectionId: null }))).toEqual([
-      "match",
-      "done",
-      "home",
-    ]);
     expect(
-      ids(filterTasks(rows, { status: ["in_progress", "done"], priority: [], collectionId: null })),
+      ids(filterTasks(rows, { status: [], priority: [], collectionIds: new Set() })),
+    ).toEqual(["match", "done", "normal", "home"]);
+    expect(
+      ids(filterTasks(rows, { status: [], priority: ["high"], collectionIds: null })),
+    ).toEqual(["match", "done", "home"]);
+    expect(
+      ids(filterTasks(rows, { status: ["in_progress", "done"], priority: [], collectionIds: null })),
     ).toEqual(["done"]);
   });
 });
@@ -275,6 +299,6 @@ describe("empty input", () => {
     for (const by of GROUPINGS) {
       expect(groupTasks([], by)).toEqual([]);
     }
-    expect(filterTasks([], { status: [], priority: [], collectionId: null })).toEqual([]);
+    expect(filterTasks([], { status: [], priority: [], collectionIds: null })).toEqual([]);
   });
 });

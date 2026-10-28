@@ -81,11 +81,21 @@ export interface TaskGroup<T> {
   tasks: T[];
 }
 
-/** Toolbar filter state; an empty list or a `null` list id means "no constraint". */
+/**
+ * Toolbar filter state. An empty status or priority array and a `null` (or
+ * empty) collection set mean "no constraint", so the default state passes every
+ * row through.
+ */
 export interface TaskFilters {
   status: TaskStatus[];
   priority: TaskPriority[];
-  collectionId: string | null;
+  /**
+   * Collections the task may live in, already resolved to the whole subtree by
+   * the caller: picking a calendar includes its sub-calendars, picking a
+   * sub-calendar includes only itself. `null` or an empty set means no
+   * constraint.
+   */
+  collectionIds: ReadonlySet<string> | null;
 }
 
 /**
@@ -236,8 +246,10 @@ export function groupTasks<T extends GroupableTask>(
 
 /**
  * Keeps the tasks that match every active filter. An empty status or priority
- * list, and a `null` collection id, mean "no constraint" rather than "match
- * nothing", so the default toolbar state passes every row through.
+ * list, and a `null`/empty collection set, mean "no constraint" rather than
+ * "match nothing", so the default toolbar state passes every row through. The
+ * collection set is subtree-aware: the caller resolves a calendar selection to
+ * that calendar and its sub-calendars before calling.
  */
 export function filterTasks<T extends SortableTask & { collectionId: string }>(
   tasks: readonly T[],
@@ -245,10 +257,11 @@ export function filterTasks<T extends SortableTask & { collectionId: string }>(
 ): T[] {
   const statuses = new Set(filters.status);
   const priorities = new Set(filters.priority);
+  const collections = filters.collectionIds;
   return tasks.filter(
     (task) =>
       (statuses.size === 0 || statuses.has(task.status)) &&
       (priorities.size === 0 || priorities.has(task.priority)) &&
-      (filters.collectionId === null || task.collectionId === filters.collectionId),
+      (collections === null || collections.size === 0 || collections.has(task.collectionId)),
   );
 }

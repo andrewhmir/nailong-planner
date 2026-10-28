@@ -271,7 +271,9 @@ The request pipeline in one line:
 
 - Query keys: `["collections"]`, `["events", from, to]`,
   `["events", "search", normalized]`, `["preferences"]`,
-  `["tasks", view ?? "all", collectionId ?? null, "open" | "closed"]`.
+  `["tasks", view ?? "all", collectionId ?? null, "open" | "closed"]` (the
+  `/tasks` page leaves `collectionId` null: its calendar/list filter is
+  subtree-aware and applied client-side).
 - Event mutations work on the `["events"]` **prefix**, so optimistic
   `temp-<uuid>` rows also appear in search results and search refetches after
   every event mutation. Rollback is wholesale (`snapshotEvents` /
@@ -439,6 +441,7 @@ any wrapper in the shell/calendar tree.
 | Single-key task shortcuts never fire, or fire on the calendar | `/tasks` keys are page-scoped to `TasksShell` and blocked while typing or with any open overlay (dialog, menu, date popover); the calendar's `j`/`k` are period navigation, not row movement; `shortcutsEnabled` off removes the listener entirely | `lib/ui/useTaskShortcuts.ts` (`resolveTaskShortcut`, guards), `lib/ui/shortcutGuards.ts`, `components/tasks/TasksShell.tsx` (`data-shortcuts-enabled`) |
 | `Shift+K` does nothing, or opens while typing | the gesture is gated on the same `shortcutsEnabled` preference (read live through `usePreferences`) and the shared typing/overlay guards; it is mounted once in `AppShell`, not by a page | `components/shell/GlobalCapture.tsx`, `components/shell/AppShell.tsx`, `lib/ui/shortcutGuards.ts` |
 | A task's List cell offers no collection to file it under, or choosing one does nothing | the LIST picker lists every writable collection — calendars, sub-calendars, lists and sub-lists — so a task can be filed under the subject its events use; a partner-owned, view-only or private collection is excluded by `canWriteCollection`, and the current collection is checked so re-picking it is a deliberate no-op | `components/tasks/TaskListPicker.tsx`, the `lists` memo in `components/tasks/TasksShell.tsx`, `assertCollectionWritable` in `lib/services/tasks.ts` |
+| Filtering by a calendar shows only the tasks filed directly on it, or hides the sub-calendars' tasks | the URL stores the raw selected id; the shell must resolve it to `{self} ∪ children` (`filterCollectionIds`) and pass a Set to `filterTasks` — a sub-calendar selection stays a one-id set, and `useTasks` intentionally receives no `collectionId` so the server does not narrow first | `components/tasks/TasksShell.tsx`, `lib/domain/taskViews.ts` (`TaskFilters.collectionIds`, `filterTasks`), `components/tasks/TaskToolbar.tsx` (`toggleCollection`) |
 | A calendar is expected to refuse a task, or "Tasks live in lists." still appears somewhere | retired: tasks may live in a calendar or a list (filing one never turns it into an event — a task is always a task row, shown read-only as its due-date chip) | `createTask`/`updateTask`/`reorderTasks` in `lib/services/tasks.ts` (there is no kind check any more) |
 
 ## 5. Adding a feature — the touch list

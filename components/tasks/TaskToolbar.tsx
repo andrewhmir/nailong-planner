@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -52,7 +53,11 @@ interface Props {
   onChange(next: TaskViewState): void;
   /** Focuses the capture row's input; the shell owns that DOM id. */
   onAddTask(): void;
-  /** Lists offered by the list filter; the shell passes the writable lists. */
+  /**
+   * The writable collections the filter offers, already ordered root-then-
+   * children. The shell passes every writable collection (calendars and lists);
+   * `kind` and `rootId` let this menu rebuild the sidebar tree.
+   */
   lists: WritableList[];
 }
 
@@ -67,6 +72,13 @@ export function TaskToolbar({ state, onChange, onAddTask, lists }: Props) {
   const boardLayout = state.layout === "board";
   const activeFilters =
     state.status.length + state.priority.length + (state.collectionId === null ? 0 : 1);
+  // The filter menu mirrors the sidebar tree: roots in list order, each followed
+  // by its children (indented). A root selection filters the whole subtree,
+  // because the shell resolves the id to `{self} ∪ children` before matching.
+  const calendarRoots = lists.filter((item) => item.kind === "calendar" && item.rootId === null);
+  const listRoots = lists.filter((item) => item.kind === "list" && item.rootId === null);
+  const childrenOf = (rootId: string): WritableList[] =>
+    lists.filter((item) => item.rootId === rootId);
 
   function toggleStatus(status: TaskStatus): void {
     const statuses = state.status.includes(status)
@@ -85,7 +97,7 @@ export function TaskToolbar({ state, onChange, onAddTask, lists }: Props) {
     onChange({ ...state, priority: priorities });
   }
 
-  function toggleList(collectionId: string): void {
+  function toggleCollection(collectionId: string): void {
     onChange({ ...state, collectionId: state.collectionId === collectionId ? null : collectionId });
   }
 
@@ -163,18 +175,57 @@ export function TaskToolbar({ state, onChange, onAddTask, lists }: Props) {
               {TASK_PRIORITY_LABELS[priority]}
             </DropdownMenuCheckboxItem>
           ))}
-          {lists.length === 0 ? null : (
+          {calendarRoots.length === 0 ? null : (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Calendar</DropdownMenuLabel>
+              <p className="px-4 pb-1 text-xs text-ink-mute">
+                A calendar includes its sub-calendars.
+              </p>
+              {calendarRoots.map((root) => (
+                <Fragment key={root.id}>
+                  <DropdownMenuCheckboxItem
+                    checked={state.collectionId === root.id}
+                    onCheckedChange={() => toggleCollection(root.id)}
+                  >
+                    {root.label}
+                  </DropdownMenuCheckboxItem>
+                  {childrenOf(root.id).map((child) => (
+                    <DropdownMenuCheckboxItem
+                      key={child.id}
+                      checked={state.collectionId === child.id}
+                      onCheckedChange={() => toggleCollection(child.id)}
+                    >
+                      <span className="pl-4">{child.label}</span>
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </Fragment>
+              ))}
+            </>
+          )}
+          {listRoots.length === 0 ? null : (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuLabel>List</DropdownMenuLabel>
-              {lists.map((list) => (
-                <DropdownMenuCheckboxItem
-                  key={list.id}
-                  checked={state.collectionId === list.id}
-                  onCheckedChange={() => toggleList(list.id)}
-                >
-                  {list.name}
-                </DropdownMenuCheckboxItem>
+              <p className="px-4 pb-1 text-xs text-ink-mute">A list includes its sub-lists.</p>
+              {listRoots.map((root) => (
+                <Fragment key={root.id}>
+                  <DropdownMenuCheckboxItem
+                    checked={state.collectionId === root.id}
+                    onCheckedChange={() => toggleCollection(root.id)}
+                  >
+                    {root.label}
+                  </DropdownMenuCheckboxItem>
+                  {childrenOf(root.id).map((child) => (
+                    <DropdownMenuCheckboxItem
+                      key={child.id}
+                      checked={state.collectionId === child.id}
+                      onCheckedChange={() => toggleCollection(child.id)}
+                    >
+                      <span className="pl-4">{child.label}</span>
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </Fragment>
               ))}
             </>
           )}

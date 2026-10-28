@@ -18,6 +18,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a task row and only ever draws on the grid as its read-only due-date chip. The
   former "Tasks live in lists." server rule is retired.
 
+- **Filter tasks by calendar or sub-calendar** — the toolbar's Filter menu now
+  groups the sidebar tree into **Calendar** and **List**. Picking a calendar
+  includes its sub-calendars' tasks; picking a sub-calendar narrows to that one;
+  the choice lives in `?list=<id>` so a filtered view is shareable, and Clear
+  filters resets it.
+
 ## [0.2.0] - 2026-10-26
 
 ### Added — tasks and triage

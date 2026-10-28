@@ -172,7 +172,10 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
   } | null>(null);
   const tasksRef = useRef<TaskView[]>([]);
   const today = useMemo(() => localToday(timezone), [timezone]);
-  const tasksQuery = useTasks(view, state.collectionId ?? undefined, state.closed);
+  // The server-side `collectionId` filter is deliberately not used here: the
+  // toolbar's selection is a subtree (a calendar includes its sub-calendars),
+  // so the projection below filters client-side against the resolved set.
+  const tasksQuery = useTasks(view, undefined, state.closed);
   const collectionsQuery = useCollections();
   const updateTask = useUpdateTask();
   const createTask = useCreateTask();
@@ -228,6 +231,26 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
     router.replace(query.length > 0 ? `/tasks?${query}` : "/tasks");
   }, [router, searchKey]);
 
+  // The toolbar's collection filter is subtree-aware: picking a calendar (or a
+  // list) includes its children, so the selected id is resolved against the
+  // collections tree once and the projection matches against the whole set. An
+  // id whose root is not loaded yet matches just itself.
+  const filterCollectionIds = useMemo<ReadonlySet<string> | null>(() => {
+    const selected = state.collectionId;
+    if (selected === null) {
+      return null;
+    }
+    const ids = new Set<string>([selected]);
+    for (const root of collectionsQuery.data ?? []) {
+      if (root.id === selected) {
+        for (const child of root.children) {
+          ids.add(child.id);
+        }
+      }
+    }
+    return ids;
+  }, [collectionsQuery.data, state.collectionId]);
+
   // The visible rows: filter → sort → group. Traversal (`j`/`k`), the selection
   // coherence effect and the list all read this projection, so a filtered-out
   // row can never keep an invisible selection alive.
@@ -237,11 +260,11 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
         filterTasks(tasks, {
           status: state.status,
           priority: state.priority,
-          collectionId: state.collectionId,
+          collectionIds: filterCollectionIds,
         }),
         state.sort,
       ),
-    [state.collectionId, state.priority, state.sort, state.status, tasks],
+    [filterCollectionIds, state.priority, state.sort, state.status, tasks],
   );
   // The list groups by the toolbar's choice; the board is always grouped by
   // status, so its flattened order is column order. Using one `visibleRows`
@@ -393,7 +416,7 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
 
   // Every writable collection — calendars and lists alike — labelled by its
   // parent when nested: the inline list picker's menu, the overflow menu's move
-  // targets and the toolbar's list filter all read this one array. A task may be
+  // targets and the toolbar's filter tree all read this one array. A task may be
   // filed under a calendar (the same subject its events use) or a list. Colours
   // are folded from the root because a sub-collection stores `hueFamily: null`;
   // the server stays authoritative, so a stale tree still gets a 403.
@@ -405,6 +428,9 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
         targets.push({
           id: root.id,
           name: root.name,
+          label: root.name,
+          kind: root.kind,
+          rootId: null,
           hueFamily: root.hueFamily,
           shadeIndex: root.shadeIndex,
         });
@@ -414,6 +440,9 @@ export function TasksShell({ timezone, weekStartsOn, shortcutsEnabled, timeForma
           targets.push({
             id: child.id,
             name: `${root.name} / ${child.name}`,
+            label: child.name,
+            kind: child.kind,
+            rootId: root.id,
             hueFamily: root.hueFamily ?? child.hueFamily,
             shadeIndex: child.shadeIndex,
           });

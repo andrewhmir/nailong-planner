@@ -283,10 +283,10 @@ shifts by a day, or an API error carries the wrong code or status.
 - `TASK_PRIORITY_LABELS: Readonly<Record<TaskPriority, string>>` — "Urgent" through "None".
 - `TASK_PRIORITY_RANK: Readonly<Record<TaskPriority, number>>` — `urgent` 4 through `none` 0, built from `priorityRank` so the two cannot drift.
 - `interface SortableTask { status; priority; dueOn; dueTime; sortOrder; createdAt; title; id }`; `interface GroupableTask extends SortableTask { collection: { id: string; name: string } }` — structural constraints, so a `TaskView` satisfies them with no import from `lib/services/tasks.ts`.
-- `interface TaskGroup<T> { key: string; label: string; tasks: T[] }`; `interface TaskFilters { status: TaskStatus[]; priority: TaskPriority[]; collectionId: string | null }`.
+- `interface TaskGroup<T> { key: string; label: string; tasks: T[] }`; `interface TaskFilters { status: TaskStatus[]; priority: TaskPriority[]; collectionIds: ReadonlySet<string> | null }`.
 - `sortTasks<T extends SortableTask>(tasks: readonly T[], sort: TaskSort): T[]` — a sorted **copy**; the input array is never mutated.
 - `groupTasks<T extends GroupableTask>(tasks: readonly T[], by: GroupBy): TaskGroup<T>[]` — ordered groups with empty groups omitted.
-- `filterTasks<T extends SortableTask & { collectionId: string }>(tasks: readonly T[], filters: TaskFilters): T[]` — the intersection of the three constraints.
+- `filterTasks<T extends SortableTask & { collectionId: string }>(tasks: readonly T[], filters: TaskFilters): T[]` — the intersection of the three constraints. The collection constraint is a **set**, already resolved by the caller to the whole subtree (picking a calendar includes its sub-calendars), so the pure function only asks membership.
 
 **Sort and group rules**
 - A task's only date is `dueOn` and its optional `dueTime` orders rows within one day; there is no "effective date" computed from two fields any more.
@@ -294,7 +294,7 @@ shifts by a day, or an API error carries the wrong code or status.
 - `manual` = `sortOrder` → `createdAt` → `id`; `priority` = rank desc → due order → `createdAt` → `id`; `due` = due order → rank desc → `createdAt` → `id`; `created` = `createdAt` **desc** (newest first) → `id`; `title` = `localeCompare` → `createdAt` → `id`. Every sort ends on `createdAt`/`id`, so the rendered order is deterministic.
 - Status groups walk `TASK_STATUS_ORDER`, priority groups walk `TASK_PRIORITY_ORDER`. List groups are one per `collection.id` (`key` is the id, `label` the name) sorted by `collection.name` with `localeCompare`. Groups with zero tasks are omitted, so an empty Done column or an unused priority renders no header.
 - Nothing inside a group is re-sorted: the order is the input order, so callers pass `sortTasks` output to `groupTasks`.
-- `filterTasks` applies the status set, the priority set and `collectionId` together. An **empty** array and a **`null`** collection id mean "no constraint", not "match nothing", so the default toolbar state (all arrays empty) passes every row through.
+- `filterTasks` applies the status set, the priority set and `collectionIds` together. An **empty** array and a **`null`/empty** collection set mean "no constraint", not "match nothing", so the default toolbar state (all arrays empty) passes every row through. A calendar selection is expanded to `{self} ∪ children` by the shell (`TasksShell`'s `filterCollectionIds`) before it reaches this function.
 
 **State & side effects** — None. Pure functions over readonly input and module-level constant tables; no I/O, no storage, no hooks, no clock reads.
 
@@ -308,6 +308,7 @@ shifts by a day, or an API error carries the wrong code or status.
 - An empty group header shows -> the UI iterated an order table itself instead of rendering `groupTasks` output -> `groupTasks` omits empty groups.
 - Two same-named lists merge into one section -> groups were keyed by `collection.name` instead of `collection.id` -> `groupByList`.
 - Choosing no filters hides every row -> an empty `status`/`priority` array was treated as "match none" -> empty means no constraint in `filterTasks`.
+- Filtering by a calendar misses the tasks filed under its sub-calendars -> the caller passed only the selected id; expand it to `{self} ∪ children` first (the shell's `filterCollectionIds`) -> `filterTasks` only asks set membership.
 - A manual reorder has no effect -> the caller did not pass `sort="manual"`, or `sortOrder` was not persisted before re-reading -> check the view state and the service reorder.
 
 **Tests** — `tests/unit/task-views.test.ts` pins the label and order tables, all five sorts (priority with undated last, manual `sortOrder`/`createdAt`/`id`, due = date then time with untimed after timed and undated last, created newest-first, title), the copy/no-mutation contract, status/priority/list grouping with empty groups omitted and list names sorted, the filter intersection and the empty-input case.
