@@ -129,3 +129,25 @@ test("purges the offline snapshot and cached pages on sign-out", async ({ page }
   expect(leftovers.snapshotKeys).toEqual([]);
   expect(leftovers.pagesCaches).toEqual([]);
 });
+test("purges the pages cache when the auth guard redirects to /login", async ({ context, page }) => {
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await page.reload();
+  await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
+
+  // Hard-load a protected route so its document is cached under /tasks.
+  await page.goto("/tasks");
+  await expect(page.getByRole("heading", { name: "Tasks" })).toBeVisible();
+
+  // Session expiry: the app redirects to /login; the SW must treat the
+  // followed redirect as a sign-in page and drop the authenticated documents.
+  await context.clearCookies();
+  await page.goto("/tasks");
+  await page.waitForURL("**/login");
+
+  await context.setOffline(true);
+  await page.goto("/tasks");
+  await expect(page.getByRole("heading", { name: /You.re offline/i })).toBeVisible();
+  await context.setOffline(false);
+});

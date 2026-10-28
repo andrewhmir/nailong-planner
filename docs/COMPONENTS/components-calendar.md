@@ -281,6 +281,8 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 
 ### components/calendar/EventDialog.tsx
 
+**Keyboard-safe footer (v0.3.0)** — the Cancel/Save footer is sticky at every size (not just phones) and the dialog is sized inside the visual viewport (see `components/ui/dialog.tsx`), so Save stays reachable with the iOS keyboard open.
+
 **Purpose** — The full create/edit form: title, calendar (nested picker), all-day, start/end date and time, repeat controls (preset plus the custom-recurrence panel), location, notes, and a save guard. On edit it opens on the clicked occurrence; saving a repeating event hands the payload to `CalendarShell`, which asks for the scope before writing.
 
 **Public API** — `export interface EventDialogInitial { event?: EventView; occurrenceStart?: string; start: string; end: string; allDay: boolean; pendingTitle?: string }`; `export function EventDialog(props: Props)`. Props: `mode: "create" | "edit"`, `initial`, `initialRule?: string | null`, `timezone`, `timeFormat: TimeFormat`, `weekStartsOn: number`, `collections: CollectionNode[]`, `defaultCollectionId?: string | null`, `onClose()` (success/programmatic), `onCancel?()` (runs the shell's unsaved guard), `onDirtyChange?(dirty)`, `onSaveRequest?(payload, { repeatTouched })` (the shell owns the scope chooser and mutation), `externalPending?: boolean`. Module constants `CONTROL`, `TEXTAREA`, `LABEL`; helpers `splitWall`, `isWeekdaySelection`.

@@ -149,7 +149,7 @@ The three `/api/auth/*` calls are served by the Better Auth catch-all `app/api/a
 
 ### components/ui/dialog.tsx
 
-**Safe areas (v0.3.0)** — centred content caps at `calc(100dvh - safe-top - safe-bottom - 1rem)` and pads with `safe-x-6`/`safe-pb-6`; the `sheet` variant keeps its `92dvh` cap and gains the bottom inset through the same classes.
+**Keyboard and safe areas (v0.3.0)** — the overlay is the layout viewport, but the card lives in a `dialog-viewport` box sized to the *visual* viewport (`--app-vv-height`/`--app-vv-top`, updated from `window.visualViewport`, `100dvh`/0 fallback), so on iOS an open keyboard shrinks the card and its sticky footer instead of hiding Save. The card caps at `max-h-full` of that box and pads with `safe-x-6`/`safe-pb-6`; the `sheet` variant self-aligns to the box bottom on phones.
 
 **Purpose** — Radix dialog wrapper that owns the portal, scrim, positioning and accessible title. Callers supply only content; `DialogContent` must sit inside a `Dialog` root.
 

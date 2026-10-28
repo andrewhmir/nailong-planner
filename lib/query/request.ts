@@ -1,6 +1,13 @@
 /** Thrown before any fetch when the browser is known to be offline. */
 export const OFFLINE_MESSAGE = "You're offline — changes can't be saved.";
 
+/** Throw the offline message without touching the network (raw-fetch deletes). */
+export function assertOnline(): void {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    throw new Error(OFFLINE_MESSAGE);
+  }
+}
+
 export interface ApiErrorBody {
   error?: { message?: string };
 }
@@ -15,9 +22,7 @@ export interface ApiErrorBody {
  * helpers this replaced: JSON body, non-ok throws the API error envelope.
  */
 export async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  if (typeof navigator !== "undefined" && navigator.onLine === false) {
-    throw new Error(OFFLINE_MESSAGE);
-  }
+  assertOnline();
   const response = await fetch(url, init);
   const payload = (await response.json().catch(() => null)) as (T & ApiErrorBody) | null;
   if (!response.ok) {

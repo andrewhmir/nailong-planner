@@ -410,8 +410,6 @@ Pinned choices that must not drift casually: `@fullcalendar/react` and `@fullcal
 
 **Tests / verified by** — It is the test runner; `npm test` in CI's `verify` job.
 
-### playwright.config.ts
-
 ### playwright.pwa.config.ts
 
 **Purpose** — The production-build PWA suite: `testMatch` `pwa-offline.spec.ts`, `next start -p 3100` (never `next dev`), no server reuse, the same seed database/origin/secret as the dev E2E config, and a 90s timeout for the build-sized first paint.
@@ -422,11 +420,21 @@ Pinned choices that must not drift casually: `@fullcalendar/react` and `@fullcal
 
 **Tests** — The whole `tests/e2e/pwa-offline.spec.ts` file.
 
-**Purpose** — Runs the browser suites against a dedicated dev server on `:3100` with the seeded `.playwright/test.db`.
+**Purpose** — The production-build PWA suite: `testMatch` `pwa-offline.spec.ts`, `next start -p 3100` (never `next dev`), no server reuse, the same seed database/origin/secret as the dev E2E config, and a 90s timeout for the build-sized first paint.
+
+**State & side effects** — Owns the server lifecycle for the run; reads `.playwright/test.db` seeded by `scripts/seed-test-db.mts`. Run with `npm run build && npm run test:pwa`; the CI `pwa` job does exactly that.
+
+**Debugging** — `EADDRINUSE` -> a dev/E2E server is already on :3100 (`reuseExistingServer: false` by design); `next start` failing with standalone output -> copy `public/` and `.next/static` into `.next/standalone/` and start `node .next/standalone/server.js` with `PORT=3100` (the Dockerfile documents that layout).
+
+**Tests** — The whole `tests/e2e/pwa-offline.spec.ts` file.
+
+### playwright.config.ts
+
+**Purpose** — Runs the browser suites against a dedicated dev server on `:3100` with the seeded `.playwright/test.db`. `testIgnore: /pwa-offline\.spec\.ts/` keeps the production-only PWA spec out: this config runs `next dev`, where a service worker must never exist.
 
 **Invocation / wiring** — Read by `npm run test:e2e` and by a bare `npx playwright test tests/e2e/<spec>.spec.ts` (which then expects the database to be seeded already).
 
-**Behaviour & side effects** — `testDir: ./tests/e2e`, `fullyParallel: false`, `workers: 1`, `retries: 1` on CI and `0` locally, `timeout: 60_000`, `expect.timeout: 20_000`, reporter `github` + `html` on CI and `list` locally, `trace: "retain-on-failure"`, the browser pinned to the household zone via `use.timezoneId: "Asia/Taipei"` (so client and server agree on "today" instead of hydrating a different date on a UTC CI host), Desktop Chrome device, and a `webServer` running `npm run dev -- -p 3100` with `DATABASE_URL=file:./.playwright/test.db`, `NEXT_DIST_DIR=.next-e2e`, `BETTER_AUTH_URL=http://localhost:3100`, a fixed secret, `AUTH_RATE_LIMIT=off`, `NODE_ENV=development` and `TZ=Asia/Taipei`. `reuseExistingServer` is on locally and off on CI; the server start timeout is 180 s.
+**Behaviour & side effects** — `testDir: ./tests/e2e`, `testIgnore: /pwa-offline\.spec\.ts/`, `fullyParallel: false`, `workers: 1`, `retries: 1` on CI and `0` locally, `timeout: 60_000`, `expect.timeout: 20_000`, reporter `github` + `html` on CI and `list` locally, `trace: "retain-on-failure"`, the browser pinned to the household zone via `use.timezoneId: "Asia/Taipei"` (so client and server agree on "today" instead of hydrating a different date on a UTC CI host), Desktop Chrome device, and a `webServer` running `npm run dev -- -p 3100` with `DATABASE_URL=file:./.playwright/test.db`, `NEXT_DIST_DIR=.next-e2e`, `BETTER_AUTH_URL=http://localhost:3100`, a fixed secret, `AUTH_RATE_LIMIT=off`, `NODE_ENV=development` and `TZ=Asia/Taipei`. `reuseExistingServer` is on locally and off on CI; the server start timeout is 180 s.
 
 **Gotchas** —
 - Locally an already-running `:3100` server is reused, so stale code or an old database is served until you stop it.

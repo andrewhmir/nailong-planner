@@ -97,6 +97,19 @@ describe("offline snapshot persistence", () => {
     expect(loadSnapshot("user-a", 1_000 + SNAPSHOT_TTL_MS + 1)).toBeNull();
   });
 
+  it("rejects a snapshot whose state is not a dehydrated query list", () => {
+    storage.setItem(
+      `${SNAPSHOT_KEY_PREFIX}user-a`,
+      JSON.stringify({
+        version: OFFLINE_SNAPSHOT_VERSION,
+        appVersion: APP_VERSION,
+        savedAt: Date.now(),
+        state: {},
+      }),
+    );
+    expect(loadSnapshot("user-a")).toBeNull();
+  });
+
   it("ignores a snapshot from another user or app version", () => {
     saveSnapshot("user-a", serializeSnapshot(seededClient(), 1_000));
     expect(loadSnapshot("user-b", 1_000)).toBeNull();

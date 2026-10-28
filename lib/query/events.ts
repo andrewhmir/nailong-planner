@@ -1,5 +1,5 @@
 "use client";
-import { requestJson, type ApiErrorBody } from "@/lib/query/request";
+import { assertOnline, requestJson, type ApiErrorBody } from "@/lib/query/request";
 
 import { useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { shadeTokens } from "@/lib/color/palette";
@@ -205,6 +205,7 @@ export function useDeleteEvent() {
       scope?: RecurringScope;
       occurrenceStart?: string;
     }): Promise<DeleteEventResult> => {
+      assertOnline();
       const response = await fetch(`/api/events/${id}`, {
         method: "DELETE",
         headers: { "content-type": "application/json" },

@@ -5,6 +5,9 @@ const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  // The production-build suite (playwright.pwa.config.ts, `npm run test:pwa`)
+  // owns this spec; in dev it would run without a service worker.
+  testIgnore: /pwa-offline\.spec\.ts/,
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,

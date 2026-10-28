@@ -23,6 +23,7 @@ import {
   type IconProps,
 } from "@/components/ui/icons";
 import { clearSnapshot } from "@/lib/pwa/offlineSnapshot";
+import { clearOfflinePagesCache } from "@/lib/pwa/swUpdate";
 import { ROADMAP, gateLabel, type RoadmapEntry, type RoadmapId } from "@/lib/roadmap";
 import { cn } from "@/lib/utils";
 import { Brand } from "./Brand";
@@ -152,7 +153,7 @@ export function GlobalNavRail({ householdName, currentUser, onComingSoon }: Prop
     // device after sign-out.
     queryClient.clear();
     clearSnapshot(currentUser.id);
-    navigator.serviceWorker.controller?.postMessage({ type: "CLEAR_OFFLINE" });
+    clearOfflinePagesCache();
 
     router.replace("/login");
     router.refresh();

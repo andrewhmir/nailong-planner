@@ -45,7 +45,7 @@ export function InstallHint() {
   }
 
   return (
-    <div className="flex items-start gap-2 border-b border-line bg-info-soft px-3 py-2 text-sm text-info-ink sm:px-6">
+    <div className="flex items-start gap-2 border-b border-line bg-info-soft safe-x py-2 text-sm text-info-ink md:hidden">
       <span aria-hidden className="mt-0.5 font-bold">
         &#8679;
       </span>

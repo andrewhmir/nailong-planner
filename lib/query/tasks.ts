@@ -1,5 +1,5 @@
 "use client";
-import { requestJson, type ApiErrorBody } from "@/lib/query/request";
+import { assertOnline, requestJson, type ApiErrorBody } from "@/lib/query/request";
 
 import {
   useMutation,
@@ -171,6 +171,7 @@ export function useDeleteTask() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
+      assertOnline();
       const response = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as ApiErrorBody | null;

@@ -43,13 +43,21 @@ async function handleNavigation(request) {
   try {
     const response = await fetch(request);
     if (response.ok) {
-      const pathname = new URL(request.url).pathname;
-      if (pathname === "/login") {
+      // `fetch` follows redirects internally: the auth guard redirects a
+      // signed-out request to /login, so the RESPONSE url is the one that tells
+      // us the session is gone. Cache by request only for a real app document.
+      const requestPath = new URL(request.url).pathname;
+      const responsePath = new URL(response.url).pathname;
+      if (requestPath === "/login" || responsePath === "/login") {
         // A sign-in page means the session is gone: never replay authenticated HTML.
         await caches.delete(PAGES_CACHE);
       } else {
-        const cache = await caches.open(PAGES_CACHE);
-        await cache.put(request, response.clone());
+        try {
+          const cache = await caches.open(PAGES_CACHE);
+          await cache.put(request, response.clone());
+        } catch {
+          // A failed cache write must never downgrade a live response.
+        }
       }
     }
     return response;

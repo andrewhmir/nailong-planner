@@ -1,7 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OFFLINE_MESSAGE, requestJson } from "@/lib/query/request";
+import { OFFLINE_MESSAGE, assertOnline, requestJson } from "@/lib/query/request";
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe("assertOnline", () => {
+  it("throws the offline message when the browser is offline", () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    expect(() => assertOnline()).toThrow(OFFLINE_MESSAGE);
+  });
+
+  it("is a no-op when online", () => {
+    vi.stubGlobal("navigator", { onLine: true });
+    expect(() => assertOnline()).not.toThrow();
+  });
+});
 
 describe("requestJson", () => {
   it("refuses to fetch while offline", async () => {

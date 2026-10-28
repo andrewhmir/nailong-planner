@@ -37,7 +37,7 @@ export function OfflineIndicator({ userId }: { userId: string }) {
   return (
     <div
       role="status"
-      className="flex items-center gap-2 border-b border-warning-soft bg-warning-soft px-3 py-2 text-sm font-bold text-warning-ink sm:px-6"
+      className="flex items-center gap-2 border-b border-warning-soft bg-warning-soft safe-x py-2 text-sm font-bold text-warning-ink"
     >
       <span aria-hidden className="h-2 w-2 shrink-0 rounded-pill bg-warning" />
       <span className="truncate">

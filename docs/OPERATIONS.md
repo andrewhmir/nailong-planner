@@ -127,7 +127,13 @@ function Save-Icon([System.Drawing.Image]$source, [int]$target, [string]$out) {
 }
 Save-Icon $src 192 "public/icons/icon-192.png"
 Save-Icon $src 512 "public/icons/icon-512.png"
-# maskable: white 512 canvas, mascot at 410x410 centred (80% safe zone)
+$maskable = New-Object System.Drawing.Bitmap(512, 512)
+$g = [System.Drawing.Graphics]::FromImage($maskable)
+$g.Clear([System.Drawing.Color]::White)
+$g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+$g.DrawImage($src, 51, 51, 410, 410)
+$maskable.Save((Join-Path (Get-Location) "public/icons/maskable-512.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+$g.Dispose(); $maskable.Dispose()
 $src.Dispose()
 ```
 

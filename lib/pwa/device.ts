@@ -14,7 +14,7 @@ export function isIOSSafari(userAgent: string): boolean {
   if (!isIOS(userAgent)) {
     return false;
   }
-  return !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/.test(userAgent);
+  return !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo|Instagram|FBAN|FBAV|Line\//.test(userAgent);
 }
 
 /** The minimal surface `isStandalone` reads, so tests need no DOM. */

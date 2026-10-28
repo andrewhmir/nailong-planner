@@ -3,6 +3,14 @@ export const UPDATE_EVENT = "nailong:sw-update-ready";
 
 let reloading = false;
 
+/** Clear the SW pages cache if this browser has a worker; safe on HTTP origins. */
+export function clearOfflinePagesCache(): void {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
+    return;
+  }
+  navigator.serviceWorker.controller?.postMessage({ type: "CLEAR_OFFLINE" });
+}
+
 /**
  * Ask the waiting worker to take over, then reload exactly once when the new
  * worker controls the page. Only ever called from an explicit user action
@@ -11,6 +19,9 @@ let reloading = false;
 export function applyUpdate(registration: ServiceWorkerRegistration): void {
   const waiting = registration.waiting;
   if (!waiting) {
+    // The worker already activated (another tab finished the update): the user
+    // asked for the new version, so a reload is still the right result.
+    window.location.reload();
     return;
   }
   navigator.serviceWorker.addEventListener(

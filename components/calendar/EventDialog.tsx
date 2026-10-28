@@ -535,9 +535,9 @@ export function EventDialog({
         ) : null}
       </div>
 
-      {/* The footer is sticky on phones so Save is never below the fold (F26). */}
+      {/* The footer is sticky at every size so Save stays reachable above an open keyboard (F26). */}
       <div
-        className="flex justify-end gap-3 border-t border-line pt-3 max-md:sticky max-md:bottom-0 max-md:bg-surface"
+        className="sticky bottom-0 flex justify-end gap-3 border-t border-line bg-surface pt-3"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <Button variant="outline" type="button" onClick={cancel}>

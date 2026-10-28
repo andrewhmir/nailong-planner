@@ -104,3 +104,33 @@ test("Settings explains how to install the app", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Install app" })).toBeVisible();
   await expect(page.getByText(/Android \(Chrome\)/)).toBeVisible();
 });
+test("insets the phone top bar under a simulated status bar", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/");
+  await page.addStyleTag({
+    content: ":root { --safe-top: 59px; --safe-bottom: 34px; --safe-left: 0px; --safe-right: 0px; }",
+  });
+  const bar = page.getByTestId("phone-top-bar");
+  await expect(bar).toBeVisible();
+  const barBox = await bar.boundingBox();
+  const brandBox = await bar.getByText("Nailong Planner", { exact: true }).boundingBox();
+  const menuBox = await page.getByRole("button", { name: "Open collections" }).boundingBox();
+  expect(barBox).not.toBeNull();
+  expect(barBox!.height).toBeGreaterThanOrEqual(115);
+  expect(brandBox!.y).toBeGreaterThanOrEqual(barBox!.y + 59);
+  expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(barBox!.y + barBox!.height);
+});
+
+test("keeps the event dialog Save above a simulated keyboard", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/");
+  await page.keyboard.press("c");
+  const save = page.getByRole("button", { name: "Save" });
+  await expect(save).toBeVisible();
+  await page.evaluate(() =>
+    document.documentElement.style.setProperty("--app-vv-height", "420px"),
+  );
+  const box = await save.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.y + box!.height).toBeLessThanOrEqual(420);
+});

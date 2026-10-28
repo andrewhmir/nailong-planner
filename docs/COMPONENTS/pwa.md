@@ -84,7 +84,7 @@ reports `env()` as 0 and cannot emulate the notch or home indicator.
 
 **Public API** — `SW_VERSION = "v0.3.0-1"` (bump on every release); caches `pages-<SW_VERSION>` and `assets-<SW_VERSION>`; message handler for `{ type: "SKIP_WAITING" }` and `{ type: "CLEAR_OFFLINE" }`.
 
-**State & side effects** — `install` precaches `/offline.html` plus the three manifest icons; `activate` deletes every cache whose name does not carry the current version and claims clients; `fetch` caches successful navigation documents, clears the pages cache and skips caching on a `/login` navigation, falls back to the cached document then `/offline.html`, and runtime-fills static assets. `SKIP_WAITING` is only honoured when the update prompt posts it. No authenticated data ever enters a shared cache, and `/api/*` is never intercepted.
+**State & side effects** — `install` precaches `/offline.html` plus the three manifest icons; `activate` deletes every cache whose name does not carry the current version and claims clients; `fetch` caches successful navigation documents, clears the pages cache and skips caching on a `/login` navigation, falls back to the cached document then `/offline.html`, and runtime-fills static assets. `SKIP_WAITING` is only honoured when the update prompt posts it. `/api/*` is never intercepted, and the pages cache is device-local: it is cleared on sign-out and whenever a navigation (request or followed redirect) resolves to `/login`.
 
 **Depends on / Used by** — Registered by `components/pwa/ServiceWorkerRegistrar.tsx`; served with no-store and `Service-Worker-Allowed: /` by `next.config.ts`. Independent of the app bundle, so it survives a deploy until the new worker activates.
 
@@ -110,7 +110,7 @@ reports `env()` as 0 and cannot emulate the notch or home indicator.
 
 **Purpose** — The update protocol between the service worker and the UI: one event name, one one-shot reload helper, one notify helper.
 
-**Public API** — `UPDATE_EVENT = "nailong:sw-update-ready"`; `applyUpdate(registration: ServiceWorkerRegistration): void` (posts `SKIP_WAITING`, reloads exactly once on the next `controllerchange`); `notifyIfUpdateReady(registration): void` (dispatches the event when a waiting worker exists and a controller is already active).
+**Public API** — `UPDATE_EVENT = "nailong:sw-update-ready"`; `clearOfflinePagesCache(): void` (safe no-op without a service worker; posts `CLEAR_OFFLINE` through the controller); `applyUpdate(registration: ServiceWorkerRegistration): void` (posts `SKIP_WAITING`, reloads exactly once on the next `controllerchange`, and reloads when nothing is waiting rather than leaving a dead prompt); `notifyIfUpdateReady(registration): void` (dispatches the event when a waiting worker exists and a controller is already active).
 
 **State & side effects** — Module-level `reloading` guard so two tabs/events cannot double-reload; touches `navigator.serviceWorker` and `window.location` only when called. Never reloads automatically.
 
@@ -156,7 +156,8 @@ reports `env()` as 0 and cannot emulate the notch or home indicator.
 | `/_next/static/*`, `/icons/*`, fonts, images, styles, scripts | cache-first; runtime fill in `assets-<version>` |
 | `/api/*` | never intercepted, never cached |
 | Update | waiting worker -> `nailong:sw-update-ready` -> pill/toast -> user taps -> `SKIP_WAITING` -> one reload on `controllerchange` |
-| Sign-out | `CLEAR_OFFLINE` deletes the pages cache (Task 5 pairs it with the snapshot purge) |
+| Sign-out | `CLEAR_OFFLINE` deletes the pages cache, paired with the snapshot purge in `GlobalNavRail.signOut` |
+| Session expiry | a navigation whose request **or followed response** resolves to `/login` clears the pages cache and is not stored (Next's auth guard redirects) |
 ### lib/pwa/offlineSnapshot.ts
 
 **Purpose** — The per-user read-only snapshot: a small, allowlisted TanStack Query dehydration kept in `localStorage` so the installed app can show the last saved calendar/tasks view without a network.

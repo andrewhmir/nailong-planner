@@ -92,12 +92,14 @@ export function loadSnapshot(userId: string, now: number = Date.now()): OfflineS
       return null;
     }
     const parsed = JSON.parse(raw) as Partial<OfflineSnapshot> | null;
+    const state = parsed?.state as { queries?: unknown } | undefined;
     if (
       !parsed ||
       parsed.version !== OFFLINE_SNAPSHOT_VERSION ||
       parsed.appVersion !== APP_VERSION ||
       typeof parsed.savedAt !== "number" ||
-      !parsed.state ||
+      !state ||
+      !Array.isArray(state.queries) ||
       now - parsed.savedAt > SNAPSHOT_TTL_MS
     ) {
       return null;

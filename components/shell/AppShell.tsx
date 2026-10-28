@@ -117,8 +117,8 @@ export function AppShell({
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* Phone: the rail becomes a 56px dark top bar. The safe-pt wrapper lets
               the rail paint behind the status bar while the contents stay 56px. */}
-          <div className="shrink-0 bg-rail text-white md:hidden">
-            <div className="safe-pt safe-x flex h-14 items-center gap-2">
+          <div data-testid="phone-top-bar" className="safe-pt shrink-0 bg-rail text-white md:hidden">
+            <div className="safe-x flex h-14 items-center gap-2">
               <Brand name="Nailong Planner" showName />
               <UpdatePill />
               <Button

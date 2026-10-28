@@ -3,6 +3,7 @@
 import { hydrate, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import {
+  clearSnapshot,
   loadSnapshot,
   saveSnapshot,
   serializeSnapshot,
@@ -21,7 +22,12 @@ export function OfflineSnapshotWriter({ userId }: { userId: string }) {
   useEffect(() => {
     const snapshot = loadSnapshot(userId);
     if (snapshot) {
-      hydrate(queryClient, snapshot.state);
+      try {
+        hydrate(queryClient, snapshot.state);
+      } catch {
+        // A corrupt snapshot must never break the app; the refetch recovers.
+        clearSnapshot(userId);
+      }
     }
 
     let timer: ReturnType<typeof setTimeout> | null = null;
