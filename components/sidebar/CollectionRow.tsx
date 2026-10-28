@@ -117,7 +117,11 @@ export function CollectionRow({
   return (
     <li
       className={cn(
-        "group flex h-8 min-w-0 items-center gap-2 rounded-sm px-3 hover:bg-well",
+        // `relative` keeps the `sr-only` spans (absolute by design) contained in
+        // the row: without a positioned ancestor they resolve against the initial
+        // containing block and escape the sidebar's scroll clipping, which grows
+        // the document and makes the page scroll (viewport-fit.spec.ts).
+        "group relative flex h-8 min-w-0 items-center gap-2 rounded-sm px-3 hover:bg-well",
         isChild && "ml-5",
         isOnly && "bg-well",
       )}

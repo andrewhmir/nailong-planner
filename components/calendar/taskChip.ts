@@ -74,7 +74,6 @@ export function taskChip(task: TaskView): TaskChip | null {
     // resizes or opens the event editor.
     editable: false,
     durationEditable: false,
-    classNames: ["fc-task-chip"],
     extendedProps: {
       kind: "task",
       taskId: task.id,

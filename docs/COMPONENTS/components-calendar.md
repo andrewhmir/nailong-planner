@@ -107,7 +107,7 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 - A month renders six empty week rows or scrolls the page -> `height`/`expandRows`/`fixedWeekCount` changed, or the parent lost `min-h-0 flex-1` -> check this file's wrapper classes and `viewport-fit.spec.ts`.
 - Deep links and drag callbacks report an unknown id -> the `data-event-id` attribute or the `id::startKey` format changed -> `eventDidMount` and `parseOccurrenceFcId`.
 - Week view opens at midnight -> `scrollTime` prop is not `HH:MM:SS` -> check the shell's `scrollTime` initialiser.
-- A task chip shows the event aria-label or no `data-task-id` -> the `extendedProps.kind === "task"` branch in `eventDidMount` was removed -> this file.
+- A task chip shows the event aria-label, no `data-task-id`, or looks like a timed event -> the `extendedProps.kind === "task"` branch in `eventDidMount` was removed; it sets the attributes **and** adds the `fc-task-chip` class (FullCalendar 7 ignores `EventInput.classNames`) -> this file.
 - A drop lands one day off -> the cell date was built from a timestamp instead of `utcToLocalDate` -> the `dayCellDidMount` date line.
 - A drag of an event or a file is accepted by a day cell -> `preventDefault` was moved out of the `isTaskDrag` guard -> this file's `dragover`/`drop` listeners.
 
@@ -462,7 +462,7 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 
 **Public API** — `export const TASK_FC_ID_PREFIX = "task:"`; `export interface TaskChip extends EventInput` with `extendedProps: { kind: "task"; taskId; collectionId; collectionName; completed; accent; ariaLabel }`; `taskChip(task: TaskView): TaskChip | null`. A `task` with `dueOn === null` returns `null`.
 
-**State & side effects** — None; pure. `start` is the `dueOn` date string (never a timestamp) and `end` is `addDaysToDate(dueOn, 1)` because FullCalendar's all-day end is exclusive. `title` is the bare task title; `extendedProps.ariaLabel` is `Task: <title>`; `classNames: ["fc-task-chip"]`. `accent` is `shadeTokens(collection.hueFamily, collection.shadeIndex).mainHex` (the saturating bar colour `eventDidMount` paints); a legacy collection with a null/unknown hue family falls back to `shadeTokens("slate", PARENT_SHADE_INDEX)`. `completed` is `!isActiveStatus(status)`, so `open` and `in_progress` are both not-completed — false for every row the shell draws because `CalendarShell.visibleTasks` keeps only active rows (so the optimistic cache holding a just-finished row cannot paint a chip) — and the mapping never emits time-of-day data or an `event.taskId` (v0.3 time blocks are out of scope).
+**State & side effects** — None; pure. `start` is the `dueOn` date string (never a timestamp) and `end` is `addDaysToDate(dueOn, 1)` because FullCalendar's all-day end is exclusive. `title` is the bare task title; `extendedProps.ariaLabel` is `Task: <title>`. There is deliberately **no `classNames`**: FullCalendar 7 ignores `EventInput.classNames`, so the `fc-task-chip` class is applied by `CalendarView.eventDidMount` (next to the `data-task-id` hook) where the overrides CSS can key off it. `accent` is `shadeTokens(collection.hueFamily, collection.shadeIndex).mainHex` (the saturating bar colour `eventDidMount` paints); a legacy collection with a null/unknown hue family falls back to `shadeTokens("slate", PARENT_SHADE_INDEX)`. `completed` is `!isActiveStatus(status)`, so `open` and `in_progress` are both not-completed — false for every row the shell draws because `CalendarShell.visibleTasks` keeps only active rows (so the optimistic cache holding a just-finished row cannot paint a chip) — and the mapping never emits time-of-day data or an `event.taskId` (v0.3 time blocks are out of scope).
 
 **Depends on / Used by** — `@fullcalendar/react` (`EventInput`), `lib/color/palette` (`SHADE_COUNT`, `PARENT_SHADE_INDEX`, `isHueFamily`, `shadeTokens`, `ShadeTokens`), `lib/domain/tasks` (`isActiveStatus`), `lib/services/tasks` (`TaskView`), `lib/time/zone` (`addDaysToDate`). Used by `CalendarView`, which maps the shell's `visibleTasks` through it; unit-tested standalone.
 
@@ -472,6 +472,7 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 - A one-day chip spans two days -> the exclusive end was not `dueOn + 1 day` -> this file.
 - A chip is missing an accent or is grey -> the collection has no palette hue (Inbox/legacy) so the neutral fallback ran -> the collection row's `hueFamily`/`shadeIndex`.
 - A task appears on the grid although it has no due date -> the `dueOn === null` guard was dropped -> this file.
+- A chip looks exactly like a timed event, or `.fc-task-chip` matches nothing -> the class is not on the event input: FullCalendar 7 ignores `classNames`, so `CalendarView.eventDidMount` must add it in the `kind === "task"` branch -> `CalendarView.tsx` plus `fullcalendar-overrides.css`.
 - A timed deadline is missing from the grid, or a chip shows a clock time -> a chip is all-day on `dueOn` and ignores `dueTime`; the grid has no task time rendering (v0.3 blocks) -> this file, `CalendarShell.visibleTasks`.
 - An `in_progress` chip renders as completed (dimmed/struck) -> `completed` used a literal `status !== "open"` instead of `!isActiveStatus(status)` -> this file.
 
@@ -492,7 +493,7 @@ This area is the calendar page itself: the FullCalendar grid, the toolbar and da
 - Day-cell borders turn ink-coloured -> FC's `border-inline-*: 0 !important` shorthands reset the colour -> the `.fc-daygrid-day { border-color: … !important }` rule.
 - Events vanish entirely in a phone landscape -> expected under `max-height: 480px` -> Week/Day/List carry detail there.
 - Left colour bar missing while the fill is correct -> `borderColor` was reintroduced as an FC option (v7 ignores it) -> `eventDidMount` in `CalendarView`.
-- A task chip looks exactly like a timed event -> the `.fc-event.fc-task-chip` rule was dropped or lost the extra class specificity -> this file.
+- A task chip looks exactly like a timed event -> the `.fc-event.fc-task-chip` rule was dropped or lost the extra class specificity, **or** the class was never applied: FullCalendar 7 ignores `EventInput.classNames`, so `CalendarView.eventDidMount` adds `fc-task-chip` itself -> this file plus `CalendarView`.
 - A dragged task gives no day-cell feedback -> the `data-task-drop-active` rule was dropped, or `CalendarView` stopped setting the attribute -> this file plus `CalendarView`'s `dayCellDidMount`.
 
 **Tests** — `tests/e2e/calendar-style.spec.ts`, `tests/e2e/viewport-fit.spec.ts`, `tests/e2e/design-tokens.spec.ts`; task chips/drop affordance in `tests/e2e/tasks.spec.ts` (Lead-run).

@@ -44,7 +44,12 @@ describe("taskChip", () => {
     expect(chip!.start).toBe("2026-10-20");
     // FullCalendar's end is exclusive: a one-day task ends the next day.
     expect(chip!.end).toBe("2026-10-21");
-    expect(chip!.classNames).toContain("fc-task-chip");
+    // FullCalendar 7 ignores `classNames` on an event input, so the chip's DOM
+    // class is applied by `CalendarView.eventDidMount` (the same hook that sets
+    // `data-task-id`); this contract only carries the task identity.
+    expect(chip!.classNames).toBeUndefined();
+    expect(chip!.extendedProps.kind).toBe("task");
+    expect(chip!.extendedProps.taskId).toBe("t1");
   });
 
   it("puts a timed deadline on its whole due day, because the grid shows no time", () => {

@@ -179,6 +179,9 @@ export function CalendarView({
           // Task chips are calendar citizens but NOT events: they carry their
           // own data hook and label, and a click routes to the task editor.
           if (extended.kind === "task") {
+            // FullCalendar 7 ignores `EventInput.classNames`, so the chip class
+            // (and the overrides CSS keyed off it) is applied here instead.
+            info.el.classList.add("fc-task-chip");
             if (extended.taskId) {
               info.el.setAttribute("data-task-id", extended.taskId);
             }

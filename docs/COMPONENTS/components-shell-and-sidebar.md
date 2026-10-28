@@ -202,6 +202,7 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 - A badge flashes `0` or shows on a calendar -> `taskCount` was passed unconditionally instead of only for a writable list with a positive count -> the `taskCount`/`onQuickAdd` props in this file plus the `rootQuickAdd`/`childQuickAdd` gates in `CollectionTree`.
 - The quick-add control never appears on a phone -> the `[@media(pointer:coarse)]:opacity-100` class was dropped from the reveal set -> this file's quick-add button.
 - A view-only or partner-private list offers quick add -> `CollectionTree` skipped the `canWriteCollection` gate -> the folded-permission wiring in that file.
+- The page scrolls a few pixels (or a lot) although the shell is `h-dvh overflow-hidden` and the tree lives in its own scroll container -> a row's `sr-only` spans escaped: Tailwind's `sr-only` is `position: absolute`, and without a positioned ancestor they resolve against the initial containing block instead of being clipped by the tree's scroll box. The row `<li>` is `relative` for exactly this reason -> this file's row class plus `tests/e2e/viewport-fit.spec.ts`.
 
 **Tests** — `tests/e2e/sidebar.spec.ts`, `tests/e2e/only-this-calendar.spec.ts`.
 

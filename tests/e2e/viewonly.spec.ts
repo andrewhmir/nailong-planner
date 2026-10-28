@@ -18,7 +18,9 @@ test("the view-only event is still visible in the grid and the owner's calendars
   page,
 }) => {
   await expect(page.getByText("On-call shift")).toBeVisible();
-  await expect(page.getByRole("checkbox", { name: "Work" })).toBeVisible();
+  // Exact: a sidebar spec leaves a "Work list" collection behind in the shared
+  // E2E database, and a substring match would also hit its checkbox.
+  await expect(page.getByRole("checkbox", { name: "Work", exact: true })).toBeVisible();
 });
 
 test("a view-only calendar still lets the partner toggle its visibility", async ({ page }) => {
