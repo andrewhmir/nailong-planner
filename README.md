@@ -72,7 +72,7 @@ rather not have edited.
 ## Features
 
 - **A roadmap in the rail** — Calendar and Tasks are live; Today
-  (`Coming in v0.3.0`), Notes and Focus sit greyed in the nav rail. Each opens a
+  (`Coming in v0.4.0`), Notes and Focus sit greyed in the nav rail. Each opens a
   short "what's coming" panel naming its release and what it will do, so the
   roadmap is part of the app instead of a document nobody reads. Only the next
   version is ever promised; everything after it says `Planned`.
@@ -123,6 +123,12 @@ rather not have edited.
   rail and breadcrumb never scroll away and the month grid always uses the
   height that is left. Week/day hours and long agendas scroll inside the
   calendar panel only; the page itself never scrolls.
+- **Installable, readable offline (v0.3.0)** — add Nailong to the iPhone Home
+  Screen and it opens full-screen with no address bar, correctly inset under the
+  status bar and home indicator. With no network the installed app reopens the
+  last saved calendar and tasks read-only behind an amber offline bar; edits are
+  refused rather than queued, signing out purges the device, and a deploy offers
+  an "Update ready" reload.
 - **Nested calendars** — a root calendar owns a hue family; sub-calendars take
   the next unused shade of it (up to 7 children per root). The event dialog's
   calendar picker shows that nesting (expand a root to reveal its children, and
@@ -253,11 +259,11 @@ Historical design specs and plans (never edited):
 - Implementation plan: [`docs/superpowers/plans/2026-10-19-nailong-planner-v0.1.0.md`](docs/superpowers/plans/2026-10-19-nailong-planner-v0.1.0.md)
 - Operations, backups, recovery: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 
-## Out of scope for v0.2.1
+## Out of scope for v0.3.0
 
 Reminders and notifications · two-way Google Calendar sync and read-only ICS
 subscriptions / export feeds · a 30-day trash bin (undo is session-only) ·
-dark mode · PWA · notes, focus and the Today page · more than two users.
+dark mode · notes, focus and the Today page · more than two users.
 
 ## Contributing
 

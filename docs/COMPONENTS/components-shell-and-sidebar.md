@@ -23,6 +23,8 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 
 ### components/shell/AppShell.tsx
 
+**Safe areas (v0.3.0)** — the phone top bar is a `safe-pt` outer `bg-rail` block (56px of content plus the status-bar inset; `border-box` means the inset must live on the outer block) containing the 56px content row, so the rail paints behind the status bar without squeezing the brand or menu button; `main` uses `safe-x` plus bottom `calc(padding + var(--safe-bottom))`; the Collections sheet uses `safe-x-4`/`safe-pb-4` and `75dvh`. All insets are 0 under Playwright, so the shell and viewport specs keep their exact geometry. It also mounts `ServiceWorkerRegistrar` (production-only SW registration and update detection), `UpdatePill` (the phone top-bar update action), `OfflineIndicator` (the amber offline bar under the breadcrumb) and `InstallHint` (the one-time iPhone-Safari install strip); see `pwa.md`.
+
 **Purpose** — The application frame for every `app/(app)` route. It renders the nav rail, breadcrumb bar, one desktop sidebar, and a phone/tablet sheet that reuses the same collection tree, inside a `h-dvh overflow-hidden` viewport lock. The landmarks name the mixed tree, not just calendars: the tree is a `nav` labelled `Collection tree`, the sheet is a `dialog` labelled `Collections`, and its controls are `Open collections` / `Close collections`. Both mini-month copies are also task-row drop targets, which is how a row dragged on `/tasks` gets its due date moved to that day.
 
 **Public API** — `export interface MemberSummary { id: string; name: string; isSelf: boolean }`; `export function AppShell(props: Props)`. Props: `currentUser: { id; name }`, `members: MemberSummary[]`, `householdName: string`, `timezone: string`, `preferences: UserPreferences` (the server snapshot read by `app/(app)/layout.tsx`; `timeFormat` for the header and the initial data for `GlobalCapture` come from it), `children: React.ReactNode`. Route labels live in module scope: `ROUTE_CRUMBS`, built from `LIVE_ENTRIES` in `lib/roadmap.ts`, and `FALLBACK_CRUMB = "Calendar"`.
@@ -84,6 +86,8 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 
 ### components/shell/BreadcrumbBar.tsx
 
+**Safe areas (v0.3.0)** — the 72px header takes its horizontal padding from `safe-x` (0.75rem on phones, 1.5rem from `sm`, plus the landscape insets).
+
 **Purpose** — The 72 px header: household name, a chevron and the current route crumb, plus search (inline on wide screens, dialog below `lg`) and the person pills.
 
 **Public API** — `export function BreadcrumbBar(props: Props)`. Props: `householdName`, `crumb`, `visibility: VisibilityApi`, `me`, `partner`, `timezone`, `timeFormat: TimeFormat`, `onOpenSidebar()`. Renders `data-testid="breadcrumb-household"` and `data-testid="breadcrumb-crumb"`.
@@ -101,11 +105,15 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 
 ### components/shell/GlobalNavRail.tsx
 
+**Offline purge (v0.3.0)** — sign-out clears the QueryClient, calls `clearSnapshot(currentUser.id)` and posts `{ type: "CLEAR_OFFLINE" }` to the service worker before redirecting to `/login`, so no read-only household data survives a sign-out on the device.
+
+**Safe areas (v0.3.0)** — the rail is `w-[calc(54px+var(--safe-left))]` with `pl-[var(--safe-left)]`, so a landscape notch never covers the icons; the inset is 0 in a browser tab, so the 54px rail assertion still holds.
+
 **Purpose** — The dark 54 px rail on `md` and up: household logomark, the live destinations from the roadmap, greyed-out planned destinations, Settings pinned above the account menu, and an account menu that signs out.
 
 **Public API** — `export function GlobalNavRail(props: { householdName: string; currentUser: { id: string; name: string }; onComingSoon: (entry: RoadmapEntry, trigger: HTMLElement) => void })`. Internal: `RAIL_FOCUS`, `RAIL_ITEM`, `ICONS` (roadmap id → icon), `RailTooltip`, `RailEntry`.
 
-**State & side effects** — `usePathname()` picks the active tile (`/` for Calendar, otherwise `href` or `href/…`); `ROADMAP` supplies every entry, with Settings rendered in a `mt-auto` block so it sits just above the account menu. Planned entries are `<button aria-haspopup="dialog">` tiles at `text-white/40`, icon-only, that call `onComingSoon`; their accessible name carries the promise (`"Today — Coming in v0.3.0"`). There is deliberately no version text on the rail and no scroll container around the tiles. `signingOut` disables the trigger and the menu item. Sign out is a direct `fetch("/api/auth/sign-out", { method: "POST", … body: "{}" })` (not the Better Auth client); on `response.ok` it calls `router.replace("/login")` then `router.refresh()`; on failure it re-enables the button and toasts "Could not sign out. Try again.". The dropdown item calls `event.preventDefault()` to keep the menu mounted while pending. Tooltips appear on hover and `group-focus-within`, and are `aria-hidden`.
+**State & side effects** — `usePathname()` picks the active tile (`/` for Calendar, otherwise `href` or `href/…`); `ROADMAP` supplies every entry, with Settings rendered in a `mt-auto` block so it sits just above the account menu. Planned entries are `<button aria-haspopup="dialog">` tiles at `text-white/40`, icon-only, that call `onComingSoon`; their accessible name carries the promise (`"Today — Coming in v0.4.0"`). There is deliberately no version text on the rail and no scroll container around the tiles. `signingOut` disables the trigger and the menu item. Sign out is a direct `fetch("/api/auth/sign-out", { method: "POST", … body: "{}" })` (not the Better Auth client); on `response.ok` it calls `router.replace("/login")` then `router.refresh()`; on failure it re-enables the button and toasts "Could not sign out. Try again.". The dropdown item calls `event.preventDefault()` to keep the menu mounted while pending. Tooltips appear on hover and `group-focus-within`, and are `aria-hidden`.
 
 **Depends on / Used by** — `next/link`, `next/navigation`, `sonner`, `components/ui/dropdown-menu`, `components/ui/icons`, `lib/roadmap` (`ROADMAP`, `gateLabel`, `RoadmapEntry`, `RoadmapId`), `lib/utils`, `./Brand`. Rendered by `AppShell`; hidden below `md`, where `AppShell`'s top bar replaces it.
 
@@ -123,7 +131,7 @@ This area is the persistent application frame — the dark rail, breadcrumb bar,
 
 ### components/shell/ComingSoonDialog.tsx
 
-**Purpose** — The "what's coming" dialog a gated rail destination opens: the destination's name and one-line promise, the release it belongs to (`Coming in v0.3.0` or `Planned`) and the list of capabilities. It exists so a greyed icon leads somewhere honest instead of a dead route. Tasks is live since v0.2.0, so Today is the only gated destination with a version today.
+**Purpose** — The "what's coming" dialog a gated rail destination opens: the destination's name and one-line promise, the release it belongs to (`Coming in v0.4.0` or `Planned`) and the list of capabilities. It exists so a greyed icon leads somewhere honest instead of a dead route. Tasks is live since v0.2.0, so Today is the only gated destination with a version today.
 
 **Public API** — `export function ComingSoonDialog(props: { entry: RoadmapEntry | null; onClose: () => void })`. Controlled by `AppShell`; renders `DialogContent` with `sheet` (a phone bottom sheet) only while `entry` is set, and a `DialogClose` "Got it" button.
 

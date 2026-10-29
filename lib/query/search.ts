@@ -1,4 +1,5 @@
 "use client";
+import { requestJson } from "@/lib/query/request";
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { expandOccurrences } from "@/lib/recurrence/expand";
@@ -7,18 +8,7 @@ import { occurrenceDate } from "@/lib/time/format";
 
 const TWO_YEARS_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 
-interface ApiErrorBody {
-  error?: { message?: string };
-}
 
-async function requestJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-  const payload = (await response.json().catch(() => null)) as (T & ApiErrorBody) | null;
-  if (!response.ok) {
-    throw new Error(payload?.error?.message ?? "Something went wrong.");
-  }
-  return payload as T;
-}
 
 /** Same key prefix as the range queries, so event mutations invalidate search too. */
 export function useSearchEvents(query: string) {

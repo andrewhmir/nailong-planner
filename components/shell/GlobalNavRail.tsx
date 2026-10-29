@@ -1,5 +1,6 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
@@ -21,6 +22,8 @@ import {
   TodayIcon,
   type IconProps,
 } from "@/components/ui/icons";
+import { clearSnapshot } from "@/lib/pwa/offlineSnapshot";
+import { clearOfflinePagesCache } from "@/lib/pwa/swUpdate";
 import { ROADMAP, gateLabel, type RoadmapEntry, type RoadmapId } from "@/lib/roadmap";
 import { cn } from "@/lib/utils";
 import { Brand } from "./Brand";
@@ -108,6 +111,7 @@ function RailEntry({ entry, active, onComingSoon }: EntryProps) {
 export function GlobalNavRail({ householdName, currentUser, onComingSoon }: Props) {
   const pathname = usePathname();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [signingOut, setSigningOut] = useState(false);
 
   const settings = ROADMAP.find((entry) => entry.id === "settings");
@@ -145,6 +149,12 @@ export function GlobalNavRail({ householdName, currentUser, onComingSoon }: Prop
       return;
     }
 
+    // Never leave another person's read-only data (or cached pages) on this
+    // device after sign-out.
+    queryClient.clear();
+    clearSnapshot(currentUser.id);
+    clearOfflinePagesCache();
+
     router.replace("/login");
     router.refresh();
   }
@@ -152,7 +162,7 @@ export function GlobalNavRail({ householdName, currentUser, onComingSoon }: Prop
   return (
     <nav
       aria-label="Primary navigation"
-      className="hidden w-[54px] shrink-0 flex-col items-center bg-rail py-2 md:flex"
+      className="hidden w-[calc(54px_+_var(--safe-left))] shrink-0 flex-col items-center bg-rail py-2 pl-[var(--safe-left)] md:flex"
     >
       <Link
         href="/"

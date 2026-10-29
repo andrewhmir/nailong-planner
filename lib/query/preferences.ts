@@ -1,21 +1,11 @@
 "use client";
+import { requestJson } from "@/lib/query/request";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
 import type { UserPreferences } from "@/lib/services/preferences";
 
-interface ApiErrorBody {
-  error?: { message?: string };
-}
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  const payload = (await response.json().catch(() => null)) as (T & ApiErrorBody) | null;
-  if (!response.ok) {
-    throw new Error(payload?.error?.message ?? "Something went wrong.");
-  }
-  return payload as T;
-}
 
 export const preferencesKey = ["preferences"] as const;
 

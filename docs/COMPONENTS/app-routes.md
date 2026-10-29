@@ -31,7 +31,9 @@ Everything the Next.js App Router exposes: the root layout and the global styles
 
 ### app/globals.css
 
-**Purpose** — The styling source of truth. `@import "tailwindcss"` plus one `@theme` block; each custom property becomes a Tailwind utility (`bg-surface`, `text-ink`, `border-field`, `rounded-card`, `shadow-dialog`), so changing a token here changes every screen. It also declares the one custom utility, `task-row-cols`: the seven-track `/tasks` list template (checkbox 2.75rem · title `minmax(0, 1fr)` · list 7rem · status 6rem · priority 5.5rem · due date 9.5rem · menu 2.75rem) consumed by `components/tasks/TaskRow.tsx` as `md:task-row-cols` and by `TaskList.tsx`'s column header as `task-row-cols`, so the header and every row share one source for the columns. The two 44px end tracks exist so the coarse-pointer (touch) targets fit without a second layout.
+**Safe-area utilities (v0.3.0)** — `:root` publishes `--safe-top/right/bottom/left` from `env(safe-area-inset-*)` and `--app-pad-x` (0.75rem, 1.5rem from `sm`); `@layer utilities` adds `.safe-pt`, `.safe-pb`, `.safe-x`, `.safe-x-4`, `.safe-x-6`, `.safe-pb-4` and `.safe-pb-6`. `html` and `body` set `overscroll-behavior: none`. Every value is 0 in a normal browser tab, so the locked viewport contract and its measurements are unchanged.
+
+**Purpose** — The styling source of truth. `@import "tailwindcss"` plus one `@theme` block; each custom property becomes a Tailwind utility (`bg-surface`, `text-ink`, `border-field`, `rounded-card`, `shadow-dialog`), so changing a token here changes every screen. It also declares the `task-row-cols` utility and (v0.3.0) the `safe-pt`/`safe-pb`/`safe-x*` safe-area utilities: the seven-track `/tasks` list template (checkbox 2.75rem · title `minmax(0, 1fr)` · list 7rem · status 6rem · priority 5.5rem · due date 9.5rem · menu 2.75rem) consumed by `components/tasks/TaskRow.tsx` as `md:task-row-cols` and by `TaskList.tsx`'s column header as `task-row-cols`, so the header and every row share one source for the columns. The two 44px end tracks exist so the coarse-pointer (touch) targets fit without a second layout.
 
 **Tokens** — Surfaces: `--color-paper`/`--color-surface`/`--color-card` `#ffffff`, `--color-well` `#f2f4f4`, `--color-line` `#e8eaec`, `--color-line-strong` `#d7dade`, `--color-field` `#8d959f`, `--color-ink` `#273540`, `--color-ink-soft` `#586874`, `--color-ink-mute` `#6a7883`, `--color-placeholder` `#9ea6ad`.
 Brand ("two blues, never one"): `--color-accent` `#2b7abc`, `--color-accent-hover` `#0e68b3`, `--color-accent-press` `#0a5a9e`, `--color-link` `#0e68b3`. Callouts: `--color-info-soft` `#e0ebf5`, `--color-info-ink` `#334451`. Chrome: `--color-rail` `#334451`, `--color-rail-hover` `#273540`, `--color-rail-active-bg` `#ffffff`, `--color-scrim` `#334451bf`. Status triples: success `#03893d`/`#027634`/`#dceee4`, warning `#cf4a00`/`#b34000`/`#fce5d9`, danger `#e62429`/`#c71f23`/`#fce4e5`. Task workspace (v0.2.1, consumed only by `components/tasks/*`): violet selection `--color-violet` `#7b68ee`, `--color-violet-soft` `#efedfd`, `--color-violet-press` `#6a55e8`; status dots `--color-status-todo` `#87909e` with `--color-status-todo-soft` `#eceef0`, and `--color-status-progress` `#4a90e2` with `--color-status-progress-soft` `#e8f1fc`. **Violet pairing rule (WCAG AA):** a solid violet surface carries white text only on `--color-violet-press` (5.15:1; the plain `--color-violet` is 4.15:1 and fails for small text); violet *text* on white is `text-violet-press` (5.15:1), while on the soft tint it is `text-ink` (violet-press on violet-soft is 4.46:1); the plain token stays legal for selection fills, borders and focus rings (4.15:1 ≥ the 3:1 non-text bar); and the soft status tints are backgrounds only — their labels are `--color-ink`, with a coloured dot carrying the status.
@@ -60,13 +62,17 @@ Radii ("Canvas is nearly square"): `--radius-sm` 3px, `--radius-md` 4px, `--radi
 
 **Debugging** — Text renders in Helvetica -> the `className={lato.variable}` on `<html>` was dropped or the font files are missing -> check `localFont` and the class. A second `<html>`/`<body>` appears in the DOM -> a nested layout added one -> only this file may render them. Toasts or TanStack Query are missing on `/login` -> expected, `Providers` is mounted in `app/(app)/layout.tsx`, not here. The browser tab still shows a blank/Next icon -> the metadata images were deleted or the server predates them -> restart `npm run dev` (rebuild for `next start`) and confirm the `<link rel="icon">` and `<link rel="apple-touch-icon">` tags in the page head.
 
-**Tests** — `tests/e2e/design-tokens.spec.ts` (asserts Lato is self-hosted and applied).
+**Tests** — `tests/e2e/design-tokens.spec.ts` (asserts Lato is self-hosted and applied), `tests/e2e/pwa.spec.ts` (standalone head metadata).
+
+**PWA / standalone** — `export const viewport: Viewport` sets `width: "device-width"`, `initialScale: 1`, `viewportFit: "cover"` and `themeColor` = `PWA_THEME_COLOR` (`#334451`); `metadata.appleWebApp` sets `capable`, `title: "Nailong"` and `statusBarStyle: "black-translucent"`. `viewportFit: "cover"` is what makes `env(safe-area-inset-*)` non-zero in the installed app — without it every `.safe-*` inset in the shell is 0. Never add `maximumScale`/`userScalable`; iOS focus zoom is fixed by 16px inputs. The install manifest itself lives in `app/manifest.ts` (see [`pwa.md`](pwa.md)).
 
 ### app/providers.tsx
 
+**Offline snapshot (v0.3.0)** — `Providers` takes `currentUserId` (passed from `app/(app)/layout.tsx`), mounts `OfflineSnapshotWriter` inside the `QueryClientProvider`, and sets `mutations.networkMode: "always"` so an offline write fails and rolls back instead of pausing. Hydration/serialization stays in `lib/pwa/offlineSnapshot.ts` (see `pwa.md`).
+
 **Purpose** — The client boundary for the signed-in app: one `QueryClient` and the global sonner `Toaster`.
 
-**Public API** — `Providers({ children })`. The client is created once through a `useState` initializer, so a re-render never discards the cache.
+**Public API** — `Providers({ children, currentUserId })`. The client is created once through a `useState` initializer, so a re-render never discards the cache; `currentUserId` keys the mounted `OfflineSnapshotWriter`, and `mutations.networkMode: "always"` makes an offline write fail (never queue).
 
 **State & side effects** — Query defaults: `staleTime: 10_000`, `refetchOnWindowFocus: false`, `retry: 1`. Renders `<Toaster {...TOASTER_PROPS} />` after `children`, so any toast raised by a descendant mounts here.
 
@@ -77,6 +83,8 @@ Radii ("Canvas is nearly square"): `--radius-sm` 3px, `--radius-md` 4px, `--radi
 **Tests** — No direct test coverage; the toaster is exercised indirectly by `tests/e2e/undo.spec.ts`.
 
 ### app/(app)/layout.tsx
+
+**Offline snapshot (v0.3.0)** — passes `currentUserId={session.user.id}` to `Providers`; that id keys the per-user offline snapshot and must not be replaced by a household-level identity.
 
 **Purpose** — The authenticated shell. Resolves the session, the membership row, the household and the member list, then renders `AppShell` inside `Providers`; anything unresolved redirects to `/login`.
 
@@ -151,6 +159,8 @@ Radii ("Canvas is nearly square"): `--radius-sm` 3px, `--radius-md` 4px, `--radi
 **Tests** — `tests/e2e/import.spec.ts`.
 
 ### app/login/page.tsx
+
+**Safe areas (v0.3.0)** — `main` is `min-h-dvh`, takes `safe-x-4` and pads top/bottom by `calc(3rem + env(safe-area-inset-*))`, so the one route outside the app shell never overflows an installed phone or hides the form under the notch/home indicator.
 
 **Purpose** — The only public page. Sends an already-signed-in visitor to `/`, otherwise renders the brand tile and `LoginForm` on a full-height rail-colored background.
 

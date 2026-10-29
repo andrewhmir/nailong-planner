@@ -84,6 +84,61 @@
   --shadow-flash: 0 1px 8px rgba(0, 0, 0, 0.25);
 }
 
+/* Safe-area insets: non-zero only when the viewport meta sets
+   `viewport-fit=cover` (the installed/full-screen app). Each painted edge of the
+   shell consumes these; in a normal browser tab every value is 0, so the locked
+   viewport contract and every existing layout measurement are unchanged. */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --app-pad-x: 0.75rem;
+}
+
+@media (min-width: 40rem) {
+  :root {
+    --app-pad-x: 1.5rem;
+  }
+}
+
+@layer utilities {
+  .safe-pt {
+    padding-top: var(--safe-top);
+  }
+
+  .safe-pb {
+    padding-bottom: var(--safe-bottom);
+  }
+
+  /* `main` and the breadcrumb bar: the current horizontal padding plus the
+     landscape notch inset. */
+  .safe-x {
+    padding-left: max(var(--app-pad-x), var(--safe-left));
+    padding-right: max(var(--app-pad-x), var(--safe-right));
+  }
+
+  /* Sheets and the login card keep their 1rem/1.5rem padding and grow by the
+     inset instead of replacing it. */
+  .safe-x-4 {
+    padding-left: max(1rem, var(--safe-left));
+    padding-right: max(1rem, var(--safe-right));
+  }
+
+  .safe-x-6 {
+    padding-left: max(1.5rem, var(--safe-left));
+    padding-right: max(1.5rem, var(--safe-right));
+  }
+
+  .safe-pb-4 {
+    padding-bottom: calc(1rem + var(--safe-bottom));
+  }
+
+  .safe-pb-6 {
+    padding-bottom: calc(1.5rem + var(--safe-bottom));
+  }
+}
+
 @layer base {
   html,
   body {
@@ -92,12 +147,14 @@
 
   html {
     font-size: 100%;
+    /* Keep the installed app from rubber-banding or pull-to-refreshing. */
+    overscroll-behavior: none;
   }
 
   body {
     /* The app shell pins itself to the viewport, so the page must never chain a
        scroll (or an iOS rubber-band) past that frame. */
-    overscroll-behavior-y: none;
+    overscroll-behavior: none;
     background: var(--color-paper);
     color: var(--color-ink);
     font-family: var(--font-sans);

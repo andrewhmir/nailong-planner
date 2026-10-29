@@ -43,7 +43,23 @@ This area covers the two settings components (the page-level form and the per-us
 
 **Tests** — `tests/e2e/preferences.spec.ts` (all five controls), `tests/e2e/view-preference.spec.ts` (default view reaches the calendar), `tests/integration/preferences-api.test.ts` (handler contract).
 
+### components/settings/InstallAppCard.tsx
+
+**Purpose** — Settings card that explains Home Screen installation and shows an "Installed" state once the app runs standalone.
+
+**Public API** — `InstallAppCard()` — no props.
+
+**State & side effects** — `useSyncExternalStore` watches `(display-mode: standalone)` with a `null` server snapshot; renders no body until the client state is known. Read-only; no mutations, no storage.
+
+**Depends on / Used by** — `lib/pwa/device.ts` (`detectStandalone`). Rendered by `components/settings/SettingsForm.tsx` after the Google Calendar import card.
+
+**Debugging** — Wrong state on an installed phone -> the media query/navigator.standalone read regressed -> `lib/pwa/device.ts`; card missing from Settings -> the `SettingsForm` mount was dropped.
+
+**Tests** — `tests/e2e/pwa.spec.ts` (heading + platform steps).
+
 ### components/settings/SettingsForm.tsx
+
+**Install card (v0.3.0)** — renders `<InstallAppCard />` between the Google Calendar import section and the Account section; it deliberately has no sub-nav entry, like the import card.
 
 **Purpose** — The client shell of `/settings`: a sticky section sub-nav plus the Profile, Household, Calendar, Google Calendar import and Account cards. Profile and Household save explicitly per card; Calendar saves per control through `CalendarPreferencesCard`; the import card links to `/settings/import`; Account owns password change and two-factor setup.
 
@@ -133,6 +149,8 @@ The three `/api/auth/*` calls are served by the Better Auth catch-all `app/api/a
 
 ### components/ui/dialog.tsx
 
+**Keyboard and safe areas (v0.3.0)** — the overlay is the layout viewport, but the card lives in a `dialog-viewport` box sized to the *visual* viewport (`--app-vv-height`/`--app-vv-top`, updated from `window.visualViewport`, `100dvh`/0 fallback), so on iOS an open keyboard shrinks the card and its sticky footer instead of hiding Save. The card caps at `max-h-full` of that box and pads with `safe-x-6`/`safe-pb-6`; the `sheet` variant self-aligns to the box bottom on phones.
+
 **Purpose** — Radix dialog wrapper that owns the portal, scrim, positioning and accessible title. Callers supply only content; `DialogContent` must sit inside a `Dialog` root.
 
 **Public API** — Re-exports `Dialog`, `DialogTrigger`, `DialogClose` from `@radix-ui/react-dialog`; `export function DialogContent({ title, description, children, sheet = false })` with `title: string` (required, always rendered as the Radix title), `description?: string`, `children: React.ReactNode`, `sheet?: boolean` (default `false`, switches to a bottom sheet below `md`).
@@ -191,6 +209,8 @@ The three `/api/auth/*` calls are served by the Better Auth catch-all `app/api/a
 **Tests** — `tests/unit/icons.test.ts` (stroke/fill, default 20px, `aria-hidden`, `title` handling, and `ListIcon`'s shared contract).
 
 ### components/ui/toast.tsx
+
+**Safe areas (v0.3.0)** — the toaster offset is `calc(12px + env(safe-area-inset-top))`, so a toast never hides under the installed app status bar.
 
 **Purpose** — Exports the single sonner configuration object that gives toasts the Canvas flash metrics. It is a props module, not a component: the wrapper is `<Toaster {...TOASTER_PROPS} />` mounted once in `app/providers.tsx`, and call sites import `toast` from `sonner` directly.
 

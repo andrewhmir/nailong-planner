@@ -78,7 +78,7 @@ test.describe("desktop screenshots", () => {
     await signIn(page, ANDREW, fixtures.password);
     await page
       .getByRole("navigation", { name: "Primary navigation" })
-      .getByRole("button", { name: "Today — Coming in v0.3.0" })
+      .getByRole("button", { name: "Today — Coming in v0.4.0" })
       .click();
     await expect(page.getByRole("dialog", { name: "Today" })).toBeVisible();
     await settle(page);

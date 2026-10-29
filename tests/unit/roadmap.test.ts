@@ -27,7 +27,7 @@ describe("roadmap", () => {
     const promised = ROADMAP.filter((entry) => entry.status === "planned" && entry.version);
     expect(promised).toHaveLength(1);
     expect(promised[0]?.id).toBe("today");
-    expect(promised[0]?.version).toBe("v0.3.0");
+    expect(promised[0]?.version).toBe("v0.4.0");
   });
 
   it("keeps Tasks live, with no version and no capabilities", () => {
@@ -47,7 +47,7 @@ describe("roadmap", () => {
       );
     }
     expect(Object.fromEntries(planned.map((entry) => [entry.id, gateLabel(entry)]))).toEqual({
-      today: "Coming in v0.3.0",
+      today: "Coming in v0.4.0",
       notes: "Planned",
       focus: "Planned",
     });

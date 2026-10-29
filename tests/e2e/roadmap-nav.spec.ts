@@ -5,7 +5,7 @@ const fixtures = loadFixtures();
 
 /** Every still-gated destination and the promise the rail makes for it. */
 const GATED = [
-  { label: "Today", gate: "Coming in v0.3.0" },
+  { label: "Today", gate: "Coming in v0.4.0" },
   { label: "Notes", gate: "Planned" },
   { label: "Focus", gate: "Planned" },
 ] as const;
@@ -42,12 +42,12 @@ test("the rail does not scroll", async ({ page }) => {
 
 test("a gated destination explains itself and returns focus", async ({ page }) => {
   const rail = page.getByRole("navigation", { name: "Primary navigation" });
-  const trigger = rail.getByRole("button", { name: "Today — Coming in v0.3.0" });
+  const trigger = rail.getByRole("button", { name: "Today — Coming in v0.4.0" });
 
   await trigger.click();
   const dialog = page.getByRole("dialog", { name: "Today" });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText("Coming in v0.3.0")).toBeVisible();
+  await expect(dialog.getByText("Coming in v0.4.0")).toBeVisible();
   await expect(dialog.getByText("Your agenda at a glance")).toBeVisible();
 
   await page.keyboard.press("Escape");
@@ -62,7 +62,7 @@ test("phone drawer lists the shipped and gated destinations", async ({ page }) =
   const drawer = page.getByRole("dialog", { name: "Collections" });
   // Tasks is live, so the drawer renders it as a route instead of a gate.
   await expect(drawer.getByRole("link", { name: "Tasks" })).toHaveAttribute("href", "/tasks");
-  await expect(drawer.getByRole("button", { name: "Today — Coming in v0.3.0" })).toBeVisible();
+  await expect(drawer.getByRole("button", { name: "Today — Coming in v0.4.0" })).toBeVisible();
   await expect(drawer.getByRole("button", { name: "Notes — Planned" })).toBeVisible();
 
   await drawer.getByRole("button", { name: "Focus — Planned" }).click();

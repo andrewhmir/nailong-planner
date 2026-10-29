@@ -1,21 +1,11 @@
 "use client";
+import { assertOnline, requestJson, type ApiErrorBody } from "@/lib/query/request";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CollectionKind, CollectionRow, CollectionVisibility } from "@/lib/db/schema";
 import type { CollectionNode } from "@/lib/services/collections";
 
-interface ApiErrorBody {
-  error?: { message?: string };
-}
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  const payload = (await response.json().catch(() => null)) as (T & ApiErrorBody) | null;
-  if (!response.ok) {
-    throw new Error(payload?.error?.message ?? "Something went wrong.");
-  }
-  return payload as T;
-}
 
 export interface CollectionInput {
   name: string;
@@ -70,6 +60,7 @@ export function useDeleteCollection() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
+      assertOnline();
       const response = await fetch(`/api/collections/${id}`, { method: "DELETE" });
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as ApiErrorBody | null;

@@ -341,7 +341,7 @@ export function TimeField({
                   }
                 }
               }}
-              className="mt-1 h-8 w-full rounded-sm border border-field bg-surface px-2 text-sm text-ink transition-colors duration-150 hover:border-ink-soft focus:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              className="mt-1 h-8 w-full rounded-sm border border-field bg-surface px-2 text-base text-ink transition-colors duration-150 hover:border-ink-soft focus:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             />
             {error ? (
               <p id={`${id}-typed-error`} role="alert" className="mt-1 text-xs text-danger-ink">

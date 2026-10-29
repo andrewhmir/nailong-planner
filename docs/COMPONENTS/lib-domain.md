@@ -32,12 +32,12 @@ shifts by a day, or an API error carries the wrong code or status.
 - `type RoadmapStatus = "live" | "planned"`; `type RoadmapId = "calendar" | "tasks" | "today" | "notes" | "focus" | "settings"`.
 - `interface RoadmapEntry { id: RoadmapId; label: string; href: string; status: RoadmapStatus; version?: string; blurb: string; capabilities: string[] }`.
 - `ROADMAP: readonly RoadmapEntry[]` — rail order; `settings` is last because the rail pins it above the account menu.
-- `gateLabel(entry: Pick<RoadmapEntry, "version">): string` — `"Coming in v0.3.0"` when `version` is set, else `"Planned"`.
+- `gateLabel(entry: Pick<RoadmapEntry, "version">): string` — `"Coming in v0.4.0"` when `version` is set, else `"Planned"`.
 - `LIVE_ENTRIES: readonly RoadmapEntry[]` — entries with `status: "live"`; feeds `ROUTE_CRUMBS`.
 
 **State & side effects** — None: a module-level constant array and pure helpers. No I/O, no hooks, no storage.
 
-**Version policy** — Only the next release may be promised: exactly one planned entry carries `version` (Today, `v0.3.0`, as of v0.2.0), and `tests/unit/roadmap.test.ts` fails if a second appears. Everything later reads `Planned`. Flipping `status` to `"live"` is the whole ceremony — the rail turns the grey button into a `Link`, `ROUTE_CRUMBS` picks the route up, and `gateLabel` stops rendering. Tasks made that flip in v0.2.0; the live set is Calendar (`/`), Tasks (`/tasks`) and Settings (`/settings`).
+**Version policy** — Only the next release may be promised: exactly one planned entry carries `version` (Today, `v0.4.0`, as of v0.3.0), and `tests/unit/roadmap.test.ts` fails if a second appears. Everything later reads `Planned`. Flipping `status` to `"live"` is the whole ceremony — the rail turns the grey button into a `Link`, `ROUTE_CRUMBS` picks the route up, and `gateLabel` stops rendering. Tasks made that flip in v0.2.0; the live set is Calendar (`/`), Tasks (`/tasks`) and Settings (`/settings`).
 
 **Depends on / Used by** — No imports. Consumers: `components/shell/GlobalNavRail.tsx` (tiles and tooltips), `components/shell/AppShell.tsx` (`ROUTE_CRUMBS`, phone drawer), `components/shell/ComingSoonDialog.tsx` (`gateLabel`), `tests/unit/roadmap.test.ts`.
 

@@ -6,6 +6,45 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet — the next promised release is v0.4.0 (Today).
+
+## [0.3.0] - 2026-10-28
+
+### Added — installable app and offline reading
+
+- **Installs to the Home Screen** — `app/manifest.ts` plus 192/512/maskable
+  icons, a `standalone` display mode, `viewport-fit=cover` and the apple
+  metadata. On an iPhone, Share -> Add to Home Screen opens the app full-screen
+  with no address bar, inset under the status bar, Dynamic Island and home
+  indicator in portrait and landscape.
+- **Read-only offline** — a production-only service worker caches the shell and
+  the last navigation, and a per-user allowlisted TanStack Query snapshot keeps
+  the last saved events, tasks, collections and preferences for 7 days. With no
+  network the installed app reopens the last saved view behind an amber
+  `Offline · showing your last saved view` bar; writes are refused with "You're
+  offline — changes can't be saved." and are never queued. Signing out clears the
+  snapshot and the cached pages.
+- **Install and update guidance** — a one-time iPhone-Safari install strip plus a
+  Settings "Install app" card (iPhone/Android/desktop steps and the installed
+  state), and an "Update ready" reload after a deploy. Installing needs the HTTPS
+  origin in `BETTER_AUTH_URL`.
+- **Safe areas and iOS input fixes** — safe-area utilities inset the phone top
+  bar, rail, breadcrumb, main, sheets, dialogs, toasts and login page; the shell
+  locks overscroll; and the remaining 14px inputs (search, task capture, typed
+  time) are 16px so iOS does not zoom the installed app.
+
+### Changed
+
+- **Roadmap** — Today moves from "Coming in v0.3.0" to v0.4.0; v0.3.0 is this
+  installable/offline release.
+- **Query layer** — the five identical `requestJson` copies are one helper in
+  `lib/query/request.ts`, and mutations use `networkMode: "always"` so an offline
+  write fails immediately instead of pausing.
+
+No database migration and no API change.
+
+## [0.2.1] - 2026-10-28
+
 ### Changed
 
 - **File a task under a list or a calendar in place** — the List cell on every

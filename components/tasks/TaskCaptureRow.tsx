@@ -114,7 +114,7 @@ export function TaskCaptureRow({
             capture(event.shiftKey);
           }}
           className={cn(
-            "h-7 min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-placeholder disabled:opacity-60",
+            "h-7 min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-placeholder disabled:opacity-60",
             "[@media(pointer:coarse)]:min-h-11",
           )}
         />

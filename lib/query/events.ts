@@ -1,4 +1,5 @@
 "use client";
+import { assertOnline, requestJson, type ApiErrorBody } from "@/lib/query/request";
 
 import { useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { shadeTokens } from "@/lib/color/palette";
@@ -48,20 +49,9 @@ export interface DeleteEventResult {
   segmentId?: string;
 }
 
-interface ApiErrorBody {
-  error?: { message?: string };
-}
 
 type EventSnapshots = Array<[QueryKey, EventView[] | undefined]>;
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  const payload = (await response.json().catch(() => null)) as (T & ApiErrorBody) | null;
-  if (!response.ok) {
-    throw new Error(payload?.error?.message ?? "Something went wrong.");
-  }
-  return payload as T;
-}
 
 export function useEvents(range: EventRange | null) {
   return useQuery({
@@ -215,6 +205,7 @@ export function useDeleteEvent() {
       scope?: RecurringScope;
       occurrenceStart?: string;
     }): Promise<DeleteEventResult> => {
+      assertOnline();
       const response = await fetch(`/api/events/${id}`, {
         method: "DELETE",
         headers: { "content-type": "application/json" },
