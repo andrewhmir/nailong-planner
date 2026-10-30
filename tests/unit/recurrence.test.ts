@@ -260,3 +260,75 @@ describe("expandOccurrences in a DST timezone", () => {
     );
   });
 });
+
+describe("all-day occurrences that overlap the window", () => {
+  const NEW_YORK = "America/New_York";
+  const atNewYork = (wall: string) => localWallTimeToUtc(wall, NEW_YORK);
+
+  function block(startDate: string, endDate: string): EventRow {
+    return timedRule({
+      allDay: 1,
+      startAt: null,
+      endAt: null,
+      startDate,
+      endDate,
+      rrule: "FREQ=WEEKLY;BYDAY=FR",
+    });
+  }
+
+  it("keeps a 2-day block when the visible range starts on its last day", () => {
+    const occurrences = expandOccurrences(
+      block("2026-10-02", "2026-10-03"),
+      { from: atNewYork("2026-10-03T00:00"), to: atNewYork("2026-10-04T00:00") },
+      NEW_YORK,
+    );
+    expect(occurrences.map((occurrence) => occurrence.startDate)).toEqual(["2026-10-02"]);
+  });
+
+  it("keeps a 3-day block when the visible range starts on its last day", () => {
+    const occurrences = expandOccurrences(
+      block("2026-10-02", "2026-10-04"),
+      { from: at("2026-11-08T00:00"), to: at("2026-11-09T00:00") },
+      TAIPEI,
+    );
+    expect(occurrences.map((occurrence) => occurrence.startDate)).toEqual(["2026-11-06"]);
+  });
+
+  it("keeps a 3-day block when the visible range starts on its middle day", () => {
+    const occurrences = expandOccurrences(
+      block("2026-11-06", "2026-11-08"),
+      { from: atNewYork("2026-11-07T00:00"), to: atNewYork("2026-11-08T00:00") },
+      NEW_YORK,
+    );
+    expect(occurrences.map((occurrence) => occurrence.startDate)).toEqual(["2026-11-06"]);
+  });
+
+  it("does not emit a block that ends before the visible range", () => {
+    const occurrences = expandOccurrences(
+      block("2026-10-02", "2026-10-04"),
+      { from: at("2026-11-09T00:00"), to: at("2026-11-10T00:00") },
+      TAIPEI,
+    );
+    expect(occurrences).toEqual([]);
+  });
+});
+
+describe("a series stored with sub-minute seconds", () => {
+  it("keeps its first occurrence and carries the seconds to the later ones", () => {
+    const start = at("2026-10-06T09:00") + 30_000;
+    const series = timedRule({
+      startAt: start,
+      endAt: start + 60 * 60 * 1000,
+      rrule: "FREQ=WEEKLY;BYDAY=TU",
+    });
+
+    const occurrences = expandOccurrences(series, range("2026-10-01T00:00", "2026-11-01T00:00"), TAIPEI);
+
+    expect(occurrences.map((occurrence) => occurrence.startAt)).toEqual([
+      at("2026-10-06T09:00") + 30_000,
+      at("2026-10-13T09:00") + 30_000,
+      at("2026-10-20T09:00") + 30_000,
+      at("2026-10-27T09:00") + 30_000,
+    ]);
+  });
+});

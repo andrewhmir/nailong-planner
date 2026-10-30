@@ -385,11 +385,12 @@ Pinned choices that must not drift casually: `@fullcalendar/react` and `@fullcal
 
 **Invocation / wiring** — Read by `npm run lint` (`eslint .`), which is a `verify` step in CI.
 
-**Behaviour & side effects** — Spreads `eslint-config-next/core-web-vitals` and adds one config object containing only `ignores`: `.next/**`, `.next-e2e/**`, `node_modules/**`, `out/**`, `coverage/**`, `playwright-report/**`, `test-results/**`, `.playwright/**`, `.superpowers/**`, `next-env.d.ts`. Read-only; writes nothing.
+**Behaviour & side effects** — Spreads `eslint-config-next/core-web-vitals` and adds one config object containing only `ignores`: `.next/**`, `.next-e2e/**`, `node_modules/**`, `out/**`, `coverage/**`, `playwright-report/**`, `test-results/**`, `.playwright/**`, `.superpowers/**`, `ops/**`, `.uat/**`, `.worktrees/**`, `next-env.d.ts`. Read-only; writes nothing.
 
 **Gotchas** —
 - An object with only `ignores` is a global ignore in flat config; adding any other key to it would silently turn those into per-config ignores.
 - `.playwright/` and `test-results/` are ignored, so a trace or a seeded fixture never fails lint.
+- `.worktrees/**` is ignored for the same reason `.dockerignore` excludes it: each git worktree carries its own full `node_modules`, and linting them makes `npm run lint` crawl tens of thousands of files until it is killed. CI builds from a fresh clone with no worktrees, so this only bites a developer machine.
 - The config is `.mjs` and outside `tsconfig.json`'s checked extensions, so a typo there only shows up at runtime.
 
 **Tests / verified by** — `npm run lint`, run in CI's `verify` job.

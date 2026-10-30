@@ -119,3 +119,29 @@ export function isCollectionVisible(
   }
   return state.collections[collection.id] ?? true;
 }
+
+/** The loaded tree shape "does this id still exist?" needs (two levels max). */
+export interface CollectionTreeIds {
+  id: string;
+  children: readonly { id: string }[];
+}
+
+/**
+ * Whether a freshly loaded tree still contains `id`, as a root or a direct
+ * child. `only` ("display only this calendar") is persisted, so after the row it
+ * names is deleted — here, in another tab, or by the partner deleting a shared
+ * calendar — the id dangles: `isCollectionVisible` then draws nothing and no
+ * "Show all" banner can render, leaving `/` and `/tasks` silently empty. Callers
+ * clear a dangling `only` when this returns false.
+ */
+export function treeContainsCollectionId(
+  roots: readonly CollectionTreeIds[],
+  id: string | null,
+): boolean {
+  if (id === null) {
+    return true;
+  }
+  return roots.some(
+    (root) => root.id === id || root.children.some((child) => child.id === id),
+  );
+}

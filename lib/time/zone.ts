@@ -100,6 +100,50 @@ export function localWallTimeToUtc(wallTime: string, timeZone: string): number {
   return guess;
 }
 
+/** Adds signed minutes to a `YYYY-MM-DDTHH:MM` wall stamp; malformed input is returned as-is. */
+function addMinutesToWallTime(wallTime: string, minutes: number): string {
+  const match = WALL_TIME_PATTERN.exec(wallTime);
+  if (!match) {
+    return wallTime;
+  }
+  const [, year, month, day, hour, minute] = match;
+  const shifted = new Date(
+    Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute) + minutes),
+  );
+  return (
+    `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}` +
+    `T${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}`
+  );
+}
+
+/**
+ * Like `localWallTimeToUtc`, but resolves a wall time that does not exist (a DST
+ * spring-forward gap) by shifting it forward until it does: RFC 5545 §3.3.5
+ * reads a non-existent 02:30 with the offset that applied before the gap, so it
+ * lands at 03:30. Form input must keep `localWallTimeToUtc` so the user is told
+ * to pick another time; recurrence expansion and the move/shift maths use this
+ * one so a series operation cannot fail because one occurrence crosses the
+ * transition.
+ */
+export function localWallTimeToUtcForward(wallTime: string, timeZone: string): number {
+  if (!WALL_TIME_PATTERN.test(wallTime)) {
+    return localWallTimeToUtc(wallTime, timeZone);
+  }
+  let failure: AppError | null = null;
+  for (let shift = 0; shift < 3; shift += 1) {
+    const candidate = shift === 0 ? wallTime : addMinutesToWallTime(wallTime, shift * 60);
+    try {
+      return localWallTimeToUtc(candidate, timeZone);
+    } catch (error) {
+      if (!(error instanceof AppError)) {
+        throw error;
+      }
+      failure = error;
+    }
+  }
+  throw failure ?? new AppError("VALIDATION", "That time does not exist in this timezone.", 400);
+}
+
 /** Validates an inclusive all-day range (`endDate` may equal `startDate`). */
 export function toAllDayRange(
   startDate: string,

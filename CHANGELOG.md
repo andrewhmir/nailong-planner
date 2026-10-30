@@ -73,6 +73,20 @@ No database migration and no API change.
 
 ### Fixed
 
+- **A re-import can no longer touch a partner's private event** — import dedupe keys are household-wide, so a UID already imported into a private or view-only calendar used to be rewritten and moved by the other member's commit. An existing row whose current collection the importer cannot write is now skipped, counted `unchanged`, and reported in one warning; the preview applies the same rule so it never promises an update the commit will not perform.
+- **A malformed import mapping answers 400 instead of 500** — a mapping entry that is not `{mode:"new"}` or `{mode:"existing", collectionId}` is rejected as `VALIDATION` with `fields.mapping.<name>`, instead of throwing a `TypeError` through the transaction.
+- **"All events" and "This and following" respect view-only calendars** — the series-scope writes no longer shift or relink exceptions that live in a collection the viewer cannot write; those children are left untouched and excluded from undo data. Scope writes also validate a supplied repeat rule, and linking an occurrence requires write access to its series.
+- **Search opens the next occurrence, not yesterday's** — a recurring result used the first occurrence of the backwards-padded expansion window; it now finds the first occurrence that starts at or after now (all-day rows compare against the household-local date).
+- **Multi-day all-day series no longer vanish at a view edge** — the all-day expansion pads backwards by the block's duration, so a block that starts before the visible range still renders.
+- **Moving a series onto a DST spring-forward day no longer fails** — the shift maths applies the RFC 5545 "shift forward" rule for wall times inside the gap (02:30 becomes 03:30) instead of throwing "That time does not exist in this timezone".
+- **A recurring series stored with sub-minute seconds keeps its first occurrence** instead of starting one interval late.
+- **The mini month stays keyboard-reachable after changing month** — the roving tab stop is derived from the shown month, so Tab and the arrow keys work after the prev/next buttons.
+- **Deleting the calendar you isolated clears the isolation** — "Display only this calendar" is reconciled with the loaded tree, so the grid and `/tasks` no longer stay silently empty with the "Show all" banner gone.
+- **Calendar settings shows a partner owner, and renaming such a calendar works again** — the owner select renders the partner's name (disabled) instead of blank, and an unchanged owner is no longer echoed (the server rejects an `ownerId` on a partner-owned root, which made a plain rename a 403).
+- **The phone collections sheet behaves like a dialog** — it takes focus on open, closes on Escape, sets `aria-modal`, and returns focus to the opening control.
+- **A failed preference save can no longer rewind a newer setting** — rollback is sequence-gated per field, so an older PATCH that fails after a newer success only resumes fields no later request touched.
+- **Holding `z`/`Ctrl+Z` undoes once** — the undo hotkey ignores key repeat instead of draining the 20-action stack.
+
 - **The person pills now filter tasks, not just calendars** — untoggling a
   person (Ours / you / your partner), an individual collection, or entering
   "display only this calendar" now hides their lists and tasks in the `/tasks`

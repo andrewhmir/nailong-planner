@@ -17,6 +17,9 @@ const config = [
       "ops/**",
       // Local agent/UAT scratch (gitignored) that may contain build copies.
       ".uat/**",
+      // Local git worktrees (gitignored) carry their own full `node_modules`;
+      // linting them took minutes and never converged on a developer machine.
+      ".worktrees/**",
       "next-env.d.ts",
     ],
   },

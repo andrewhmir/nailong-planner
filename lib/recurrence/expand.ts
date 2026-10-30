@@ -1,7 +1,12 @@
 import { rrulestr } from "rrule";
 import type { EventRow } from "@/lib/db/schema";
-import { AppError } from "@/lib/errors";
-import { addDaysToDate, localWallTimeToUtc, utcToLocalWallTime } from "@/lib/time/zone";
+import {
+  addDaysToDate,
+  localWallTimeToUtc,
+  localWallTimeToUtcForward,
+  utcToLocalDate,
+  utcToLocalWallTime,
+} from "@/lib/time/zone";
 
 export interface Occurrence {
   eventId: string;
@@ -19,7 +24,8 @@ export interface OccurrenceRange {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const HOUR_MS = 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+const SECOND_MS = 1000;
 
 function pad(value: number): string {
   return String(value).padStart(2, "0");
@@ -38,32 +44,33 @@ function utcStamp(ms: number): string {
  * Reads an instant's wall-clock components in `zone` as if they were UTC. This
  * is the "floating" coordinate system recurrence rules are defined in: a rule
  * expanded on floating stamps keeps its wall-clock time across a DST change.
+ * Offsets are whole minutes, so the instant's sub-minute part is the wall
+ * clock's: keeping it is what makes a `:30` series start at `:30` (DTSTART is
+ * second-precision, and dropping the seconds loses the first occurrence).
  */
 function wallMsOf(instant: number, zone: string): number {
   const [date, time] = utcToLocalWallTime(instant, zone).split("T");
   const [year, month, day] = (date ?? "").split("-").map(Number);
   const [hour, minute] = (time ?? "").split(":").map(Number);
-  return Date.UTC(year ?? 1970, (month ?? 1) - 1, day ?? 1, hour ?? 0, minute ?? 0);
+  const subMinute = ((instant % MINUTE_MS) + MINUTE_MS) % MINUTE_MS;
+  return Date.UTC(year ?? 1970, (month ?? 1) - 1, day ?? 1, hour ?? 0, minute ?? 0) + subMinute;
+}
+
+/** `YYYY-MM-DDTHH:MM` wall stamp of a floating stamp (the zone contract is minute-precision). */
+function wallStampOf(wallMs: number): string {
+  const date = new Date(wallMs);
+  return (
+    `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}` +
+    `T${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`
+  );
 }
 
 /** Converts one floating stamp back into the real instant in `zone`. */
 function instantOf(wallMs: number, zone: string): number {
   // RFC 5545 §3.3.5: a wall time inside the spring-forward gap is read with the
   // offset that applied before the gap, i.e. it lands an hour later.
-  for (let shift = 0; shift < 3; shift += 1) {
-    const date = new Date(wallMs + shift * HOUR_MS);
-    const wall =
-      `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}` +
-      `T${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
-    try {
-      return localWallTimeToUtc(wall, zone);
-    } catch (error) {
-      if (!(error instanceof AppError)) {
-        throw error;
-      }
-    }
-  }
-  throw new AppError("VALIDATION", `That recurrence does not exist in ${zone}.`, 400);
+  const subMinute = ((wallMs % MINUTE_MS) + MINUTE_MS) % MINUTE_MS;
+  return localWallTimeToUtcForward(wallStampOf(wallMs), zone) + subMinute;
 }
 
 function utcDateStamp(date: string): string {
@@ -187,6 +194,9 @@ function expandTimed(event: EventRow, range: OccurrenceRange, timezone: string):
 
   const duration = Math.max(0, (event.endAt ?? event.startAt) - event.startAt);
   const { instants } = parseExdates(event, zone);
+  // DTSTART carries whole seconds, so compare at second precision: a series
+  // stored with a sub-minute start must keep its own first occurrence.
+  const seriesStart = Math.floor(event.startAt / SECOND_MS) * SECOND_MS;
   // Expand in floating wall time, then convert every occurrence back to an instant.
   const after = new Date(wallMsOf(range.from, zone) - duration - DAY_MS);
   const before = new Date(wallMsOf(range.to, zone) + DAY_MS);
@@ -206,7 +216,7 @@ function expandTimed(event: EventRow, range: OccurrenceRange, timezone: string):
         zone,
       ),
     )
-    .filter((start) => start >= event.startAt! && !instants.has(start))
+    .filter((start) => start >= seriesStart && !instants.has(start))
     .map((start) => ({
       eventId: event.id,
       startKey: new Date(start).toISOString(),
@@ -217,7 +227,7 @@ function expandTimed(event: EventRow, range: OccurrenceRange, timezone: string):
     }));
 }
 
-function expandAllDay(event: EventRow, range: OccurrenceRange): Occurrence[] {
+function expandAllDay(event: EventRow, range: OccurrenceRange, timezone: string): Occurrence[] {
   if (!event.startDate) {
     return [plainOccurrence(event)];
   }
@@ -228,7 +238,14 @@ function expandAllDay(event: EventRow, range: OccurrenceRange): Occurrence[] {
 
   const durationDays = daysInclusive(event.startDate, event.endDate ?? event.startDate);
   const { dates } = parseExdates(event, "UTC");
-  const after = new Date(range.from - DAY_MS);
+  // An occurrence overlaps the window when its **inclusive** end (`durationDays`
+  // days after its start) is not before the window's first household-local day.
+  // Padding backwards by `durationDays - 1` days is the all-day equivalent of
+  // the timed branch's duration padding: every overlapping block is generated,
+  // and a block that ends before the window still is not. Using the local date
+  // (not the raw instant) keeps this zone-independent.
+  const firstDate = utcToLocalDate(range.from, timezone);
+  const after = new Date(utcMidnight(addDaysToDate(firstDate, 1 - durationDays)));
   const before = new Date(range.to + DAY_MS);
   const results: Occurrence[] = [];
 
@@ -263,5 +280,33 @@ export function expandOccurrences(
   if (!event.rrule) {
     return [plainOccurrence(event)];
   }
-  return event.allDay === 1 ? expandAllDay(event, range) : expandTimed(event, range, timezone);
+  return event.allDay === 1 ? expandAllDay(event, range, timezone) : expandTimed(event, range, timezone);
+}
+
+/**
+ * The first occurrence that **starts** at or after the window's origin. The
+ * expander returns every occurrence that *overlaps* the window — it deliberately
+ * pads backwards by the event's duration, so the first element is usually an
+ * occurrence that started before the origin. A search result must open the next
+ * real slot, not the one already in progress or yesterday's. Timed occurrences
+ * compare their instant to `range.from`; all-day occurrences compare their start
+ * date to the household-local date of `range.from`. Returns `null` when the
+ * series has no occurrence left inside the window.
+ */
+export function firstOccurrenceAtOrAfter(
+  event: EventRow,
+  range: OccurrenceRange,
+  timezone: string,
+): Occurrence | null {
+  const originDate = utcToLocalDate(range.from, timezone);
+  for (const occurrence of expandOccurrences(event, range, timezone)) {
+    if (occurrence.startAt !== null) {
+      if (occurrence.startAt >= range.from) {
+        return occurrence;
+      }
+    } else if ((occurrence.startDate ?? "") >= originDate) {
+      return occurrence;
+    }
+  }
+  return null;
 }

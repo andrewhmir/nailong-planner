@@ -1210,4 +1210,207 @@ describe("recurring edit scopes", () => {
       close();
     }
   });
+
+  it("leaves an exception in a view-only collection untouched when the series moves", async () => {
+    const { db, close, ctxA, ctxB, root } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        collectionId: root.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-10-03",
+        endDate: "2026-10-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA",
+      });
+      const viewOnly = createCollection(db, ctxA, {
+        name: "View only",
+        hueFamily: "amber",
+        ownerId: "user-a",
+      });
+      updateCollection(db, ctxA, viewOnly.id, { visibility: "view_only" });
+      const exception = createException(db, ctxA, series.id, "2026-10-10", {
+        allDay: true,
+        startDate: "2026-10-11",
+        endDate: "2026-10-11",
+        collectionId: viewOnly.id,
+      });
+
+      // B may edit the shared series but not its exception in A's view-only
+      // calendar: the child must not be shifted, relinked or offered as undo data.
+      const moved = moveSeries(db, ctxB, series.id, "2026-10-03", {
+        allDay: true,
+        startAt: null,
+        endAt: null,
+        startDate: "2026-10-04",
+        endDate: "2026-10-04",
+      });
+
+      expect(moved.event.startDate).toBe("2026-10-04");
+      expect(moved.relinked).toEqual([]);
+      expect(moved.relinkedPrevious).toEqual([]);
+      const untouched = storedRow(db, exception.id)!;
+      expect(untouched.startDate).toBe("2026-10-11");
+      expect(untouched.recurrenceId).toBe("2026-10-10");
+    } finally {
+      close();
+    }
+  });
+
+  it("keeps a view-only exception out of a following split and delete", async () => {
+    const { db, close, ctxA, ctxB, root } = await setup();
+    try {
+      const makeSeries = (title: string) =>
+        createEvent(db, ctxA, {
+          collectionId: root.id,
+          title,
+          allDay: true,
+          startDate: "2026-10-03",
+          endDate: "2026-10-03",
+          rrule: "FREQ=WEEKLY;BYDAY=SA",
+        });
+      const viewOnly = createCollection(db, ctxA, {
+        name: "View only",
+        hueFamily: "violet",
+        ownerId: "user-a",
+      });
+      updateCollection(db, ctxA, viewOnly.id, { visibility: "view_only" });
+
+      const splitTarget = makeSeries("Split");
+      const splitException = createException(db, ctxA, splitTarget.id, "2026-10-17", {
+        allDay: true,
+        startDate: "2026-10-18",
+        endDate: "2026-10-18",
+        collectionId: viewOnly.id,
+      });
+      const split = splitSeries(db, ctxB, splitTarget.id, "2026-10-10", {
+        rrule: splitTarget.rrule,
+      });
+      expect(split.truncated?.id).toBe(splitTarget.id);
+      expect(split.relinked).toEqual([]);
+      expect(split.relinkedPrevious).toEqual([]);
+      const kept = storedRow(db, splitException.id)!;
+      expect(kept.recurrenceParentId).toBe(splitTarget.id);
+      expect(kept.startDate).toBe("2026-10-18");
+      expect(kept.recurrenceId).toBe("2026-10-17");
+
+      // "This and following" delete: the later segment is removed, but the
+      // view-only exception must not be relinked to it and cascaded away.
+      const deleteTarget = makeSeries("Delete following");
+      const deleteException = createException(db, ctxA, deleteTarget.id, "2026-10-17", {
+        allDay: true,
+        startDate: "2026-10-18",
+        endDate: "2026-10-18",
+        collectionId: viewOnly.id,
+      });
+      const following = deleteFollowing(db, ctxB, deleteTarget.id, "2026-10-10");
+      expect(following.truncated?.id).toBe(deleteTarget.id);
+      expect(following.deleted.map((row) => row.id)).not.toContain(deleteException.id);
+      const survived = storedRow(db, deleteException.id)!;
+      expect(survived.recurrenceParentId).toBe(deleteTarget.id);
+      expect(survived.startDate).toBe("2026-10-18");
+    } finally {
+      close();
+    }
+  });
+
+  it("validates a repeat rule sent through a series-scope write", async () => {
+    const { db, close, ctxA, child } = await setup();
+    try {
+      const series = createEvent(db, ctxA, {
+        collectionId: child.id,
+        title: "Piano",
+        allDay: true,
+        startDate: "2026-10-03",
+        endDate: "2026-10-03",
+        rrule: "FREQ=WEEKLY;BYDAY=SA",
+      });
+
+      expectAppError(
+        () =>
+          moveSeries(
+            db,
+            ctxA,
+            series.id,
+            "2026-10-03",
+            {
+              allDay: true,
+              startAt: null,
+              endAt: null,
+              startDate: "2026-10-04",
+              endDate: "2026-10-04",
+            },
+            { rrule: "NOT-A-RULE" },
+          ),
+        "VALIDATION",
+        400,
+      );
+      expect(storedRow(db, series.id)?.rrule).toBe("FREQ=WEEKLY;BYDAY=SA");
+
+      expectAppError(
+        () => splitSeries(db, ctxA, series.id, "2026-10-17", { rrule: "NOT-A-RULE" }),
+        "VALIDATION",
+        400,
+      );
+      expect(
+        db.select().from(event).all().filter((row) => row.householdId === "h1"),
+      ).toHaveLength(1);
+    } finally {
+      close();
+    }
+  });
+
+  it("requires write access to the parent series before linking an exception", async () => {
+    const { db, close, ctxA, ctxB, root } = await setup();
+    try {
+      const work = createCollection(db, ctxA, {
+        name: "Work",
+        hueFamily: "amber",
+        ownerId: "user-a",
+      });
+      updateCollection(db, ctxA, work.id, { visibility: "view_only" });
+      const series = createEvent(db, ctxA, {
+        collectionId: work.id,
+        title: "On-call",
+        allDay: false,
+        startAt: at("2026-10-05T09:00"),
+        endAt: at("2026-10-05T10:00"),
+        rrule: "FREQ=WEEKLY;BYDAY=MO",
+      });
+
+      // B writes into a shared calendar they own, but the parent series lives in
+      // A's view-only calendar: linking an exception to it is a write B cannot do.
+      expectAppError(
+        () =>
+          createEvent(db, ctxB, {
+            collectionId: root.id,
+            title: "On-call",
+            allDay: false,
+            startAt: at("2026-10-06T09:00"),
+            endAt: at("2026-10-06T10:00"),
+            recurrenceParentId: series.id,
+            recurrenceId: "2026-10-05T09:00",
+          }),
+        "FORBIDDEN",
+        403,
+      );
+      expect(db.select().from(event).where(eq(event.recurrenceParentId, series.id)).all()).toHaveLength(
+        0,
+      );
+
+      // The undo path still works: the owner recreates an exception under their
+      // own series and the collection it lives in.
+      const own = createEvent(db, ctxA, {
+        collectionId: work.id,
+        title: "On-call",
+        allDay: false,
+        startAt: at("2026-10-06T09:00"),
+        endAt: at("2026-10-06T10:00"),
+        recurrenceParentId: series.id,
+        recurrenceId: "2026-10-05T09:00",
+      });
+      expect(own.recurrenceParentId).toBe(series.id);
+    } finally {
+      close();
+    }
+  });
 });

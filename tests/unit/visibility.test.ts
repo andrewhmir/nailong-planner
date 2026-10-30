@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { tabStopDateForMonth } from "@/components/calendar/MiniMonth";
 import type { CollectionRow } from "@/lib/db/schema";
 import {
   DEFAULT_VISIBILITY,
   groupOf,
   isCollectionVisible,
   parseVisibility,
+  treeContainsCollectionId,
   type VisibilityState,
 } from "@/lib/ui/visibility";
 
@@ -183,6 +185,52 @@ describe("display only this collection", () => {
 
     expect(isCollectionVisible(cleared, collection({ id: "c1" }), viewer)).toBe(true);
     expect(isCollectionVisible(cleared, collection({ id: "c2" }), viewer)).toBe(true);
+  });
+});
+
+describe("treeContainsCollectionId", () => {
+  const tree = [
+    { id: "root", children: [{ id: "child" }] },
+    { id: "other", children: [] },
+  ];
+
+  it("finds a root or a direct child", () => {
+    expect(treeContainsCollectionId(tree, "root")).toBe(true);
+    expect(treeContainsCollectionId(tree, "child")).toBe(true);
+    expect(treeContainsCollectionId(tree, "other")).toBe(true);
+  });
+
+  it("reports an id the loaded tree no longer has", () => {
+    // A persisted `only` naming this id must be cleared, or every collection is
+    // filtered out and both the grid and /tasks go empty with no banner.
+    expect(treeContainsCollectionId(tree, "deleted")).toBe(false);
+    expect(treeContainsCollectionId([], "root")).toBe(false);
+  });
+
+  it("treats no isolation as nothing to reconcile", () => {
+    expect(treeContainsCollectionId([], null)).toBe(true);
+  });
+});
+
+describe("mini-month roving tab stop", () => {
+  it("keeps the focused day while it is inside the shown month", () => {
+    expect(tabStopDateForMonth("2026-10", "2026-10-17", "2026-10-30")).toBe("2026-10-17");
+  });
+
+  it("moves the stop to today when a month change left focus behind", () => {
+    expect(tabStopDateForMonth("2026-11", "2026-10-17", "2026-11-02")).toBe("2026-11-02");
+  });
+
+  it("falls back to the 1st when today is in another month", () => {
+    expect(tabStopDateForMonth("2026-12", "2026-10-17", "2026-11-02")).toBe("2026-12-01");
+  });
+
+  it("always returns a date in the shown month", () => {
+    for (const month of ["2026-01", "2026-02", "2027-12"]) {
+      expect(tabStopDateForMonth(month, "2025-12-31", "2026-05-05").startsWith(`${month}-`)).toBe(
+        true,
+      );
+    }
   });
 });
 

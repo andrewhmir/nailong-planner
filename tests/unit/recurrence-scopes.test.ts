@@ -3,6 +3,7 @@ import type { EventRow } from "@/lib/db/schema";
 import { AppError } from "@/lib/errors";
 import { expandOccurrences } from "@/lib/recurrence/expand";
 import {
+  assertOccurrenceOf,
   continueRule,
   countOccurrencesBefore,
   dateDiffDays,
@@ -20,8 +21,10 @@ import { localWallTimeToUtc, utcToLocalWallTime } from "@/lib/time/zone";
 
 const TAIPEI = "Asia/Taipei";
 const LONDON = "Europe/London";
+const NEW_YORK = "America/New_York";
 const at = (wall: string) => localWallTimeToUtc(wall, TAIPEI);
 const atLondon = (wall: string) => localWallTimeToUtc(wall, LONDON);
+const atNewYork = (wall: string) => localWallTimeToUtc(wall, NEW_YORK);
 
 function timedRow(overrides: Partial<EventRow> = {}): EventRow {
   return {
@@ -458,5 +461,100 @@ describe("date helpers", () => {
   it("reads the series start date in the event zone", () => {
     expect(localDateOfEvent(allDayRow(), TAIPEI)).toBe("2026-10-24");
     expect(localDateOfEvent(londonRow(), LONDON)).toBe("2027-03-02");
+  });
+});
+
+describe("a shift onto a spring-forward gap", () => {
+  // New York springs forward at 02:00 on 2026-03-08: 02:30 does not exist that
+  // day, so every wall-clock shift that lands there must move forward instead of
+  // throwing "That time does not exist in this timezone".
+  const gapSeries = (overrides: Partial<EventRow> = {}) =>
+    timedRow({
+      startAt: atNewYork("2026-03-07T02:30"),
+      endAt: atNewYork("2026-03-07T04:00"),
+      rrule: "FREQ=DAILY",
+      ...overrides,
+    });
+
+  it("shifts an “All events” move forward instead of throwing", () => {
+    const { patch, delta } = shiftSeriesTiming(
+      gapSeries({
+        exdates: JSON.stringify(["2026-03-07T07:30:00.000Z", "2026-03-08T07:30:00.000Z"]),
+      }),
+      iso("2026-03-09T02:30", NEW_YORK),
+      {
+        allDay: false,
+        startAt: atNewYork("2026-03-10T02:30"),
+        endAt: atNewYork("2026-03-10T04:00"),
+        startDate: null,
+        endDate: null,
+      },
+      NEW_YORK,
+    );
+
+    expect(delta).toEqual({ deltaDays: 1, deltaMs: 24 * 3_600_000, deltaMinutes: 0 });
+    // The series start moves onto the gap day: 02:30 is read with the pre-gap
+    // offset, i.e. it lands at 03:30 EDT.
+    expect(patch.startAt).toBe(Date.parse("2026-03-08T07:30:00.000Z"));
+    expect(utcToLocalWallTime(patch.startAt ?? 0, NEW_YORK)).toBe("2026-03-08T03:30");
+    expect(patch.endAt).toBe(Date.parse("2026-03-08T08:00:00.000Z"));
+    expect(JSON.parse(patch.exdates ?? "[]")).toEqual([
+      "2026-03-08T07:30:00.000Z",
+      "2026-03-09T07:30:00.000Z",
+    ]);
+  });
+
+  it("shifts a gap-day occurrence key, EXDATE and exception row forward", () => {
+    const delta = { deltaDays: 1, deltaMs: 24 * 3_600_000, deltaMinutes: 0 };
+
+    expect(shiftOccurrenceKey("2026-03-07T07:30:00.000Z", delta, NEW_YORK)).toBe(
+      "2026-03-08T07:30:00.000Z",
+    );
+    expect(
+      JSON.parse(
+        shiftExdates(JSON.stringify(["2026-03-07T07:30:00.000Z"]), false, delta, NEW_YORK) ?? "[]",
+      ),
+    ).toEqual(["2026-03-08T07:30:00.000Z"]);
+
+    const patch = shiftEventTiming(gapSeries(), delta, NEW_YORK);
+    expect(patch.startAt).toBe(Date.parse("2026-03-08T07:30:00.000Z"));
+    expect(utcToLocalWallTime(patch.startAt ?? 0, NEW_YORK)).toBe("2026-03-08T03:30");
+    expect(patch.endAt).toBe(Date.parse("2026-03-08T08:00:00.000Z"));
+  });
+
+  it("keeps a normal-time shift unchanged", () => {
+    const { patch } = shiftSeriesTiming(
+      timedRow({
+        startAt: atNewYork("2026-04-06T02:30"),
+        endAt: atNewYork("2026-04-06T04:00"),
+        rrule: "FREQ=DAILY",
+      }),
+      iso("2026-04-08T02:30", NEW_YORK),
+      {
+        allDay: false,
+        startAt: atNewYork("2026-04-09T02:30"),
+        endAt: atNewYork("2026-04-09T04:00"),
+        startDate: null,
+        endDate: null,
+      },
+      NEW_YORK,
+    );
+
+    expect(patch.startAt).toBe(atNewYork("2026-04-07T02:30"));
+    expect(utcToLocalWallTime(patch.startAt ?? 0, NEW_YORK)).toBe("2026-04-07T02:30");
+    expect(patch.endAt).toBe(atNewYork("2026-04-07T04:00"));
+  });
+});
+
+describe("a series stored with sub-minute seconds", () => {
+  it("accepts its first occurrence", () => {
+    const start = at("2026-10-06T09:00") + 30_000;
+    const row = timedRow({
+      startAt: start,
+      endAt: start + 3_600_000,
+      rrule: "FREQ=WEEKLY;BYDAY=TU",
+    });
+
+    expect(() => assertOccurrenceOf(row, new Date(start).toISOString(), TAIPEI)).not.toThrow();
   });
 });

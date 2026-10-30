@@ -57,6 +57,33 @@ test("the toolbar title opens a date picker", async ({ page }) => {
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
+test("the date picker keeps a tab stop after changing month", async ({ page }) => {
+  const now = new Date();
+  const title = page.getByRole("button", {
+    name: new RegExp(`${MONTHS[now.getMonth()] ?? ""} ${now.getFullYear()}`),
+  });
+  await title.click();
+
+  const dialog = page.getByRole("dialog");
+  const mini = dialog.getByRole("grid", { name: /Mini calendar/ });
+  await mini.getByRole("button", { name: "Next month" }).click();
+
+  // The chevron keeps focus. Tab must land on a cell inside the newly shown
+  // month: the roving stop used to stay on the previous month's day, so no
+  // gridcell had tabIndex 0 and the grid was unreachable by keyboard.
+  await page.keyboard.press("Tab");
+  const firstOfMonth = mini.locator('[data-mini-date$="-01"]');
+  await expect(firstOfMonth).toBeFocused();
+  await expect(firstOfMonth).toHaveAttribute("tabindex", "0");
+
+  const start = await firstOfMonth.getAttribute("data-mini-date");
+  await page.keyboard.press("ArrowDown");
+  const nextWeek = new Date(`${start}T00:00:00Z`);
+  nextWeek.setUTCDate(nextWeek.getUTCDate() + 7);
+  const expected = nextWeek.toISOString().slice(0, 10);
+  await expect(mini.locator(`[data-mini-date="${expected}"]`)).toBeFocused();
+});
+
 test("a wheel gesture over the grid moves to the next month", async ({ page }) => {
   const now = new Date();
   await expect(

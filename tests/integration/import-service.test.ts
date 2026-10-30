@@ -10,6 +10,7 @@ import {
   type ImportFile,
 } from "@/lib/services/import";
 import { createCollection, updateCollection } from "@/lib/services/collections";
+import { getEvent } from "@/lib/services/events";
 import { localWallTimeToUtc } from "@/lib/time/zone";
 import { groupOf } from "@/lib/ui/visibility";
 import { makeSeededDb } from "../helpers/fixtures";
@@ -673,6 +674,88 @@ describe("import service", () => {
       expect(rollbackFirst.deleted).toBe(3);
       expect(rollbackFirst.skipped).toBe(0);
       expect(db.select().from(event).all().filter((row) => row.householdId === "h1")).toHaveLength(0);
+    } finally {
+      close();
+    }
+  });
+
+  it("never overwrites or moves a private import owned by the partner", async () => {
+    const { db, close, ctxA, ctxB } = await setup();
+    try {
+      const privateCalendar = createCollection(db, ctxA, {
+        name: "A private",
+        hueFamily: "amber",
+        ownerId: "user-a",
+        visibility: "private",
+      });
+      const first = commitImport(db, ctxA, {
+        files: [threeEvents()],
+        mapping: { Family: { mode: "existing", collectionId: privateCalendar.id } },
+      });
+      expect(first.created).toBe(3);
+      const imported = db.select().from(event).where(eq(event.title, "Dentist")).get()!;
+      expect(imported.collectionId).toBe(privateCalendar.id);
+
+      // B holds the same UID (same Google export). The row already lives in A's
+      // private calendar: B may neither rewrite nor move it.
+      const changed = ics("Family", [
+        timedEvent("a1@google.com", "Dentist (by B)", "20261103T110000", "20261103T120000"),
+        timedEvent("a2@google.com", "Swim", "20261104T170000", "20261104T180000"),
+        timedEvent("a3@google.com", "Music", "20261105T090000", "20261105T100000"),
+      ]);
+
+      // The preview must plan no write for an existing row it cannot change.
+      const preview = previewImport(db, ctxB, [changed]);
+      expect(preview.updateCount).toBe(0);
+      expect(preview.unchangedCount).toBe(3);
+      expect(preview.warnings.some((warning) => /cannot change/i.test(warning.reason))).toBe(true);
+
+      const report = commitImport(db, ctxB, {
+        files: [changed],
+        mapping: { Family: { mode: "new" } },
+      });
+      expect(report.updated).toBe(0);
+      expect(report.unchanged).toBe(3);
+      expect(report.warnings.some((warning) => /cannot change/i.test(warning.reason))).toBe(true);
+
+      // The row stayed exactly where A put it, with A's content.
+      const stored = db.select().from(event).where(eq(event.id, imported.id)).get()!;
+      expect(stored.collectionId).toBe(privateCalendar.id);
+      expect(stored.title).toBe("Dentist");
+      expect(stored.startAt).toBe(at("2026-11-03T09:00"));
+      // …and B still cannot read it.
+      expect(() => getEvent(db, ctxB, imported.id)).toThrow(/not found/i);
+    } finally {
+      close();
+    }
+  });
+
+  it("rejects a malformed mapping shape with a VALIDATION error before writing", async () => {
+    const { db, close, ctxA } = await setup();
+    try {
+      const mappings: unknown[] = [
+        { Family: { mode: "existing" } },
+        { Family: { mode: "existing", collectionId: 42 } },
+        { Family: { mode: "existing", collectionId: "   " } },
+        { Family: [] },
+        { Family: "new" },
+        { Family: null },
+        [],
+        "not-an-object",
+        null,
+      ];
+      for (const mapping of mappings) {
+        let caught: unknown;
+        try {
+          commitImport(db, ctxA, { files: [threeEvents()], mapping: mapping as never });
+        } catch (error) {
+          caught = error;
+        }
+        expect(caught).toBeInstanceOf(AppError);
+        expect(caught).toMatchObject({ code: "VALIDATION", status: 400 });
+      }
+      expect(db.select().from(event).all()).toHaveLength(0);
+      expect(db.select().from(importBatch).all()).toHaveLength(0);
     } finally {
       close();
     }

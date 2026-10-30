@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { InstallHint } from "@/components/pwa/InstallHint";
 import { OfflineIndicator } from "@/components/pwa/OfflineIndicator";
 import { ServiceWorkerRegistrar } from "@/components/pwa/ServiceWorkerRegistrar";
@@ -64,6 +64,10 @@ export function AppShell({
   const [comingSoon, setComingSoon] = useState<RoadmapEntry | null>(null);
   /** The control that opened the gated dialog, so focus can return to it. */
   const comingSoonTrigger = useRef<HTMLElement | null>(null);
+  /** The phone sheet container (focused on open so Escape and Tab start inside). */
+  const sidebarSheetRef = useRef<HTMLDivElement | null>(null);
+  /** The control that opened the phone sheet, so focus can return to it. */
+  const sidebarTrigger = useRef<HTMLElement | null>(null);
   const visibility = useVisibility(currentUser.id);
   const fold = useTreeFold(currentUser.id);
   // Task rows live on `/tasks` and the full grid lives on `/`, so a row cannot
@@ -89,6 +93,36 @@ export function AppShell({
       }
     }, 0);
   }
+
+  function openSidebar() {
+    // The two openers are the phone top bar's hamburger and the breadcrumb
+    // button; whichever had focus is where focus returns on close.
+    const active = document.activeElement;
+    sidebarTrigger.current = active instanceof HTMLElement ? active : null;
+    setSidebarOpen(true);
+  }
+
+  function closeSidebar() {
+    setSidebarOpen(false);
+    // The sheet unmounts on the next paint; return focus after that.
+    window.setTimeout(() => {
+      const trigger = sidebarTrigger.current;
+      sidebarTrigger.current = null;
+      if (trigger?.isConnected) {
+        trigger.focus();
+      }
+    }, 0);
+  }
+
+  useEffect(() => {
+    if (!sidebarOpen) {
+      return;
+    }
+    // The sheet is a hand-rolled dialog. Without moving focus into it, focus
+    // stays on the hamburger behind the scrim and its Escape handler can never
+    // run.
+    sidebarSheetRef.current?.focus();
+  }, [sidebarOpen]);
 
   const tree = (
     <CollectionTree
@@ -125,7 +159,7 @@ export function AppShell({
                 variant="ghost"
                 size="sm"
                 aria-label="Open collections"
-                onClick={() => setSidebarOpen(true)}
+                onClick={openSidebar}
                 className="ml-auto shrink-0 text-white hover:bg-rail-hover focus-visible:outline-white"
               >
                 <MenuIcon size={20} />
@@ -149,7 +183,7 @@ export function AppShell({
             partner={partnerName}
             timezone={timezone}
             timeFormat={preferences.timeFormat}
-            onOpenSidebar={() => setSidebarOpen(true)}
+            onOpenSidebar={openSidebar}
           />
 
           <OfflineIndicator userId={currentUser.id} />
@@ -183,16 +217,25 @@ export function AppShell({
               type="button"
               aria-label="Close collections"
               className="absolute inset-0 bg-scrim"
-              onClick={() => setSidebarOpen(false)}
+              onClick={closeSidebar}
             />
             <div
+              ref={sidebarSheetRef}
               role="dialog"
+              aria-modal="true"
               aria-label="Collections"
-              className="absolute inset-x-0 bottom-0 flex max-h-[75dvh] flex-col overflow-y-auto rounded-t-md border border-line bg-surface pt-4 safe-x-4 safe-pb-4 shadow-dialog md:inset-y-[72px] md:right-auto md:w-56 md:rounded-md md:border-r md:shadow-menu"
+              tabIndex={-1}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.stopPropagation();
+                  closeSidebar();
+                }
+              }}
+              className="absolute inset-x-0 bottom-0 flex max-h-[75dvh] flex-col overflow-y-auto rounded-t-md border border-line bg-surface pt-4 safe-x-4 safe-pb-4 shadow-dialog outline-none md:inset-y-[72px] md:right-auto md:w-56 md:rounded-md md:border-r md:shadow-menu"
             >
               <div className="flex items-center justify-between">
                 <span className="px-2 text-sm font-bold text-ink">Go to</span>
-                <Button variant="ghost" size="sm" onClick={() => setSidebarOpen(false)}>
+                <Button variant="ghost" size="sm" onClick={closeSidebar}>
                   Close
                 </Button>
               </div>
@@ -203,7 +246,7 @@ export function AppShell({
                       key={entry.id}
                       href={entry.href}
                       className="rounded-sm px-2 py-1 text-sm text-link hover:bg-well"
-                      onClick={() => setSidebarOpen(false)}
+                      onClick={closeSidebar}
                     >
                       {entry.label}
                     </Link>

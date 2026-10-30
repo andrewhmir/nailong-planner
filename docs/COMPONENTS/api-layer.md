@@ -163,7 +163,7 @@ Private helpers: `pad2`, `currentMonthRange` (household timezone -> first of thi
 
 **Public API** — `previewImportHandler(db, ctx, request): Promise<Response>` -> `200 { preview }`; `commitImportHandler(db, ctx, request): Promise<Response>` -> `201 { report }`; `listImportBatchesHandler(db, ctx): Response` -> `200 { batches }`; `rollbackImportBatchHandler(db, ctx, id): Response` -> `200 { rollback }`.
 
-**State & side effects** — Reads the uploaded text into memory (the service enforces the 5 MB / 20-file / 50 000-event caps); the handlers themselves write nothing. A missing or malformed `mapping` field is `400 VALIDATION` before the service runs; a non-object mapping is rejected with `fields.mapping`. Every other status (403/404/409) comes from the service and travels through `guarded` -> `apiError` unchanged.
+**State & side effects** — Reads the uploaded text into memory (the service enforces the 5 MB / 20-file / 50 000-event caps); the handlers themselves write nothing. A missing or malformed `mapping` field is `400 VALIDATION` before the service runs; a non-object mapping is rejected with `fields.mapping`. A mapping **entry** that is not `{ mode: "new" }` or `{ mode: "existing", collectionId: <non-empty string> }` is also a `400 VALIDATION` with `fields.mapping.<name>` — the service's runtime shape check answers it, so a hand-built body can never produce an opaque 500. Every other status (403/404/409) comes from the service and travels through `guarded` -> `apiError` unchanged.
 
 **Depends on / Used by** — `guarded` from `./support`, `AppError`, `Database`, `ViewerContext`, and the four service functions. Used by `app/api/import/preview/route.ts`, `app/api/import/commit/route.ts`, `app/api/import/batches/route.ts` and `app/api/import/batches/[id]/rollback/route.ts`; those routes only add `withViewer` plus `dynamic = "force-dynamic"`.
 
@@ -173,9 +173,9 @@ Private helpers: `pad2`, `currentMonthRange` (household timezone -> first of thi
 - 400 "Send the export as multipart/form-data." -> the client posted JSON or an empty body -> check the `FormData` construction in `components/import/ImportWizard.tsx`.
 - 400 "Send the calendar mapping as JSON." -> the mapping field was not serialised -> `readImportRequest`.
 - The upload arrives with no files -> the form field name must be exactly `files`.
-- A 500 on commit -> an unexpected throw outside `AppError` -> read the server log; the SQLite transaction rolled back.
+- A 500 on commit -> an unexpected throw outside `AppError` -> read the server log; the SQLite transaction rolled back. A malformed *entry* in the mapping must not land here: the service's shape check turns it into `400 VALIDATION` with `fields.mapping.<name>`.
 
-**Tests** — `tests/integration/import-api.test.ts` (preview/commit/list/rollback through the handlers, mapping errors, status codes, route wiring).
+**Tests** — `tests/integration/import-api.test.ts` (preview/commit/list/rollback through the handlers, mapping errors including a wrong-shaped entry answering 400 with `fields.mapping.<name>`, status codes, route wiring).
 
 ### lib/api/handlers/tasks.ts
 

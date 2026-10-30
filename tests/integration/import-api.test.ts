@@ -121,6 +121,39 @@ describe("import API", () => {
     }
   });
 
+  it("returns 400 with a field error for a mapping entry with the wrong runtime shape", async () => {
+    const { db, close, ctxA } = await setup();
+    try {
+      const badMappings = [
+        { Family: { mode: "existing" } },
+        { Family: { mode: "existing", collectionId: 42 } },
+        { Family: { mode: "existing", collectionId: "" } },
+        { Family: { mode: "nonsense" } },
+        { Family: [] },
+      ];
+      for (const mapping of badMappings) {
+        const response = await commitImportHandler(
+          db,
+          ctxA,
+          multipart([ics("Family", "a1@google.com", "Dentist")], mapping),
+        );
+        expect(response.status).toBe(400);
+        const payload = (await response.json()) as {
+          error: { code: string; fields?: Record<string, string> };
+        };
+        expect(payload.error.code).toBe("VALIDATION");
+        expect(payload.error.fields?.["mapping.Family"]).toBeTruthy();
+      }
+      // Nothing was written by any rejected request.
+      expect(db.select().from(event).all()).toHaveLength(0);
+      expect(db.select().from(collection).all().filter((row) => row.name === "Family")).toHaveLength(
+        0,
+      );
+    } finally {
+      close();
+    }
+  });
+
   it("lists batches and rolls one back", async () => {
     const { db, close, ctxA } = await setup();
     try {

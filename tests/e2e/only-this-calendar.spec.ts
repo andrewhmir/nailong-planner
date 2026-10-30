@@ -159,6 +159,36 @@ test.describe("as the owner", () => {
 
     await deleteProbe(page, "Ours probe");
   });
+
+  test("deleting the isolated calendar clears the isolation", async ({ page }) => {
+    // The dangling `only` is the dangerous case: its name lookup fails, so the
+    // "Showing only …" banner cannot render and every collection is filtered
+    // out. Without a fix the grid stays on "No events" with no visible way back.
+    const householdId = await collectionId(page, "Household");
+    await createProbe(page, householdId, "Ours probe", monthDay(18));
+    const created = await page.request.post("/api/collections", {
+      data: { name: "Doomed", kind: "calendar", hueFamily: "teal" },
+    });
+    expect(created.ok(), await created.text()).toBeTruthy();
+
+    await page.reload();
+    await expect(page.getByText("Ours probe")).toBeVisible();
+
+    await page.getByRole("button", { name: "Options for Doomed" }).click();
+    await page.getByRole("menuitem", { name: "Display only this calendar" }).click();
+    await expect(page.getByText("Showing only Doomed")).toBeVisible();
+    await expect(page.getByText("Ours probe")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Options for Doomed" }).click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
+    await page.getByRole("button", { name: "Delete calendar" }).click();
+
+    await expect(page.getByText("Showing only Doomed")).toHaveCount(0);
+    await expect(page.getByRole("checkbox", { name: "Household" })).toBeChecked();
+    await expect(page.getByText("Ours probe")).toBeVisible();
+
+    await deleteProbe(page, "Ours probe");
+  });
 });
 
 test.describe("as the partner", () => {

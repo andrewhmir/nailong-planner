@@ -43,6 +43,8 @@ interface Props {
   pending: boolean;
   currentUserId: string;
   currentUserName: string;
+  /** The other household member, shown when they own the edited root. */
+  partnerName: string;
   onClose: () => void;
   onSubmit: (values: CollectionDialogResult) => void;
 }
@@ -58,6 +60,7 @@ export function CollectionDialog({
   pending,
   currentUserId,
   currentUserName,
+  partnerName,
   onClose,
   onSubmit,
 }: Props) {
@@ -124,6 +127,7 @@ export function CollectionDialog({
           initialVisibility={initialVisibility}
           currentUserId={currentUserId}
           currentUserName={currentUserName}
+          partnerName={partnerName}
           pending={pending}
           onClose={onClose}
           onSubmit={onSubmit}
@@ -143,6 +147,7 @@ interface FormProps {
   initialVisibility: CollectionVisibility;
   currentUserId: string;
   currentUserName: string;
+  partnerName: string;
   pending: boolean;
   onClose: () => void;
   onSubmit: (values: CollectionDialogResult) => void;
@@ -162,6 +167,7 @@ function CollectionForm({
   initialVisibility,
   currentUserId,
   currentUserName,
+  partnerName,
   pending,
   onClose,
   onSubmit,
@@ -187,7 +193,15 @@ function CollectionForm({
           name,
           ...(isRoot ? { kind } : {}),
           hueFamily: isRoot ? hueFamily : undefined,
-          ownerId: isRoot ? ownerId : undefined,
+          // An unchanged owner is omitted, not echoed: the server rejects any
+          // `ownerId` on a root owned by the partner ("Only the owner can
+          // change who owns this calendar"), so a plain rename or colour save
+          // would 403. An explicit Shared/self choice still sends the value.
+          ownerId: isRoot
+            ? ownerId === initialOwnerId
+              ? undefined
+              : ownerId
+            : undefined,
           // Never send a less restrictive value than the stored one: a private
           // root being renamed must stay private, and a shared root cannot be
           // view-only or private until it is assigned to its owner. A child
@@ -230,6 +244,16 @@ function CollectionForm({
               className={CONTROL}
             >
               <option value="ours">Shared</option>
+              {/* A root the partner owns is writable (shared), so settings are
+                  offered; without an option for their id a controlled select
+                  renders blank and a save silently reassigns the calendar to
+                  "Ours". Disabled: it reflects the stored owner, but ownership
+                  moves still go through Shared or yourself. */}
+              {ownerId !== null && ownerId !== currentUserId ? (
+                <option value={ownerId} disabled>
+                  {partnerName}
+                </option>
+              ) : null}
               <option value={currentUserId}>{currentUserName}</option>
             </select>
           </div>

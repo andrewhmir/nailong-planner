@@ -268,18 +268,18 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 **Public API** — `const preferencesKey = ["preferences"] as const`; `usePreferences(initialData: UserPreferences): UserPreferences`; `useUpdatePreferences()` returning a mutation over `Partial<UserPreferences>` that resolves to `{ preferences }`.
 
 **State & side effects** — Query key: `["preferences"]`, with `initialData` (the row the server layout already read) and `staleTime: Infinity`, so the GET `/api/settings/preferences` normally never refires. PATCH `/api/settings/preferences`.
-- The mutation keeps a `useRef` counter (`latestIssued`). `onMutate` increments it, records the sequence, cancels the query, merges the patch into the cache and returns `{ previous, sequence }`.
-- `onError` restores `previous`. `onSuccess` writes the server's canonical row **only if** its sequence is still the latest, so a slow earlier response cannot overwrite a newer toggle.
+- The mutation keeps a `useRef` counter (`latestIssued`). `onMutate` increments it, records the sequence, cancels the query, merges the patch into the cache and returns `{ previous, sequence }`; it also records, per patched field, which sequence last wrote it (`touchedAt`).
+- `onError` rolls back **only** for the latest sequence (the full `previous` snapshot, as before). A stale failure — a newer PATCH has been issued since — restores only the fields that request itself last touched (`touchedAt.get(key) === context.sequence`), so it cannot rewind a newer successful setting. `onSuccess` writes the server's canonical row **only if** its sequence is still the latest, so a slow earlier response cannot overwrite a newer toggle.
 - The hook never invalidates or refetches: the PATCH response is treated as the source of truth.
 
 **Depends on / Used by** — `UserPreferences` type from `lib/services/preferences`. Used by `components/calendar/CalendarShell.tsx` (view/time-format/shortcuts), `components/settings/CalendarPreferencesCard.tsx`, and `useUpdatePreferences` alone by `components/calendar/EventDialog.tsx` and `components/calendar/QuickCreatePopover.tsx` (both persist `lastEventCalendarId`).
 
 **Debugging** —
-- Toggling a preference twice quickly ends on the first value -> the second PATCH resolved first and the guard rejected the stale one -> inspect `latestIssued`/`sequence` handling and confirm both requests reached the server.
+- A failed PATCH leaves the setting on a value that predates a newer successful PATCH -> the rollback was unconditional; it must be sequence-gated per field (`touchedAt`) -> this file's `onError`.
 - A setting reverts after a reload but looks right in the UI -> the optimistic cache was never persisted (server rejected the PATCH) -> check the response body/status in the network panel.
 - A preferences change is not reflected elsewhere in the same tab -> everything reads the single `["preferences"]` entry -> check whether that component copied the value into local state instead of calling `usePreferences` (compare `components/calendar/CalendarShell.tsx` and `components/settings/CalendarPreferencesCard.tsx`).
 
-**Tests** — No direct test coverage; the endpoint is covered by `tests/integration/preferences-api.test.ts`, the UI by `tests/e2e/preferences.spec.ts`, `tests/e2e/view-preference.spec.ts` and `tests/e2e/quick-create.spec.ts`.
+**Tests** — `tests/unit/preferences-cache.test.ts` drives the real hook through an out-of-order PATCH pair (a stale failure must not rewind a newer canonical row, a latest failure still rolls back, a stale failure resumes only its own untouched fields); the endpoint is covered by `tests/integration/preferences-api.test.ts`, the UI by `tests/e2e/preferences.spec.ts`, `tests/e2e/view-preference.spec.ts` and `tests/e2e/quick-create.spec.ts`.
 
 ### lib/query/search.ts
 
@@ -289,17 +289,18 @@ Shared setup: `app/providers.tsx` creates one `QueryClient` with `staleTime: 10_
 
 **Public API** — `useSearchEvents(query: string)` returning the matching `EventView[]`; `navigableDateFor(event: EventView, timezone: string): string`.
 
-**State & side effects** — Query key: `["events", "search", normalized]` where `normalized = query.trim().toLowerCase()`. Deliberately shares the `["events"]` prefix so every event mutation's invalidation refreshes search results too. `enabled` only when `normalized.length >= 2`; the request itself sends `/api/events/search?q=<query.trim()>` (trimmed but **not** lower-cased). `placeholderData: keepPreviousData` keeps the previous list on screen while the next keystroke resolves. `navigableDateFor` expands a recurring row with `expandOccurrences` over `[now, now + 2 years]` and returns `occurrenceDate(event, next.startKey, timezone)`; non-recurring rows use `startDate` (all-day) or the ISO string of `startAt`.
+**State & side effects** — Query key: `["events", "search", normalized]` where `normalized = query.trim().toLowerCase()`. Deliberately shares the `["events"]` prefix so every event mutation's invalidation refreshes search results too. `enabled` only when `normalized.length >= 2`; the request itself sends `/api/events/search?q=<query.trim()>` (trimmed but **not** lower-cased). `placeholderData: keepPreviousData` keeps the previous list on screen while the next keystroke resolves. `navigableDateFor` uses `firstOccurrenceAtOrAfter` (from `lib/recurrence/expand.ts`) over `[now, now + 2 years]` and returns `occurrenceDate(event, next.startKey, timezone)`: timed rows compare their start instant to now, all-day rows their start date to the household-local today, so a result always opens the next real slot rather than an occurrence that merely overlaps now (the expander pads its window backwards). Non-recurring rows — and an ended series, whose fallback is the stored start — use `startDate` (all-day) or the ISO string of `startAt`.
 
 **Depends on / Used by** — `@tanstack/react-query` (`keepPreviousData`), `lib/recurrence/expand`, `lib/time/format` (`occurrenceDate`), `EventView`. Used by `components/calendar/SearchBox.tsx` and `components/calendar/SearchResultsOverlay.tsx`.
 
 **Debugging** —
 - Typing one character shows no results -> intentional (`enabled` requires two characters) -> check the caller does not render an empty state as an error.
 - Search results contain an unsaved event with a `temp-` id -> optimistic create/update writes use `setQueriesData({ queryKey: ["events"] })`, which also matches this key -> expect transient temp rows until `onSettled` invalidates.
-- Clicking a recurring result opens the series' original month instead of the next occurrence -> `expandOccurrences` returned nothing (EXDATE-only series, or a rule outside the next two years) -> check the stored `rrule`/`exdates`.
+- Clicking a recurring result opens the series' original month instead of the next occurrence -> `firstOccurrenceAtOrAfter` returned nothing (EXDATE-only series, or a rule outside the next two years) and the stored start was used -> check the stored `rrule`/`exdates`.
+- A recurring result shows yesterday's day number (or, on the 1st, the previous month) -> the caller took the first element of the padded expansion window instead of `firstOccurrenceAtOrAfter` -> `navigableDateFor` in this file.
 - Results flicker to empty between keystrokes -> `keepPreviousData` was dropped or the key lost its `"search"` segment.
 
-**Tests** — No direct test coverage for the hook; `navigableDateFor` is exercised through `tests/e2e/search.spec.ts`, and the endpoint through `tests/integration/search-api.test.ts`.
+**Tests** — `navigableDateFor` is unit-tested in `tests/unit/search-nav.test.ts` (timed next-occurrence, in-progress skip, all-day household date, exhausted-series fallback); the hook is exercised through `tests/e2e/search.spec.ts`, and the endpoint through `tests/integration/search-api.test.ts`.
 
 ### lib/query/tasks.ts
 
