@@ -27,6 +27,24 @@ test("the calendar tree opens as a sheet and closes again", async ({ page }) => 
   await expect(sheet).toHaveCount(0);
 });
 
+test("the collections sheet takes focus, closes on Escape and restores focus", async ({
+  page,
+}) => {
+  const trigger = page.getByRole("button", { name: "Open collections" });
+  await trigger.click();
+
+  const sheet = page.getByRole("dialog", { name: "Collections" });
+  await expect(sheet).toBeVisible();
+  await expect(sheet).toHaveAttribute("aria-modal", "true");
+  // Focus starts inside the sheet, so Escape reaches it and the page behind is
+  // not where the next Tab continues from.
+  await expect(sheet).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
+
 test("the phone sheet folds the same calendar tree the desktop shows", async ({ page }) => {
   await page.getByRole("button", { name: "Open collections" }).click();
   const sheet = page.getByRole("dialog", { name: "Collections" });

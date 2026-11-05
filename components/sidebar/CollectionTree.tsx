@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -33,7 +33,13 @@ import {
 } from "@/lib/query/collections";
 import { useCreateTask, useTaskCounts } from "@/lib/query/tasks";
 import { canWriteCollection, foldCollectionPermission } from "@/lib/services/permissions";
-import { GROUP_ORDER, groupOf, isCollectionVisible, type GroupKey } from "@/lib/ui/visibility";
+import {
+  GROUP_ORDER,
+  groupOf,
+  isCollectionVisible,
+  treeContainsCollectionId,
+  type GroupKey,
+} from "@/lib/ui/visibility";
 import type { TreeFoldApi } from "@/lib/ui/useTreeFold";
 import type { VisibilityApi } from "@/lib/ui/useVisibility";
 import { cn } from "@/lib/utils";
@@ -118,14 +124,29 @@ export function CollectionTree({
   // ids must be per instance or the sheet would point at the hidden aside's list.
   const instanceId = useId();
 
-  const roots = data ?? [];
+  // Stable identity for the dangling-`only` effect below: `data ?? []` would be
+  // a fresh array on every render and make the effect's dependency change forever.
+  const roots = useMemo(() => data ?? [], [data]);
 
   const only = visibility.state.only;
+  const setOnly = visibility.setOnly;
   const onlyName = only
     ? roots
         .flatMap((root) => [root, ...root.children])
         .find((collection) => collection.id === only)?.name
     : undefined;
+
+  useEffect(() => {
+    // `only` is persisted. Once the loaded tree no longer contains its id
+    // (deleted here, in another tab, or by the partner for a shared row), the
+    // exact-only rule draws nothing and the name lookup above hides the
+    // "Show all" banner, so the grid and `/tasks` would stay empty forever.
+    // `data === undefined` means "not loaded yet", not deletion; clearing `only`
+    // makes the condition false, so this cannot loop.
+    if (only !== null && data !== undefined && !treeContainsCollectionId(roots, only)) {
+      setOnly(null);
+    }
+  }, [data, only, roots, setOnly]);
 
   /**
    * A row offers a count badge and quick add only when a create would be
@@ -197,7 +218,11 @@ export function CollectionTree({
           ...(collection.parentId === null
             ? {
                 hueFamily: values.hueFamily,
-                ownerId: values.ownerId ?? null,
+                // `undefined` is "unchanged, leave the owner alone"; `null` is
+                // an explicit move back to Shared. Coalescing undefined to null
+                // would re-own a partner-owned calendar the viewer may write
+                // but must not take over by renaming.
+                ...(values.ownerId !== undefined ? { ownerId: values.ownerId } : {}),
                 visibility: values.visibility,
               }
             : {}),
@@ -255,6 +280,22 @@ export function CollectionTree({
     }
     deleteCollection.mutate(pendingDelete.id, {
       onSuccess: () => {
+        // The isolated id must not outlive its row: the banner's name lookup
+        // fails and every collection is filtered out. A root also cascades its
+        // children, so clear when the isolated child was under it; the effect
+        // above is the fallback for a refetch that arrives without the id.
+        const isolated = visibility.state.only;
+        const removedIsolated =
+          isolated !== null &&
+          (isolated === pendingDelete.id ||
+            roots.some(
+              (root) =>
+                root.id === pendingDelete.id &&
+                root.children.some((child) => child.id === isolated),
+            ));
+        if (removedIsolated) {
+          setOnly(null);
+        }
         toast.success(`Deleted ${pendingDelete.name}`);
         setPendingDelete(null);
       },
@@ -488,6 +529,7 @@ export function CollectionTree({
         pending={createCollection.isPending || updateCollection.isPending}
         currentUserId={currentUserId}
         currentUserName={currentUserName}
+        partnerName={partnerName}
         onClose={() => setDialog(null)}
         onSubmit={submit}
       />

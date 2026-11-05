@@ -115,6 +115,29 @@ test("a calendar created as mine is saved with an owner", async ({ page }) => {
   await expect(page.getByRole("checkbox", { name: "Personal" })).toBeVisible();
 });
 
+test("a partner-owned shared calendar shows its owner instead of a blank select", async ({
+  page,
+}) => {
+  // "Health" is seeded owned by Partner but shared, so Andrew may write it and
+  // the settings dialog is offered. The controlled select used to have no
+  // matching option for the partner's id, so it rendered blank.
+  await page.getByRole("button", { name: "Options for Health" }).click();
+  await page.getByRole("menuitem", { name: "Calendar settings" }).click();
+
+  const owner = inDialog(page, "Belongs to");
+  await expect(owner).toHaveValue(fixtures.users.partner);
+  const partnerOption = owner.locator(`option[value="${fixtures.users.partner}"]`);
+  await expect(partnerOption).toHaveText("Partner");
+  await expect(partnerOption).toBeDisabled();
+
+  // Saving without touching the owner must not silently reassign it to "Ours".
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("button", { name: "Options for Health" }).click();
+  await page.getByRole("menuitem", { name: "Calendar settings" }).click();
+  await expect(inDialog(page, "Belongs to")).toHaveValue(fixtures.users.partner);
+  await page.getByRole("button", { name: "Cancel" }).click();
+});
+
 test("calendar settings can mark a calendar view-only", async ({ page }) => {
   await createRoot(page, "calendar", "Private notes", "Andrew");
 

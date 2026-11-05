@@ -99,6 +99,28 @@ function localToday(): string {
 }
 
 /**
+ * The date that owns the grid's single tab stop for the shown month.
+ *
+ * `focusDate` normally names it, but the prev/next chevrons move `anchorDate`
+ * without touching it, so after a month change it can still point at the old
+ * month: no cell then carries `tabIndex` 0 and the grid becomes unreachable by
+ * Tab (so the arrow keys can never fire). Keeping a date that is still in the
+ * shown month preserves arrow-key movement within a month; otherwise today wins
+ * when it is in that month, else the 1st. Pure so it can be decided during
+ * render without a setState or a selection change.
+ */
+export function tabStopDateForMonth(
+  shownMonth: string,
+  focusDate: string,
+  today: string,
+): string {
+  if (focusDate.startsWith(`${shownMonth}-`)) {
+    return focusDate;
+  }
+  return today.startsWith(`${shownMonth}-`) ? today : `${shownMonth}-01`;
+}
+
+/**
  * A calm, neutral month grid (Google's sidebar calendar): event dots are always
  * neutral so the mini-month never competes with the coloured grid. Keyboard
  * model is a standard single-tab-stop grid with roving tabindex.
@@ -135,6 +157,9 @@ export function MiniMonth({
   const monthPrefix = `${year}-${pad(month)}`;
   const fallbackFocus = today.startsWith(monthPrefix) ? today : iso(year, month, 1);
   const [focusDate, setFocusDate] = useState(selectedDate ?? fallbackFocus);
+  // Derived during render on purpose: the chevrons below move the shown month
+  // without touching `focusDate`, and a state write in render is not allowed.
+  const tabStop = tabStopDateForMonth(monthPrefix, focusDate, today);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   function moveFocus(date: string): void {
@@ -301,7 +326,7 @@ export function MiniMonth({
                 aria-label={`${WEEKDAY_NAMES[weekdayIndex(year, month, day)]} ${day} ${MONTH_NAMES[month - 1]}, ${hasEvents ? "has events" : "no events"}`}
                 aria-selected={selected}
                 aria-current={isToday ? "date" : undefined}
-                tabIndex={date === focusDate ? 0 : -1}
+                tabIndex={date === tabStop ? 0 : -1}
                 {...taskDropProps(date)}
                 onClick={() => {
                   setFocusDate(date);

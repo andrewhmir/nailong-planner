@@ -2,7 +2,7 @@
 import { requestJson } from "@/lib/query/request";
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { expandOccurrences } from "@/lib/recurrence/expand";
+import { firstOccurrenceAtOrAfter } from "@/lib/recurrence/expand";
 import type { EventView } from "@/lib/services/events";
 import { occurrenceDate } from "@/lib/time/format";
 
@@ -29,12 +29,14 @@ export function useSearchEvents(query: string) {
 
 /**
  * The date a search result should open the grid at. For a series it is the next
- * occurrence from now, not the series' original start.
+ * occurrence from now, not the series' original start — and not the occurrence
+ * that merely overlaps now (the expander pads its window backwards, so the first
+ * element is usually yesterday's).
  */
 export function navigableDateFor(event: EventView, timezone: string): string {
   if (event.rrule) {
     const now = Date.now();
-    const [next] = expandOccurrences(event, { from: now, to: now + TWO_YEARS_MS }, timezone);
+    const next = firstOccurrenceAtOrAfter(event, { from: now, to: now + TWO_YEARS_MS }, timezone);
     if (next) {
       return occurrenceDate(event, next.startKey, timezone);
     }

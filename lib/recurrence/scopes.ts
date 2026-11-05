@@ -8,7 +8,13 @@ import {
   type RepeatContext,
   type RepeatOptions,
 } from "@/lib/recurrence/rule";
-import { addDaysToDate, localWallTimeToUtc, utcToLocalDate, utcToLocalWallTime } from "@/lib/time/zone";
+import {
+  addDaysToDate,
+  localWallTimeToUtc,
+  localWallTimeToUtcForward,
+  utcToLocalDate,
+  utcToLocalWallTime,
+} from "@/lib/time/zone";
 
 /**
  * Pure maths for per-instance recurrence scopes: the “All events” shift, the
@@ -127,7 +133,7 @@ export function shiftOccurrenceKey(key: string, delta: ShiftDelta, zone: string)
     return key;
   }
   const wall = shiftWall(utcToLocalWallTime(instant, zone), delta.deltaDays, delta.deltaMinutes);
-  return new Date(localWallTimeToUtc(wall, zone)).toISOString();
+  return new Date(localWallTimeToUtcForward(wall, zone)).toISOString();
 }
 
 /**
@@ -169,7 +175,7 @@ export function shiftExdates(
       return entry;
     }
     const wall = shiftWall(utcToLocalWallTime(instant, zone), delta.deltaDays, delta.deltaMinutes);
-    return new Date(localWallTimeToUtc(wall, zone)).toISOString();
+    return new Date(localWallTimeToUtcForward(wall, zone)).toISOString();
   });
   return JSON.stringify(shifted);
 }
@@ -336,11 +342,11 @@ export function shiftSeriesTiming(
     const durationDeltaMinutes = Math.round((newDuration - oldDuration) / MINUTE_MS);
     const startWall = utcToLocalWallTime(row.startAt, zone);
     const endWall = utcToLocalWallTime(row.endAt, zone);
-    patch.startAt = localWallTimeToUtc(
+    patch.startAt = localWallTimeToUtcForward(
       shiftWall(startWall, deltaDays, deltaMinutes),
       zone,
     );
-    patch.endAt = localWallTimeToUtc(
+    patch.endAt = localWallTimeToUtcForward(
       shiftWall(endWall, deltaDays, deltaMinutes + durationDeltaMinutes),
       zone,
     );
@@ -511,8 +517,8 @@ export function shiftEventTiming(row: EventRow, delta: ShiftDelta, zone: string)
   const startWall = utcToLocalWallTime(row.startAt, zone);
   const endWall = utcToLocalWallTime(row.endAt ?? row.startAt, zone);
   return {
-    startAt: localWallTimeToUtc(shiftWall(startWall, delta.deltaDays, delta.deltaMinutes), zone),
-    endAt: localWallTimeToUtc(shiftWall(endWall, delta.deltaDays, delta.deltaMinutes), zone),
+    startAt: localWallTimeToUtcForward(shiftWall(startWall, delta.deltaDays, delta.deltaMinutes), zone),
+    endAt: localWallTimeToUtcForward(shiftWall(endWall, delta.deltaDays, delta.deltaMinutes), zone),
     updatedAt: Date.now(),
   };
 }

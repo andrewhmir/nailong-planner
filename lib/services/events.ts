@@ -153,6 +153,18 @@ function visibleChildren(db: Database, ctx: ViewerContext, seriesId: string): Ev
   });
 }
 
+/**
+ * The exceptions of a series this viewer may both see and write. Series-wide
+ * writes (move, split, following-delete) use this set instead of the readable
+ * one: a child in a calendar the viewer cannot write stays exactly where it is
+ * and is never returned as undo data, matching `updateEvent`'s propagation rule.
+ */
+function writableChildren(db: Database, ctx: ViewerContext, seriesId: string): EventRow[] {
+  return visibleChildren(db, ctx, seriesId).filter((child) =>
+    canWriteCollection(ctx, getCollectionAccess(db, ctx, child.collectionId).effective),
+  );
+}
+
 function assertSeries(row: EventRow): void {
   if (!row.rrule) {
     throw new AppError("VALIDATION", "That event does not repeat.", 400, {
@@ -273,6 +285,11 @@ export function createEvent(
         recurrenceParentId: "Choose a repeating series.",
       });
     }
+    // Linking an exception mutates the parent's series (its EXDATEs and later
+    // propagation), so the parent's calendar must be writable too — not merely
+    // readable. The undo path recreates a child under a series the same viewer
+    // just recreated, which passes this check.
+    assertCollectionWritable(ctx, getCollectionAccess(db, ctx, parent.collectionId));
   } else if (input.recurrenceId) {
     throw new AppError("VALIDATION", "An occurrence needs its repeating series.", 400, {
       recurrenceParentId: "Choose a repeating series.",
@@ -504,6 +521,7 @@ export function moveSeries(
   assertSeries(row);
   const zone = seriesZone(db, ctx, row);
   assertOccurrenceOf(row, occurrenceStart, zone);
+  assertValidRrule(input.rrule);
   if (input.collectionId !== undefined && input.collectionId !== row.collectionId) {
     const targetAccess = getCollectionAccess(db, ctx, input.collectionId);
     assertCollectionWritable(ctx, targetAccess);
@@ -528,7 +546,7 @@ export function moveSeries(
     seriesPatch.rrule = input.rrule ?? null;
   }
 
-  const children = visibleChildren(db, ctx, id);
+  const children = writableChildren(db, ctx, id);
   const relinkedPrevious = children.map((child) => toView(db, child));
   const childChanges = children.map((child) => {
     const childPatch: Partial<EventRow> = {
@@ -586,6 +604,7 @@ function buildLaterSegment(
   beforeCount: number,
 ): { row: EventRow; delta: ShiftDelta } {
   const zone = seriesZone(db, ctx, row);
+  assertValidRrule(input.rrule);
   const allDay = input.allDay ?? row.allDay === 1;
   if (allDay !== (row.allDay === 1)) {
     throw new AppError(
@@ -723,7 +742,7 @@ export function splitSeries(
     timed,
   );
 
-  const children = visibleChildren(db, ctx, id);
+  const children = writableChildren(db, ctx, id);
   const affected = children.filter((child) => (child.recurrenceId ?? "") >= occurrenceStart);
   const relinkedPrevious = affected.map((child) => toView(db, child));
 

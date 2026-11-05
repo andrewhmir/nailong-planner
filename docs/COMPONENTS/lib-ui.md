@@ -126,6 +126,7 @@ calendar still draws, or an undo action does nothing.
 - `effectiveOwnerOf(collection: Pick<CollectionRow, "ownerId">, parent?: Pick<CollectionRow, "ownerId"> | null): string | null` — the owner that actually applies: a child inherits its parent's owner (`parent.ownerId ?? collection.ownerId`), matching the server's `getCollectionAccess` fold.
 - `groupOf(collection: Pick<CollectionRow, "ownerId">, viewerId: string, parent?: Pick<CollectionRow, "ownerId"> | null): GroupKey` — effective owner `null` -> `"ours"` (a shared collection), equals `viewerId` -> `"me"`, anything else -> `"partner"`.
 - `isCollectionVisible(state, collection: Pick<CollectionRow, "id" | "ownerId">, viewerId, parent?: Pick<CollectionRow, "id" | "ownerId"> | null): boolean`. Passing the parent makes the child's pill follow the root, so a stale per-row `ownerId` on a sub-collection cannot put it in the wrong group.
+- `interface CollectionTreeIds { id: string; children: readonly { id: string }[] }`; `treeContainsCollectionId(roots: readonly CollectionTreeIds[], id: string | null): boolean` — whether a freshly loaded tree still contains `id` as a root or a direct child (`null` is always contained). Used to reconcile the persisted `only` with the tree.
 
 **Derivation rules, in evaluation order**
 1. `state.only !== null` -> exactly `collection.id === state.only`. This outranks everything, so an isolated sub-collection draws even when its pill and its parent's checkbox are off.
@@ -144,6 +145,7 @@ calendar still draws, or an undo action does nothing.
 - A list id does not hide although its box is unticked -> the caller passed a different id (a name, or the parent's id) -> ids are opaque; compare `collection.id`.
 - A private collection is hidden locally -> a privacy check was added to this module; it is display-only and must not invent one -> remove it and check the server's `listCollections` filter instead.
 - A shared calendar hides with the "me" pill -> `ownerId` is null for shared calendars, so it belongs to `ours` -> check the row's `owner_id`.
+- Deleting the calendar you isolated leaves the grid and `/tasks` silently empty, with no "Show all" banner -> the persisted `only` still names a deleted id, so rule 1 draws nothing and the banner's name lookup fails -> callers must clear `only` when `treeContainsCollectionId(roots, only)` is false (`CollectionTree`'s reconciliation effect and its delete handler).
 - A sub-calendar vanishes with the "Ours" pill although it renders under a person's heading -> the caller passed no `parent`, or the row's stale `owner_id` is NULL from a pre-`0004` owner move -> pass the root; migration `0004` backfills the row.
 - Isolated view swallows every pill -> expected precedence for `only`; the exit path is any mutator in `useVisibility`, which sets `only: null`.
 - A pre-v0.2 profile looks like every collection was re-shown -> expected: `parseVisibility` ignores the old `calendars` key -> clear `nailong.visibility.*` if the old overrides matter.
@@ -364,9 +366,9 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 
 **Purpose** — Binds Google Calendar's two undo gestures, plain `z` and `Ctrl/Cmd+Z`, to the shared undo stack, while leaving native text undo alone.
 
-**Public API** — `useUndoHotkey(): void`. Attaches one `window` `keydown` listener for the lifetime of the calling component; no arguments, no return value.
+**Public API** — `useUndoHotkey(): void`; `interface UndoHotkeyEvent { key: string; repeat: boolean; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }`; `isUndoGesture(event: UndoHotkeyEvent): boolean` — the pure gesture predicate the hook delegates to, so the rules are unit-testable without a DOM. The hook attaches one `window` `keydown` listener for the lifetime of the calling component; no arguments, no return value.
 
-**Accepted gestures** — The key must be `z`/`Z` with neither `altKey` nor `shiftKey` (so `Ctrl+Shift+Z` redo is ignored). `plain` = neither `ctrl` nor `meta`; `modified` = exactly one of them (holding both is not the gesture). Either one passes, then `preventDefault()` and `void undoLast()`.
+**Accepted gestures** — The key must be `z`/`Z` with neither `altKey` nor `shiftKey` (so `Ctrl+Shift+Z` redo is ignored) and `event.repeat` false: one held key undoes once instead of draining the 20-action stack. `plain` = neither `ctrl` nor `meta`; `modified` = exactly one of them (holding both is not the gesture). Either one passes, then `preventDefault()` and `void undoLast()`.
 
 **The typing guard** — `isTextEntryTarget(event.target)` from `./shortcutGuards` returns true for `INPUT`, `TEXTAREA`, `SELECT` or `isContentEditable`, and the handler returns immediately: `Ctrl+Z` while typing must edit the text, never revert an event. This is the same shared predicate the calendar and task shortcut hooks use, so the three lists cannot drift.
 
@@ -379,7 +381,7 @@ Handlers are mirrored into a ref by an effect that runs after every render, so t
 - `z` stops working after a reload -> expected: the undo stack is module state and empty after a reload -> `lib/ui/undo.ts`.
 - Undo fires twice for one keystroke -> two components mounted the hook, or another listener also calls `undoLast` -> grep `useUndoHotkey` and `undoLast` call sites.
 
-**Tests** — `tests/e2e/undo.spec.ts` (`Ctrl+Z`, plain `z`, `z` in a title field).
+**Tests** — `tests/unit/undo.test.ts` (the `isUndoGesture` guard: repeat, alt/shift and modifier rules) and `tests/e2e/undo.spec.ts` (`Ctrl+Z`, plain `z`, `z` in a title field).
 
 ## Search bus and undo
 

@@ -19,7 +19,7 @@ import {
   type IcsWarning,
 } from "@/lib/import/ics";
 import { assertCollectionWritable, createCollection, getCollectionAccess } from "./collections";
-import type { ViewerContext } from "./permissions";
+import { canWriteCollection, type ViewerContext } from "./permissions";
 
 /**
  * Google Calendar import: preview (no writes) and a transactional commit that
@@ -226,6 +226,33 @@ function existingByKey(
   return found;
 }
 
+/**
+ * Whether this viewer may write an existing imported row's *current* calendar.
+ * The dedupe key is household-wide, so a UID can name a row that already lives
+ * in the partner's private or view-only calendar; that row must never be
+ * rewritten or moved. A collection the viewer cannot even read (private, owned
+ * by someone else) answers NOT_FOUND and counts as not writable.
+ */
+function canWriteExistingRow(db: Database, ctx: ViewerContext, row: EventRow): boolean {
+  try {
+    return canWriteCollection(ctx, getCollectionAccess(db, ctx, row.collectionId).effective);
+  } catch (error) {
+    if (error instanceof AppError && error.code === "NOT_FOUND") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+/** The one warning that explains skipped rows in both preview and commit. */
+function unwritableWarning(count: number): IcsWarning {
+  return {
+    uid: "",
+    title: "Not imported",
+    reason: `${count} event(s) belong to a calendar you cannot change and were left untouched.`,
+  };
+}
+
 function isImportRoot(row: CollectionRow): boolean {
   // Import targets are calendars only: a list that happens to carry the import
   // name must never capture events or be reused as an import tree.
@@ -317,33 +344,50 @@ function assertCalendarTarget(target: CollectionRow): void {
   }
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Validates the mapping's *runtime* shape before any write. The value comes from
+ * a JSON form field, so a hand-written body can carry anything: an array, a
+ * non-object entry, a missing or numeric `collectionId`. Every one of those must
+ * answer the VALIDATION 400 envelope, never a TypeError that the route turns
+ * into an opaque 500.
+ */
 function validateMapping(
   db: Database,
   ctx: ViewerContext,
-  mapping: ImportMapping,
+  mapping: unknown,
   names: string[],
 ): void {
+  if (!isPlainObject(mapping)) {
+    throw new AppError("VALIDATION", "Choose where each calendar goes.", 400, {
+      mapping: "Send the calendar mapping as JSON.",
+    });
+  }
   for (const name of names) {
+    const pickCalendar = () =>
+      new AppError("VALIDATION", `Choose a target calendar for “${name}”.`, 400, {
+        [`mapping.${name}`]: "Pick a calendar.",
+      });
+
     const entry = mapping[name];
-    if (!entry) {
-      throw new AppError("VALIDATION", `Choose a target calendar for “${name}”.`, 400, {
-        [`mapping.${name}`]: "Pick a calendar.",
-      });
+    if (!isPlainObject(entry)) {
+      throw pickCalendar();
     }
-    if (entry.mode === "existing" && entry.collectionId.trim().length === 0) {
-      throw new AppError("VALIDATION", `Choose a target calendar for “${name}”.`, 400, {
-        [`mapping.${name}`]: "Pick a calendar.",
-      });
+    const mode = entry.mode;
+    if (mode !== "new" && mode !== "existing") {
+      throw pickCalendar();
     }
-    if (entry.mode !== "existing" && entry.mode !== "new") {
-      throw new AppError("VALIDATION", `Choose a target calendar for “${name}”.`, 400, {
-        [`mapping.${name}`]: "Pick a calendar.",
-      });
-    }
-    if (entry.mode === "existing") {
+    if (mode === "existing") {
+      const collectionId = entry.collectionId;
+      if (typeof collectionId !== "string" || collectionId.trim().length === 0) {
+        throw pickCalendar();
+      }
       // Checked here as well as in resolveTargets so a bad mapping fails before
       // the transaction opens, with the same 400 the API envelope reports.
-      assertCalendarTarget(getCollectionAccess(db, ctx, entry.collectionId).collection);
+      assertCalendarTarget(getCollectionAccess(db, ctx, collectionId).collection);
     }
   }
 }
@@ -512,6 +556,7 @@ export function previewImport(
   let createCount = 0;
   let updateCount = 0;
   let unchangedCount = 0;
+  let skippedUnwritable = 0;
 
   for (const item of parsed.events) {
     const entry = perCalendar.get(item.calendarName);
@@ -519,6 +564,12 @@ export function previewImport(
     if (!row) {
       createCount += 1;
       if (entry) entry.createCount += 1;
+    } else if (!canWriteExistingRow(db, ctx, row)) {
+      // Commit will skip this row whatever the mapping is, so the preview must
+      // not promise an update it will not perform.
+      skippedUnwritable += 1;
+      unchangedCount += 1;
+      if (entry) entry.unchangedCount += 1;
     } else if (row.externalContentHash === item.contentHash) {
       unchangedCount += 1;
       if (entry) entry.unchangedCount += 1;
@@ -526,6 +577,11 @@ export function previewImport(
       updateCount += 1;
       if (entry) entry.updateCount += 1;
     }
+  }
+
+  const warnings = [...parsed.warnings];
+  if (skippedUnwritable > 0) {
+    warnings.push(unwritableWarning(skippedUnwritable));
   }
 
   const nonHouseholdTimezones = [
@@ -542,7 +598,7 @@ export function previewImport(
     updateCount,
     unchangedCount,
     nonHouseholdTimezones,
-    warnings: parsed.warnings,
+    warnings,
     dropped: parsed.dropped,
   };
 }
@@ -585,6 +641,7 @@ export function commitImport(
     let created = 0;
     let updated = 0;
     let unchanged = 0;
+    let skippedUnwritable = 0;
 
     for (const item of parsed.events) {
       const collectionId = targets.byName.get(item.calendarName)!;
@@ -601,6 +658,15 @@ export function commitImport(
           createdAt: now,
         });
         created += 1;
+        continue;
+      }
+      // The dedupe key is household-wide, so this row can already live in the
+      // partner's private or view-only calendar. Neither the content update nor
+      // the move is allowed then: leave the row byte-identical and count it as
+      // unchanged, with one warning explaining why.
+      if (!canWriteExistingRow(txn, ctx, row)) {
+        skippedUnwritable += 1;
+        unchanged += 1;
         continue;
       }
       // A mapping change is a real update even when the event content is
@@ -620,6 +686,11 @@ export function commitImport(
         createdAt: now,
       });
       updated += 1;
+    }
+
+    const warnings = [...parsed.warnings];
+    if (skippedUnwritable > 0) {
+      warnings.push(unwritableWarning(skippedUnwritable));
     }
 
     const storedReport: StoredReport = {
@@ -653,7 +724,7 @@ export function commitImport(
       updated,
       unchanged,
       calendarsCreated: targets.createdNames,
-      warnings: parsed.warnings,
+      warnings,
       dropped: parsed.dropped,
     };
   });

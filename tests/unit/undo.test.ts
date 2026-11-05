@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
 import { toast } from "sonner";
+import { isUndoGesture, type UndoHotkeyEvent } from "@/lib/ui/useUndoHotkey";
 import {
   clearUndo,
   peekUndo,
@@ -14,6 +15,18 @@ import {
 
 function make(label: string, undo: UndoAction["undo"] = () => undefined): UndoAction {
   return { label, undo: vi.fn(undo) };
+}
+
+function keydown(overrides: Partial<UndoHotkeyEvent> = {}): UndoHotkeyEvent {
+  return {
+    key: "z",
+    repeat: false,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+    ...overrides,
+  };
 }
 
 beforeEach(() => {
@@ -133,5 +146,29 @@ describe("clearUndo", () => {
     expect(peekUndo()).toBeNull();
     expect(await undoAction(handle)).toBe(false);
     expect(action.undo).not.toHaveBeenCalled();
+  });
+});
+
+describe("useUndoHotkey gesture guard", () => {
+  it("accepts plain z and exactly one of Ctrl/Cmd", () => {
+    expect(isUndoGesture(keydown())).toBe(true);
+    expect(isUndoGesture(keydown({ key: "Z" }))).toBe(true);
+    expect(isUndoGesture(keydown({ ctrlKey: true }))).toBe(true);
+    expect(isUndoGesture(keydown({ metaKey: true }))).toBe(true);
+  });
+
+  it("ignores a held key so one hold cannot drain the undo stack", () => {
+    // Without the repeat guard, holding z fires up to the 20-action cap.
+    expect(isUndoGesture(keydown({ repeat: true }))).toBe(false);
+    expect(isUndoGesture(keydown({ repeat: true, ctrlKey: true }))).toBe(false);
+    expect(isUndoGesture(keydown({ repeat: true, metaKey: true }))).toBe(false);
+  });
+
+  it("keeps rejecting other keys, extra modifiers and both Ctrl+Meta at once", () => {
+    expect(isUndoGesture(keydown({ key: "x" }))).toBe(false);
+    expect(isUndoGesture(keydown({ altKey: true }))).toBe(false);
+    expect(isUndoGesture(keydown({ shiftKey: true }))).toBe(false);
+    expect(isUndoGesture(keydown({ ctrlKey: true, metaKey: true }))).toBe(false);
+    expect(isUndoGesture(keydown({ ctrlKey: true, altKey: true }))).toBe(false);
   });
 });
